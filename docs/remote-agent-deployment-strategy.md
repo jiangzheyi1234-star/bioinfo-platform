@@ -38,7 +38,13 @@ The remote layout is intentionally close to VS Code Remote SSH and self-hosted r
     <remote-runner-version>/
   current -> releases/<remote-runner-version>  # committed read model only
   shared/
+    global-activation.lock
+    installation-enrollment-intent.json  # mutually exclusive with final
+    installation-enrollment.json
     activation/
+      .staging/
+      generation-registrations/
+        .staging/
       generations/
       transactions/
     config/
@@ -54,6 +60,28 @@ The remote layout is intentionally close to VS Code Remote SSH and self-hosted r
 ```
 
 Immutable code and packaged runtime live under `releases/`. Mutable data lives under `shared/`. Managed Snakemake runtime artifacts live under `tools/`.
+The stable `shared/global-activation.lock` is opened and held before
+authoritative phase classification or any record/layout mutation. A
+missing-gate guard may only test whether phase/activation names exist; stable
+lock O_EXCL then closes the stale-check ABA. Under that gate,
+the valid phases are virgin (neither record and no activation tree),
+recoverable (intent only), and authoritative (final only). Both records, or
+neither record with an activation tree, fail closed.
+
+`installation-enrollment-intent.json` is published no-replace before any
+activation directory is created and selects one installation identity. The
+same identity may idempotently complete the exact empty skeleton after a
+crash. Once the full layout and empty authority are proven, the verified
+`0600` intent inode is atomically renamed no-replace to
+`installation-enrollment.json`; a valid state never retains both names.
+Unknown entries, registrations, and staging orphans are never adopted. In
+final-only state, missing activation children or the global lock are not
+rebuilt automatically.
+
+Neither record claims physical host identity or activation `prepared`
+evidence. Before production enablement, controller trust must separately bind
+the installation fingerprint to the explicitly trusted SSH host key, endpoint,
+and an audited enrollment event.
 `current` is a committed read model for diagnostics and navigation; a managed
 service must execute the exact immutable release bound to its activation rather
 than resolve executable code through `current`.
@@ -74,9 +102,15 @@ detect_host
   -> resolve_manifest_artifacts
   -> verify_local_artifacts
   -> detect_or_reuse_remote_runtime
-  -> acquire_activation_gate
-  -> publish_immutable_release
+  -> open_and_acquire_stable_activation_gate
+  -> classify_enrollment_phase
+  -> create_or_verify_installation_intent
+  -> open_or_recover_initial_activation_skeleton
+  -> prove_complete_activation_layout
+  -> promote_installation_intent_to_final
+  -> publish_verified_immutable_release_tree
   -> ensure_workflow_runtime
+  -> persist_or_reconcile_generation_integrity_key
   -> publish_immutable_generation
   -> append_prepared_transition
   -> acquire_lifecycle_guard
@@ -91,6 +125,17 @@ detect_host
   -> update_current_read_model
   -> persist_ready_server_record
 ```
+
+Skeleton recovery in this lifecycle is allowed only for the exact identity in
+an intent-only state. If final enrollment already exists, opening the layout is
+strict verification: a missing child directory or gate is an integrity failure,
+not an invitation to recreate authority.
+
+Same-UID/root deletion of the final phase and the entire activation namespace
+is locally indistinguishable from a virgin root even if the empty stable gate
+remains. A controller-side monotonic witness must stop when a previously
+enrolled installation reports local virgin state; only an explicit audited
+reset may authorize destructive recovery.
 
 Activation is a crash-recoverable state machine, not a claim that multiple
 paths and systemd manager state commit atomically. Activation failure after any

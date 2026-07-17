@@ -49,7 +49,7 @@ def open_anchored_runner_root(
         for component in parts[1:-1]:
             child_fd = open_directory_at(parent_fd, component)
             try:
-                _require_opened_entry_binding(
+                require_opened_directory_entry_binding(
                     parent_fd=parent_fd,
                     name=component,
                     child_fd=child_fd,
@@ -63,7 +63,7 @@ def open_anchored_runner_root(
 
         root_name = parts[-1]
         root_fd = open_directory_at(parent_fd, root_name)
-        _require_opened_entry_binding(
+        require_opened_directory_entry_binding(
             parent_fd=parent_fd,
             name=root_name,
             child_fd=root_fd,
@@ -106,7 +106,7 @@ def require_anchored_runner_root(binding: AnchoredRunnerRoot) -> None:
         effective_uid=binding.effective_uid,
     )
     _require_expected_root_identity(binding, root_stat)
-    _require_opened_entry_binding(
+    require_opened_directory_entry_binding(
         parent_fd=binding.parent_fd,
         name=binding.root_name,
         child_fd=binding.root_fd,
@@ -203,7 +203,7 @@ def require_trusted_directory(
     return descriptor_stat
 
 
-def _require_opened_entry_binding(
+def require_opened_directory_entry_binding(
     *,
     parent_fd: int,
     name: str,
@@ -252,6 +252,7 @@ __all__ = [
     "open_directory_path",
     "require_anchored_runner_root",
     "require_directory",
+    "require_opened_directory_entry_binding",
     "require_open_flag",
     "require_trusted_directory",
 ]

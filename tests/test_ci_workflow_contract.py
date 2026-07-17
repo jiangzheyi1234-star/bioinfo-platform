@@ -75,6 +75,18 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     assert "H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1" in activation_script
     assert '--basetemp "$RUNNER_TEMP/activation-storage-pytest"' in activation_script
     assert (
+        "tests/test_remote_runner_activation_installation_storage_contract.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_installation_storage_linux.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_registry_storage_contract.py"
+        in activation_script
+    )
+    assert (
         "tests/test_remote_runner_activation_registry_storage_linux.py"
         in activation_script
     )

@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+import apps.remote_runner.activation_generation_registry_storage as registry_storage
 import apps.remote_runner.activation_no_replace_io as no_replace_io
 import apps.remote_runner.activation_storage_session as storage_session
 from apps.remote_runner.activation_generation_registry_storage import (
@@ -97,6 +98,117 @@ def _mode(path: Path) -> int:
     return stat.S_IMODE(path.lstat().st_mode)
 
 
+@pytest.mark.parametrize(
+    "component",
+    [
+        "shared",
+        "activation",
+        "activation-staging",
+        "journal",
+        "journal-staging",
+        "lock",
+    ],
+)
+def test_linux_session_rejects_each_replaced_child_capability(
+    tmp_path: Path,
+    component: str,
+) -> None:
+    root, installation = _layout(tmp_path, name=f"replace-{component}")
+    with _open_or_skip(installation) as session:
+        activation = root / "shared" / "activation"
+        targets = {
+            "shared": root / "shared",
+            "activation": activation,
+            "activation-staging": activation / ".staging",
+            "journal": activation / "generation-registrations",
+            "journal-staging": activation / "generation-registrations" / ".staging",
+            "lock": root / "shared" / "global-activation.lock",
+        }
+        target = targets[component]
+        detached = target.with_name(f"{target.name}-detached")
+        target.rename(detached)
+        if component == "lock":
+            target.write_bytes(b"")
+            target.chmod(0o600)
+        else:
+            target.mkdir(mode=0o755 if component == "shared" else 0o700)
+            target.chmod(0o755 if component == "shared" else 0o700)
+
+        with pytest.raises(ActivationStorageUnavailable):
+            rebuild_runner_activation_generation_registry(session)
+
+
+@pytest.mark.parametrize(
+    "component",
+    [
+        "root",
+        "shared",
+        "activation",
+        "activation-staging",
+        "journal",
+        "journal-staging",
+        "lock-mode",
+        "lock-hardlink",
+    ],
+)
+def test_linux_session_rejects_retained_metadata_drift(
+    tmp_path: Path,
+    component: str,
+) -> None:
+    root, installation = _layout(tmp_path, name=f"metadata-{component}")
+    with _open_or_skip(installation) as session:
+        activation = root / "shared" / "activation"
+        targets = {
+            "root": root,
+            "shared": root / "shared",
+            "activation": activation,
+            "activation-staging": activation / ".staging",
+            "journal": activation / "generation-registrations",
+            "journal-staging": activation / "generation-registrations" / ".staging",
+            "lock-mode": root / "shared" / "global-activation.lock",
+            "lock-hardlink": root / "shared" / "global-activation.lock",
+        }
+        target = targets[component]
+        if component == "lock-hardlink":
+            os.link(target, root / "shared" / "global-activation-hardlink")
+        elif component in {"root", "shared"}:
+            target.chmod(_mode(target) | stat.S_IWGRP)
+        elif component == "lock-mode":
+            target.chmod(0o640)
+        else:
+            target.chmod(0o750)
+
+        with pytest.raises(ActivationStorageUnavailable):
+            rebuild_runner_activation_generation_registry(session)
+
+
+def test_linux_rebuild_rechecks_child_binding_after_reading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, installation = _layout(tmp_path, name="post-read-child-binding")
+    with _open_or_skip(installation) as session:
+        journal = root / "shared" / "activation" / "generation-registrations"
+        detached = journal.with_name("generation-registrations-detached")
+        real_listdir = registry_storage.os.listdir
+        detached_once = False
+
+        def list_then_detach(fd: int) -> list[str]:
+            nonlocal detached_once
+            names = real_listdir(fd)
+            if fd == session.journal_fd and not detached_once:
+                journal.rename(detached)
+                journal.mkdir(mode=0o700)
+                journal.chmod(0o700)
+                detached_once = True
+            return names
+
+        monkeypatch.setattr(registry_storage.os, "listdir", list_then_detach)
+        with pytest.raises(ActivationStorageUnavailable):
+            rebuild_runner_activation_generation_registry(session)
+        assert detached_once
+
+
 def test_linux_journal_append_rebuild_and_exact_replay_are_durable(
     tmp_path: Path,
 ) -> None:
@@ -132,7 +244,7 @@ def test_linux_journal_append_rebuild_and_exact_replay_are_durable(
         assert record_path.stat().st_nlink == 1
         assert not list((journal_path / ".staging").iterdir())
 
-    lock_path = root / "shared" / "activation" / "global-activation.lock"
+    lock_path = root / "shared" / "global-activation.lock"
     assert lock_path.is_file()
     assert _mode(lock_path) == 0o600
     assert lock_path.stat().st_nlink == 1
@@ -143,7 +255,7 @@ def test_linux_global_gate_is_nonblocking_stable_and_reacquirable(
 ) -> None:
     root, installation = _layout(tmp_path)
     first = _open_or_skip(installation)
-    lock_path = root / "shared" / "activation" / "global-activation.lock"
+    lock_path = root / "shared" / "global-activation.lock"
     inode = lock_path.stat().st_ino
     try:
         with pytest.raises(ActivationStorageGateHeld) as captured:
@@ -183,9 +295,10 @@ def test_linux_existing_layout_is_resynced_before_the_gate_is_returned(
         root.as_posix(),
         (root / "shared").as_posix(),
         activation.as_posix(),
+        (activation / ".staging").as_posix(),
         journal.as_posix(),
         (journal / ".staging").as_posix(),
-        (activation / "global-activation.lock").as_posix(),
+        (root / "shared" / "global-activation.lock").as_posix(),
     }
     assert expected.issubset(set(synced_paths))
 
@@ -230,6 +343,9 @@ def test_linux_root_drift_after_rename_is_unknown_then_reconcilable(
     detached = root.with_name("runner-detached")
     detached_once = False
 
+    with _open_or_skip(installation):
+        pass
+
     def detach_after_rename(boundary: str) -> None:
         nonlocal detached_once
         if boundary == "after_rename" and not detached_once:
@@ -262,6 +378,9 @@ def test_linux_rename_success_before_directory_fsync_requires_reconcile(
 ) -> None:
     root, installation = _layout(tmp_path)
     selected_generation = _generation(root)
+
+    with _open_or_skip(installation):
+        pass
 
     def fail_after_rename(boundary: str) -> None:
         if boundary == "after_rename":

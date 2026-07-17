@@ -16,7 +16,7 @@ import stat
 import sys
 from typing import Literal
 
-from .activation_storage_session import (
+from .activation_storage_errors import (
     ActivationStorageConflict,
     ActivationStorageOutcomeUnknown,
     ActivationStorageUnavailable,
@@ -108,17 +108,30 @@ def _require_entry_name(value: object) -> tuple[str, bytes]:
     return value, encoded
 
 
-def _require_directory_fd(directory_fd: int, *, expected_device: int) -> os.stat_result:
+def _require_directory_fd(
+    directory_fd: int,
+    *,
+    expected_device: int,
+    allow_trusted_base: bool = False,
+) -> os.stat_result:
     try:
         metadata = os.fstat(directory_fd)
     except OSError as exc:
         raise ActivationStorageUnavailable() from exc
     if not stat.S_ISDIR(metadata.st_mode):
         raise ActivationStorageConflict()
-    if metadata.st_dev != expected_device or metadata.st_uid != os.geteuid():
+    if metadata.st_dev != expected_device:
         raise ActivationStorageConflict()
-    if stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise ActivationStorageConflict()
+    if allow_trusted_base:
+        if metadata.st_uid not in {0, os.geteuid()}:
+            raise ActivationStorageConflict()
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise ActivationStorageConflict()
+    else:
+        if metadata.st_uid != os.geteuid():
+            raise ActivationStorageConflict()
+        if stat.S_IMODE(metadata.st_mode) & 0o077:
+            raise ActivationStorageConflict()
     return metadata
 
 
@@ -296,6 +309,33 @@ def read_secure_regular_file(
     ).payload
 
 
+def _read_secure_regular_file_from_trusted_base(
+    *,
+    directory_fd: int,
+    name: str,
+    expected_device: int,
+    max_bytes: int,
+) -> bytes:
+    """Read a private file held in a trusted, non-world-writable base dir."""
+
+    _require_linux_runtime()
+    directory_fd = _require_plain_int(directory_fd, allow_zero=True)
+    expected_device = _require_plain_int(expected_device, allow_zero=True)
+    max_bytes = _require_plain_int(max_bytes, allow_zero=False)
+    name, _ = _require_entry_name(name)
+    _require_directory_fd(
+        directory_fd,
+        expected_device=expected_device,
+        allow_trusted_base=True,
+    )
+    return _read_secure_regular_file(
+        directory_fd=directory_fd,
+        name=name,
+        expected_device=expected_device,
+        max_bytes=max_bytes,
+    ).payload
+
+
 def _fsync(file_fd: int, *, boundary: str) -> None:
     _fault_hook(f"before_{boundary}")
     try:
@@ -411,6 +451,135 @@ def publish_file_no_replace(
 ) -> NoReplaceFileObservation:
     """Durably publish one immutable 0600 file without replacing a destination."""
 
+    return _publish_file_no_replace(
+        staging_fd=staging_fd,
+        destination_fd=destination_fd,
+        expected_device=expected_device,
+        staging_name=staging_name,
+        destination_name=destination_name,
+        payload=payload,
+        max_bytes=max_bytes,
+        allow_trusted_base=False,
+    )
+
+
+def _publish_file_no_replace_in_trusted_base(
+    *,
+    directory_fd: int,
+    expected_device: int,
+    staging_name: str,
+    destination_name: str,
+    payload: bytes,
+    max_bytes: int,
+) -> NoReplaceFileObservation:
+    """Publish non-secret enrollment bytes inside a trusted shared base."""
+
+    return _publish_file_no_replace(
+        staging_fd=directory_fd,
+        destination_fd=directory_fd,
+        expected_device=expected_device,
+        staging_name=staging_name,
+        destination_name=destination_name,
+        payload=payload,
+        max_bytes=max_bytes,
+        allow_trusted_base=True,
+    )
+
+
+def _promote_file_no_replace_in_trusted_base(
+    *,
+    directory_fd: int,
+    expected_device: int,
+    source_name: str,
+    destination_name: str,
+    payload: bytes,
+    max_bytes: int,
+) -> NoReplaceFileObservation:
+    """Atomically promote one exact shared record to a new fixed name."""
+
+    _require_linux_runtime()
+    directory_fd = _require_plain_int(directory_fd, allow_zero=True)
+    expected_device = _require_plain_int(expected_device, allow_zero=True)
+    max_bytes = _require_plain_int(max_bytes, allow_zero=False)
+    source_name, encoded_source_name = _require_entry_name(source_name)
+    destination_name, encoded_destination_name = _require_entry_name(destination_name)
+    if source_name == destination_name:
+        raise ValueError("source and destination entries must differ")
+    if type(payload) is not bytes or len(payload) > max_bytes:
+        raise ValueError("invalid promotion payload")
+    _require_directory_fd(
+        directory_fd,
+        expected_device=expected_device,
+        allow_trusted_base=True,
+    )
+    source = _read_secure_regular_file(
+        directory_fd=directory_fd,
+        name=source_name,
+        expected_device=expected_device,
+        max_bytes=max_bytes,
+    )
+    if source.payload != payload:
+        raise ActivationStorageConflict()
+    _fsync(directory_fd, boundary="promotion_directory_fsync_before_rename")
+    try:
+        _fault_hook("before_promotion_rename")
+        rename_errno = _rename_no_replace(
+            source_fd=directory_fd,
+            source_name=encoded_source_name,
+            destination_fd=directory_fd,
+            destination_name=encoded_destination_name,
+        )
+    except (ActivationStorageConflict, ActivationStorageUnavailable):
+        raise
+    except Exception as exc:
+        raise ActivationStorageUnavailable() from exc
+    if rename_errno != 0:
+        if rename_errno == errno.EEXIST:
+            raise ActivationStorageConflict()
+        if rename_errno in _UNSUPPORTED_RENAME_ERRNOS:
+            raise ActivationStorageUnavailable()
+        raise ActivationStorageOutcomeUnknown()
+
+    try:
+        _fault_hook("after_promotion_rename")
+        _fsync(directory_fd, boundary="promotion_directory_fsync_after_rename")
+        promoted = _read_secure_regular_file(
+            directory_fd=directory_fd,
+            name=destination_name,
+            expected_device=expected_device,
+            max_bytes=max_bytes,
+        )
+        if promoted.payload != payload or (promoted.device, promoted.inode) != (
+            source.device,
+            source.inode,
+        ):
+            raise ActivationStorageConflict()
+        try:
+            os.stat(source_name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise ActivationStorageUnavailable() from exc
+        else:
+            raise ActivationStorageConflict()
+    except Exception as exc:
+        raise ActivationStorageOutcomeUnknown() from exc
+    return NoReplaceFileObservation(disposition="created")
+
+
+def _publish_file_no_replace(
+    *,
+    staging_fd: int,
+    destination_fd: int,
+    expected_device: int,
+    staging_name: str,
+    destination_name: str,
+    payload: bytes,
+    max_bytes: int,
+    allow_trusted_base: bool,
+) -> NoReplaceFileObservation:
+    """Shared implementation with a closed private/trusted-base policy."""
+
     _require_linux_runtime()
     (
         staging_fd,
@@ -432,11 +601,14 @@ def publish_file_no_replace(
         max_bytes=max_bytes,
     )
     staging_directory = _require_directory_fd(
-        staging_fd, expected_device=expected_device
+        staging_fd,
+        expected_device=expected_device,
+        allow_trusted_base=allow_trusted_base,
     )
     destination_directory = _require_directory_fd(
         destination_fd,
         expected_device=expected_device,
+        allow_trusted_base=allow_trusted_base,
     )
     if (
         staging_directory.st_dev == destination_directory.st_dev

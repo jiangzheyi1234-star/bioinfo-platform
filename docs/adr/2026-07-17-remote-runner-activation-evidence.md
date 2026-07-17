@@ -191,24 +191,58 @@ reserved orphan；恢复必须先从权威 journal 重建完整 registry，再�
 registration 参数或陈旧 read model 当作历史。Registry 永不 prune；generation/release/key retention 另由
 仍可 rollback 的 committed generation reachability 决定。
 
-生产 publisher 的固定顺序必须是：在私有 staging 中从实际 bytes 重算并验证所有 generation evidence，
-durable no-replace 写 registration、fsync 并从 journal 重读，随后 no-replace 发布 generation directory、
-重新核验实际 bytes，最后才写 durable `prepared`。任一步失败或结果未知都不能进入 service mutation。
+生产 publisher 的固定顺序必须是：先按固定 extraction policy durable no-replace 发布 installed release tree
+及其 canonical tree manifest，再 durable 创建或精确 reconcile generation 所需的 versioned integrity key；之后
+在私有 staging 中从实际 bytes 重算并验证所有 generation evidence，durable no-replace 写 registration、
+fsync 并从 journal 重读，随后 no-replace 发布 generation directory、重新核验实际 bytes，最后才写 durable
+`prepared`。Archive SHA 只标识压缩包 bytes，不能替代 installed-tree identity；任一步失败或结果未知都
+不能进入 service mutation。
 
-本阶段把这一顺序的第一个权威持久化点落成真实 Linux storage primitive，而不是继续增加纯 record。
-`activation_storage_root.py` 与 `activation_storage_session.py` 从 validated installation 的 canonical runner root 出发，
-逐组件以 directory fd、`O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开固定路径；从 `/` 到 runner root 的
-完整祖先链都必须由 root 或当前 UID 拥有且不得 group/world writable。Session 保留 runner parent capability
-与 root dev/inode，在取得 gate 后及每次权威读写前后都从 `/` 独立重开 canonical path 复核，拒绝 detached
-tree 上的第二把锁或第二本 journal。runner root 与 `shared` 同样受 owner/mode 约束，`shared/activation`、
-`generation-registrations` 与其 `.staging` 必须为当前 UID、同一 device、精确 `0700`；已有目录也总是
-`fsync(child)` 再 `fsync(parent)`，补齐前一进程可能留下的 mkdir durability window。`/proc/self/mountinfo`
-的最深唯一 mount、`st_dev` major:minor 与 `fstatfs`
-magic 必须互相一致，首版只接受精确 `ext4` 或 `xfs`；OverlayFS、NFS、tmpfs、CIFS、FUSE、歧义或
-未知 mount 均 fail closed，且没有 override。
+本阶段把这一顺序的信任根落成真实 Linux storage primitive，而不是继续增加纯 record。
+`activation_storage_root.py`、`activation_storage_layout.py` 与 `activation_storage_session.py` 从 validated
+installation 的 canonical runner root 出发，逐组件以 directory fd、
+`O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开固定路径；从 `/` 到 runner root 的完整祖先链都必须由 root
+或当前 UID 拥有且不得 group/world writable。Session 保留 runner parent、root、`shared`、shared-level global
+lock、`activation`、activation-level `.staging`、`generation-registrations` 与 journal `.staging` capabilities。
+每次权威读写前后不仅从 `/` 独立重开 root，还逐级比较 parent pathname 与 retained child fd 的 dev/inode，
+并重新验证 owner/mode/device/filesystem magic，拒绝 detached tree 上的第二把锁或第二本 journal。即使一次
+journal read 先发现 payload conflict，也必须完成 post-layout proof，避免把 detached journal 错报为 canonical
+corruption。
 
-稳定 `global-activation.lock` 是当前 installation 下所有 activation mutation 未来共用的 gate：文件必须
-为当前 UID、regular、`0600`、`nlink == 1`，以 nonblocking `flock` 持有到 session 最后关闭，永不 unlink。
+`activation_installation_storage.py` 以 `shared` 下两个固定 phase name 完成单调绑定。在读写任何 enrollment
+record mutation 或权威 phase classification 前，session 先创建或打开永不移除的
+`shared/global-activation.lock` 并持有 `flock`；missing-gate guard 只能只读检查 phase/activation 名是否存在，
+该稳定 lock 的 O_EXCL 则封住 stale virgin-check writer 的 ABA。锁内只接受三种状态：neither record 且无 activation tree 的 virgin、
+intent-only 的 recoverable bootstrap、final-only 的 authoritative root；both 或 neither+activation 都 fail
+closed。Virgin 状态在任何 activation directory 创建前，以 no-replace CAS 发布
+`installation-enrollment-intent.json`，原子选定唯一 installation identity。只有与 intent 逐字节相同的
+installation 才能从 crash 幂等补齐固定 skeleton。
+
+重新证明完整 root → shared → gate → activation → staging/journal pathname-to-fd chain 后，还必须证明
+pre-final authority 是精确空白 skeleton；任何 registration、unknown entry 或 staging orphan 都不能被领养。
+证明成立后，以同目录 `renameat2(RENAME_NOREPLACE)` 把已验证 intent inode 原子晋级为
+`installation-enrollment.json`，随后 fsync `shared`、证明 final inode 未变且 intent 已消失，并再次证明空白
+skeleton 与完整 layout。Final-only 后任何缺失 activation child 或 stable gate 都 fail closed，不能自动重建；
+final 缺失但 canonical activation 仍存在也不能退化成 virgin。
+若 root/同 UID 删除 final 和整个 activation namespace，则即使空 stable gate 仍存在，本地也无法与 virgin
+区分；此 destructive reset 不在本地 threat model 内。生产接线必须让 controller monotonic enrollment witness
+在“曾 enrolled、现报 local virgin”时停止，只有显式受审计 reset 才能重新初始化。
+
+活动 phase 的 bytes 只能是现有 installation v1 canonical JSON 加单个 LF；intent/final 必须为当前 UID、
+regular、`0600`、`nlink == 1`、同 device，且二者在合法状态中永不共存。同 root 的不同 installation record
+永久冲突。Intent/final phase 只建立本地 root bootstrap authority：它不证明物理
+主机、SSH host key，也不是 activation `prepared` evidence。生产启用前，控制端仍必须单独持久化
+installation fingerprint 与已信任 SSH host-key fingerprint、endpoint 和受审计 enrollment event 的关系。
+
+runner root 与 `shared` 受 owner/mode 约束，所有 activation private directories 必须为当前 UID、同一 device、
+精确 `0700`；已有目录也总是 `fsync(child)` 再 `fsync(parent)`，补齐前一进程可能留下的 mkdir durability
+window。`/proc/self/mountinfo` 的最深唯一 mount、`st_dev` major:minor 与 `fstatfs` magic 必须互相一致，首版
+只接受精确 `ext4` 或 `xfs`；OverlayFS、NFS、tmpfs、CIFS、FUSE、歧义或未知 mount 均 fail closed，且没有
+override。
+
+稳定 `shared/global-activation.lock` 是当前 root 下所有 enrollment 与 activation mutation 共用的唯一 gate：
+文件必须为当前 UID、regular、`0600`、`nlink == 1`，以 nonblocking `flock` 持有到 session 最后关闭，永不
+unlink。任一 phase record 或 activation entry 已存在时，缺失 gate 都不能重建。
 本阶段尚未把 v5 bootstrap/rotation/uninstall 接到这个 gate；在接线前，旧 version-scoped install lock
 不能被描述成等价的全局授权。
 
@@ -223,7 +257,7 @@ gate，补齐两个 directory `fsync`，再从全部 immutable revision 文件�
 同 ID 漂移是永久 conflict。`.staging` orphan 不参与 registry，未知 journal entry 则直接拒绝。
 
 返回对象刻意命名为 append observation，只含 `created | reconciled_exact | already_registered_exact`、
-registration revision/fingerprint 与完整 registry head revision/fingerprint；它不是 generation publication
+installation fingerprint、registration revision/fingerprint 与完整 registry head revision/fingerprint；它不是 generation publication
 receipt，也不能被 transition 当成 `prepared`。当前 generation v1 只有 release archive SHA，尚无 installed
 release-tree manifest identity；在该缺口和 versioned key material 实际 owner/mode/nlink/bytes 证明补齐前，
 generation directory publisher 与 production wiring 都是 stop condition。
@@ -307,18 +341,25 @@ evidence。一个 rollback activation 的 `committed` 必须证明：
 目标布局是 generation 与 transaction 分离：
 
 ```text
-~/.h2ometa/runner/shared/activation/
-  generation-registrations/<revision>.json
-  generation-registry.json  # registrations 重建出的 canonical read model
-  generations/<generationId>/
-    runner.json
-    profile.v9+.yaml
-    generation.json
-  transactions/<activationId>/
-    transitions/<revision>.json
-  invocation-reservations/<revision>.json
-  invocation-ledger.json  # reservations 重建出的 canonical read model
-  current.json
+~/.h2ometa/runner/shared/
+  global-activation.lock
+  installation-enrollment-intent.json  # 与 final 互斥的 phase name
+  installation-enrollment.json
+  activation/
+    .staging/
+    generation-registrations/
+      .staging/
+      <revision>.json
+    generation-registry.json  # registrations 重建出的 canonical read model
+    generations/<generationId>/
+      runner.json
+      profile.v9+.yaml
+      generation.json
+    transactions/<activationId>/
+      transitions/<revision>.json
+    invocation-reservations/<revision>.json
+    invocation-ledger.json  # reservations 重建出的 canonical read model
+    current.json
 ```
 
 目录在写入 secret-bearing config 前必须为 `0700`，配置文件为 `0600`。完整 config 使用独立 key 的
@@ -333,15 +374,22 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 
 ## 分阶段落地
 
-1. 定义 generation/transition/systemd observation、Invocation reservation ledger 的严格契约、canonical
-   fingerprint 与状态机；不改变 protocol v5，也不启用远端 mutation。
-2. Runner 捕获 activation 与 systemd 自观察，owner/runtime state 加入 end-to-end binding，随后整体升级
-   protocol v6；unit 加入对应 restart-preventing exit status。
-3. 控制面加入所有 lifecycle mutation 共用的全局 activation gate、durable journal、unique unit start/stop、
-   systemd 权威核验和故障注入测试。
-4. Bootstrap 与 token rotation 改为 generation 发布；stop/prune/uninstall 必须通过同一 gate。旧的广泛
-   `pkill` 与 in-place config mutation 删除后，才可重新启用 staging deploy。
-5. Linux CI 证明真实 user-systemd；存在 cgroup v2 时额外核验 `cgroup.events populated=0`，存在 pidfd 时
+1. 先稳定 generation/transition/systemd observation、Invocation reservation ledger 的严格契约、canonical
+   fingerprint 与状态机；保持 protocol v5 和所有旧 production mutation 路径不变。
+2. 先持有永不移除的 `shared/global-activation.lock`，再以 intent no-replace CAS 选定 installation；相同
+   identity 可从 intent-only 崩溃态幂等补齐精确空白 skeleton。完整 root/child capability proof 后将 intent
+   inode 原子晋级为 final-only；final 后不重建缺失 child/gate。此阶段只提供 dormant authority primitive。
+3. 以两个可并行交付的依赖分别实现：a) pinned extraction policy + installed release-tree manifest/publisher；
+   b) versioned config-integrity key material store。二者都未完成前不得发布 generation。
+4. 只有 tree identity、key material、registration history 与 generation 实际 bytes 全部可重证后，才实现
+   verified immutable generation publisher 和 durable `prepared` receipt。
+5. 再实现 transition 与 Invocation reservation journals、unique unit start/stop、systemd 权威核验和完整
+   crash-reconcile fault matrix。
+6. Runner 捕获 activation 与 systemd 自观察，owner/runtime state 加入 end-to-end binding；全部前置证据被
+   startup 消费后才整体升级 protocol v6，并为 unit 加入对应 restart-preventing exit status。
+7. 最后把 bootstrap、token rotation、rollback、stop、prune、uninstall 全部接到同一 lifecycle gate，删除
+   广泛 `pkill`、in-place config mutation 和其他 legacy branch 后才可重新启用 staging deploy。
+8. Linux CI 证明真实 user-systemd；存在 cgroup v2 时额外核验 `cgroup.events populated=0`，存在 pidfd 时
    增强 exact liveness，但二者均不是最低兼容依赖。
 
 ## 非目标
@@ -354,6 +402,7 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 
 ## 官方依据
 
+- [本阶段 activation storage trust-root 深度研究与完整来源](../research/2026-07-17-runner-activation-storage-trust-root.md)
 - [systemd.exec：`INVOCATION_ID` 与 v232 边界](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
 - [systemd D-Bus API：`InvocationID`、`MainPID`、`ControlGroup` 与 unit jobs](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html)
 - [systemd.service：`Type=notify`、MainPID 与 watchdog](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html)
@@ -366,6 +415,9 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [Linux openat2(2)：受限路径解析与 Linux 5.6 边界](https://man7.org/linux/man-pages/man2/openat2.2.html)
 - [Linux rename/renameat2(2)](https://man7.org/linux/man-pages/man2/rename.2.html)
 - [Linux fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html)
+- [Linux write(2)：partial write 与延迟错误](https://man7.org/linux/man-pages/man2/write.2.html)
+- [Linux close(2)：close 非 durability proof 且不可盲目 retry](https://man7.org/linux/man-pages/man2/close.2.html)
+- [Linux getrandom(2)：内核 CSPRNG 初始化与阻塞语义](https://man7.org/linux/man-pages/man2/getrandom.2.html)
 - [Linux statfs/fstatfs(2)：filesystem magic](https://man7.org/linux/man-pages/man2/statfs.2.html)
 - [Linux proc mountinfo(5)：mount ID、device 与 filesystem type](https://man7.org/linux/man-pages/man5/proc_pid_mountinfo.5.html)
 - [Linux ext4 journal：metadata transaction 与 data modes](https://docs.kernel.org/filesystems/ext4/journal.html)
@@ -374,6 +426,11 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [in-toto ResourceDescriptor：artifact content digest](https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md)
 - [SLSA build provenance：subject、resolved dependencies 与 external parameters](https://slsa.dev/spec/v1.2/build-provenance)
 - [RFC 8785：JCS 的 I-JSON、number 与 property ordering 约束](https://www.rfc-editor.org/rfc/rfc8785.html)
+- [RFC 5869：HKDF extract/expand 与 context separation](https://www.rfc-editor.org/rfc/rfc5869.html)
+- [NIST SP 800-108r1：HMAC KDF 与 FixedInfo domain separation](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-108r1.pdf)
+- [Python secrets：OS CSPRNG 与 compare_digest](https://docs.python.org/3/library/secrets.html)
+- [Python tarfile：extraction filter 与 installed-tree 差异](https://docs.python.org/3/library/tarfile.html)
+- [systemd credentials：unit-scoped credential custody](https://systemd.io/CREDENTIALS/)
 - [Python keyring：get/set/delete 公共 API 与错误语义](https://keyring.readthedocs.io/en/latest/)
 - [Windows CredWrite：同名 credential 的替换语义](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credwritew)
 - [Secret Service：CreateItem 的显式 replace 语义](https://specifications.freedesktop.org/secret-service/latest-single/)

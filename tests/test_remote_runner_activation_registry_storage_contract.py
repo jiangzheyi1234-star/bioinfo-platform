@@ -11,6 +11,8 @@ import pytest
 
 import apps.remote_runner.activation_generation_registry_storage as storage
 import apps.remote_runner.activation_no_replace_io as no_replace_io
+import apps.remote_runner.activation_storage_layout as storage_layout
+import apps.remote_runner.activation_storage_root as storage_root
 import apps.remote_runner.activation_storage_session as storage_session
 from apps.remote_runner.activation_generation_registry_storage import (
     append_runner_activation_generation_registration,
@@ -35,6 +37,7 @@ from core.contracts.runner_activation_generation_registry import (
 )
 from core.contracts.runner_activation_keyring import (
     build_runner_activation_installation,
+    runner_activation_installation_fingerprint,
 )
 from core.contracts.runner_activation_target import (
     build_runner_activation_generation,
@@ -55,6 +58,9 @@ class FakeStorageSession:
         self.installation = build_runner_activation_installation(
             runner_installation_id=INSTALLATION_ID,
             runner_root=runner_root,
+        )
+        self.installation_fingerprint = runner_activation_installation_fingerprint(
+            self.installation
         )
         self.journal_fd = 41
         self.staging_fd = 42
@@ -175,6 +181,7 @@ def test_append_creates_canonical_record_then_rebuilds_the_complete_registry(
     assert observed.registration_fingerprint.startswith("sha256:")
     assert len(observed.registration_fingerprint) == 71
     assert observed.registry_fingerprint.startswith("sha256:")
+    assert observed.installation_fingerprint == session.installation_fingerprint
     assert memory_backend.publish_calls == 1
     assert list(memory_backend.files) == ["00000000000000000001.json"]
     raw = memory_backend.files["00000000000000000001.json"]
@@ -318,6 +325,23 @@ def test_rebuild_rechecks_the_root_binding_after_reading(
 
     with pytest.raises(ActivationStorageUnavailable):
         rebuild_runner_activation_generation_registry(session)
+
+
+def test_rebuild_classifies_journal_list_io_failure_as_unavailable(
+    memory_backend: MemoryJournal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del memory_backend
+    session = FakeStorageSession(_runner_root())
+
+    def fail_listdir(_directory_fd: int) -> list[str]:
+        raise OSError("injected transient journal read failure")
+
+    monkeypatch.setattr(storage.os, "listdir", fail_listdir)
+
+    with pytest.raises(ActivationStorageUnavailable):
+        rebuild_runner_activation_generation_registry(session)
+    assert session.require_open_calls == 2
 
 
 def test_reconcile_absence_is_a_typed_non_success(
@@ -563,6 +587,7 @@ def test_append_observation_is_frozen_redacted_and_not_prepared_evidence(
         observed.disposition = "created"  # type: ignore[misc]
     assert set(observed.__dataclass_fields__) == {
         "disposition",
+        "installation_fingerprint",
         "registration_revision",
         "registration_fingerprint",
         "registry_fingerprint",
@@ -612,17 +637,20 @@ def test_storage_session_has_a_closed_constructor_and_no_platform_side_effects()
     with pytest.raises(TypeError, match="open_activation_storage_session"):
         ActivationStorageSession()
 
-    source = inspect.getsource(storage_session)
-    assert "global-activation.lock" in source
-    assert "/proc/self/mountinfo" in source
-    assert '"ext4"' in source
-    assert '"xfs"' in source
-    assert "Path.resolve" not in source
-    assert "subprocess" not in source
-    assert "shell=True" not in source
-    assert "def lock_fd" not in source
+    session_source = inspect.getsource(storage_session)
+    layout_source = inspect.getsource(storage_layout)
+    root_module_source = inspect.getsource(storage_root)
+    combined_source = session_source + layout_source + root_module_source
+    assert "global-activation.lock" in layout_source
+    assert "/proc/self/mountinfo" in session_source
+    assert '"ext4"' in session_source
+    assert '"xfs"' in session_source
+    assert "Path.resolve" not in combined_source
+    assert "subprocess" not in combined_source
+    assert "shell=True" not in combined_source
+    assert "def lock_fd" not in session_source
 
-    root_source = inspect.getsource(storage_session.require_anchored_runner_root)
+    root_source = inspect.getsource(storage_root.require_anchored_runner_root)
     assert "open_anchored_runner_root" in root_source
     assert "binding.device" in root_source
     assert "binding.inode" in root_source

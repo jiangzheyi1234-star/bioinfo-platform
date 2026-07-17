@@ -149,6 +149,15 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         bundle.bundle_dir / "remote_runner" / "activation_storage_root.py"
     ).exists()
     assert (
+        bundle.bundle_dir / "remote_runner" / "activation_storage_errors.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "activation_storage_layout.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "activation_installation_storage.py"
+    ).exists()
+    assert (
         bundle.bundle_dir / "remote_runner" / "activation_no_replace_io.py"
     ).exists()
     assert (

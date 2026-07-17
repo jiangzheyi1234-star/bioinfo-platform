@@ -39,8 +39,10 @@ from .activation_no_replace_io import (
 from .activation_storage_session import (
     ActivationRegistrationAbsent,
     ActivationStorageConflict,
+    ActivationStorageError,
     ActivationStorageOutcomeUnknown,
     ActivationStorageSession,
+    ActivationStorageUnavailable,
 )
 
 
@@ -61,6 +63,7 @@ class GenerationRegistrationAppendObservation:
         "reconciled_exact",
         "already_registered_exact",
     ]
+    installation_fingerprint: str
     registration_revision: int
     registration_fingerprint: str
     registry_fingerprint: str
@@ -73,22 +76,28 @@ def rebuild_runner_activation_generation_registry(
     """Rebuild the canonical registry from every no-replace journal record."""
 
     session.require_open()
-    # Every public rebuild first closes a prior process-level unknown window;
-    # callers cannot obtain an "authoritative" prefix from page-cache
-    # visibility alone.
-    _close_unknown_directory_durability_window(session)
-    registrations = _read_all_registration_records(session)
     try:
+        # Every public rebuild first closes a prior process-level unknown window;
+        # callers cannot obtain an "authoritative" prefix from page-cache
+        # visibility alone.
+        _close_unknown_directory_durability_window(session)
+        registrations = _read_all_registration_records(session)
         registry = build_runner_activation_generation_registry(
             registrations,
             make_error=_storage_conflict,
         )
-    except ActivationStorageConflict:
-        raise
-    except (TypeError, ValueError) as exc:  # Defensive contract boundary.
-        raise _storage_conflict(
-            "activation generation registration journal is invalid"
-        ) from exc
+    except Exception as exc:
+        # A detached child tree must not be reported as a permanent conflict in
+        # the canonical journal.  Reprove the whole layout before preserving
+        # any read or durability error.
+        session.require_open()
+        if isinstance(exc, ActivationStorageError):
+            raise
+        if isinstance(exc, (TypeError, ValueError)):
+            raise _storage_conflict(
+                "activation generation registration journal is invalid"
+            ) from exc
+        raise ActivationStorageUnavailable() from exc
     session.require_open()
     return registry
 
@@ -130,6 +139,7 @@ def append_runner_activation_generation_registration(
             registry,
             generation=normalized_generation,
             disposition="already_registered_exact",
+            installation_fingerprint=session.installation_fingerprint,
         )
         session.require_open()
         return observation
@@ -166,6 +176,7 @@ def append_runner_activation_generation_registration(
             rebuilt,
             generation=normalized_generation,
             disposition=disposition,
+            installation_fingerprint=session.installation_fingerprint,
         )
         if (
             observation.registration_revision != revision
@@ -221,6 +232,7 @@ def reconcile_runner_activation_generation_registration(
         registry,
         generation=normalized_generation,
         disposition="reconciled_exact",
+        installation_fingerprint=session.installation_fingerprint,
     )
     session.require_open()
     return observation
@@ -242,9 +254,7 @@ def _read_all_registration_records(
     try:
         names = os.listdir(session.journal_fd)
     except OSError as exc:
-        raise _storage_conflict(
-            "activation generation registration journal is unreadable"
-        ) from exc
+        raise ActivationStorageUnavailable() from exc
 
     registration_names: list[tuple[int, str]] = []
     for name in names:
@@ -383,6 +393,7 @@ def _observation_from_registry(
         "reconciled_exact",
         "already_registered_exact",
     ],
+    installation_fingerprint: str,
 ) -> GenerationRegistrationAppendObservation:
     try:
         registration_fingerprint = (
@@ -424,6 +435,7 @@ def _observation_from_registry(
         )
     return GenerationRegistrationAppendObservation(
         disposition=disposition,
+        installation_fingerprint=installation_fingerprint,
         registration_revision=int(matching["revision"]),
         registration_fingerprint=registration_fingerprint,
         registry_fingerprint=registry_fingerprint,

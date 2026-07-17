@@ -1,18 +1,11 @@
-"""Linux-only, fail-closed storage session for runner activation journals.
+"""Fail-closed Linux activation storage anchored by directory capabilities.
 
-The session anchors every storage lookup to directory file descriptors opened
-one component at a time from ``/``.  It deliberately supports only local ext4
-and XFS filesystems in the first implementation.  The stable global
-lock file is never removed; closing its descriptor releases the advisory gate.
-
-Importing this module performs no filesystem or Linux-specific operation.
-Callers on unsupported platforms receive a redacted typed error when opening a
-session.
+The first implementation accepts only local ext4/XFS. Import is portable;
+unsupported opens return a redacted typed error.
 """
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass, field
 import errno
 import os
@@ -29,21 +22,42 @@ from .activation_storage_root import (
     close_anchored_runner_root_noexcept,
     open_anchored_runner_root,
     open_directory_at,
-    require_anchored_runner_root,
-    require_directory,
     require_open_flag,
-    require_trusted_directory,
+)
+from .activation_storage_errors import (
+    ActivationRegistrationAbsent,
+    ActivationStorageConflict,
+    ActivationStorageError,
+    ActivationStorageGateHeld,
+    ActivationStorageOutcomeUnknown,
+    ActivationStorageUnavailable,
+)
+from .activation_installation_storage import (
+    _activation_storage_allows_global_gate_creation,
+    _create_or_verify_activation_installation_intent,
+    _create_or_verify_activation_installation_enrollment,
+    _verify_activation_installation_authority,
+    _verify_activation_installation_enrollment_if_present,
+)
+from .activation_storage_layout import (
+    ACTIVATION_DIRECTORY as _ACTIVATION_DIRECTORY,
+    ACTIVATION_STAGING_DIRECTORY as _ACTIVATION_STAGING_DIRECTORY,
+    GLOBAL_LOCK_FILENAME as _GLOBAL_LOCK_FILENAME,
+    GLOBAL_LOCK_MODE as _GLOBAL_LOCK_MODE,
+    PRIVATE_DIRECTORY_MODE as _PRIVATE_DIRECTORY_MODE,
+    REGISTRATION_DIRECTORY as _REGISTRATION_DIRECTORY,
+    REGISTRATION_STAGING_DIRECTORY as _REGISTRATION_STAGING_DIRECTORY,
+    SHARED_DIRECTORY as _SHARED_DIRECTORY,
+    fstatfs_type as _fstatfs_type,
+    require_activation_storage_base_layout,
+    require_activation_storage_gate_layout,
+    require_activation_storage_layout,
+    require_base_directory_identity as _require_base_directory,
+    require_global_lock_identity as _require_global_lock_identity,
+    require_private_directory_identity as _require_private_directory,
 )
 
 
-_SHARED_DIRECTORY = "shared"
-_ACTIVATION_DIRECTORY = "activation"
-_REGISTRATION_DIRECTORY = "generation-registrations"
-_STAGING_DIRECTORY = ".staging"
-_GLOBAL_LOCK_FILENAME = "global-activation.lock"
-
-_PRIVATE_DIRECTORY_MODE = 0o700
-_GLOBAL_LOCK_MODE = 0o600
 # ext2, ext3, and ext4 intentionally share this statfs magic, so mountinfo must
 # independently name ext4 before this value is accepted.
 _EXT_FAMILY_SUPER_MAGIC = 0xEF53
@@ -62,62 +76,21 @@ _MOUNTINFO_ESCAPES = {
 }
 
 
-class ActivationStorageError(RuntimeError):
-    """Base class whose public representation never includes paths or errno."""
-
-    reason_code = "ACTIVATION_STORAGE_ERROR"
-    public_message = "activation storage operation failed"
-
-    def __init__(self) -> None:
-        super().__init__(self.public_message)
-
-
-class ActivationStorageUnavailable(ActivationStorageError):
-    """The platform or trusted storage boundary is unavailable."""
-
-    reason_code = "ACTIVATION_STORAGE_UNAVAILABLE"
-    public_message = "activation storage is unavailable"
-
-
-class ActivationStorageGateHeld(ActivationStorageError):
-    """Another activation mutation currently owns the global gate."""
-
-    reason_code = "ACTIVATION_STORAGE_GATE_HELD"
-    public_message = "activation storage global gate is held"
-
-
-class ActivationStorageConflict(ActivationStorageError):
-    """An immutable activation identity conflicts with stored state."""
-
-    reason_code = "ACTIVATION_STORAGE_CONFLICT"
-    public_message = "activation storage state conflicts"
-
-
-class ActivationStorageOutcomeUnknown(ActivationStorageError):
-    """A durability boundary failed after an operation may have committed."""
-
-    reason_code = "ACTIVATION_STORAGE_OUTCOME_UNKNOWN"
-    public_message = "activation storage outcome is unknown"
-
-
-class ActivationRegistrationAbsent(ActivationStorageError):
-    """The requested immutable generation registration does not exist."""
-
-    reason_code = "ACTIVATION_REGISTRATION_ABSENT"
-    public_message = "activation generation registration is absent"
-
-
 @dataclass(slots=True, init=False, repr=False)
 class ActivationStorageSession:
     """Held directory capabilities and the nonblocking global activation gate."""
 
     _installation: dict[str, object]
+    _installation_fingerprint: str
     _root_binding: AnchoredRunnerRoot
+    _shared_fd: int
     _activation_fd: int
+    _activation_staging_fd: int
     _journal_fd: int
     _staging_fd: int
     _lock_fd: int
     _device: int
+    _filesystem_magic: int
     _filesystem_type: str
     _closed: bool = field(default=False, init=False)
 
@@ -129,22 +102,30 @@ class ActivationStorageSession:
         cls,
         *,
         installation: dict[str, object],
+        installation_fingerprint: str,
         root_binding: AnchoredRunnerRoot,
+        shared_fd: int,
         activation_fd: int,
+        activation_staging_fd: int,
         journal_fd: int,
         staging_fd: int,
         lock_fd: int,
         device: int,
+        filesystem_magic: int,
         filesystem_type: str,
     ) -> ActivationStorageSession:
         session = object.__new__(cls)
         session._installation = dict(installation)
+        session._installation_fingerprint = installation_fingerprint
         session._root_binding = root_binding
+        session._shared_fd = shared_fd
         session._activation_fd = activation_fd
+        session._activation_staging_fd = activation_staging_fd
         session._journal_fd = journal_fd
         session._staging_fd = staging_fd
         session._lock_fd = lock_fd
         session._device = device
+        session._filesystem_magic = filesystem_magic
         session._filesystem_type = filesystem_type
         session._closed = False
         return session
@@ -156,6 +137,13 @@ class ActivationStorageSession:
         return dict(self._installation)
 
     @property
+    def installation_fingerprint(self) -> str:
+        """Return the fingerprint re-proven by every open-session check."""
+
+        self.require_open()
+        return self._installation_fingerprint
+
+    @property
     def root_fd(self) -> int:
         self.require_open()
         return self._root_binding.root_fd
@@ -164,6 +152,11 @@ class ActivationStorageSession:
     def activation_fd(self) -> int:
         self.require_open()
         return self._activation_fd
+
+    @property
+    def activation_staging_fd(self) -> int:
+        self.require_open()
+        return self._activation_staging_fd
 
     @property
     def journal_fd(self) -> int:
@@ -188,14 +181,41 @@ class ActivationStorageSession:
         return self._closed
 
     def require_open(self) -> None:
-        """Fail with a redacted typed error once this session is closed."""
+        """Reprove enrollment and every retained canonical child capability."""
 
         if self._closed:
             raise ActivationStorageUnavailable()
         try:
-            require_anchored_runner_root(self._root_binding)
+            self._require_layout()
+            try:
+                observed = _verify_activation_installation_authority(
+                    shared_fd=self._shared_fd,
+                    expected_device=self._device,
+                    installation=self._installation,
+                )
+                if observed.installation_fingerprint != self._installation_fingerprint:
+                    raise ActivationStorageConflict()
+            finally:
+                # A detached activation tree must supersede a byte conflict or
+                # missing enrollment observed through an old directory fd.
+                self._require_layout()
+        except ActivationStorageError:
+            raise
         except (OSError, RuntimeError, TypeError, ValueError):
             raise ActivationStorageUnavailable() from None
+
+    def _require_layout(self) -> None:
+        require_activation_storage_layout(
+            root_binding=self._root_binding,
+            shared_fd=self._shared_fd,
+            activation_fd=self._activation_fd,
+            activation_staging_fd=self._activation_staging_fd,
+            journal_fd=self._journal_fd,
+            journal_staging_fd=self._staging_fd,
+            lock_fd=self._lock_fd,
+            expected_device=self._device,
+            expected_filesystem_magic=self._filesystem_magic,
+        )
 
     def close(self) -> None:
         """Close every capability, releasing the global gate last."""
@@ -206,14 +226,18 @@ class ActivationStorageSession:
         descriptors = (
             self._staging_fd,
             self._journal_fd,
+            self._activation_staging_fd,
             self._activation_fd,
+            self._shared_fd,
             self._root_binding.root_fd,
             self._root_binding.parent_fd,
             self._lock_fd,
         )
         self._staging_fd = -1
         self._journal_fd = -1
+        self._activation_staging_fd = -1
         self._activation_fd = -1
+        self._shared_fd = -1
         self._lock_fd = -1
         failed = False
         for descriptor in descriptors:
@@ -254,9 +278,11 @@ def open_activation_storage_session(
     root_binding: AnchoredRunnerRoot | None = None
     shared_fd = -1
     activation_fd = -1
+    activation_staging_fd = -1
     journal_fd = -1
     staging_fd = -1
     lock_fd = -1
+    enrollment_disposition: str | None = None
     try:
         effective_uid = os.geteuid()
         root_binding = open_anchored_runner_root(
@@ -287,68 +313,215 @@ def open_activation_storage_session(
         os.fsync(shared_fd)
         os.fsync(root_binding.root_fd)
 
-        activation_fd = _open_or_create_private_directory(
+        require_activation_storage_base_layout(
+            root_binding=root_binding,
+            shared_fd=shared_fd,
+            expected_device=device,
+            expected_filesystem_magic=filesystem_magic,
+        )
+        try:
+            lock_fd = _open_and_lock_global_gate(
+                shared_fd,
+                expected_uid=effective_uid,
+                expected_device=device,
+                allow_create=_activation_storage_allows_global_gate_creation(shared_fd),
+            )
+        except ActivationStorageGateHeld:
+            require_activation_storage_base_layout(
+                root_binding=root_binding,
+                shared_fd=shared_fd,
+                expected_device=device,
+                expected_filesystem_magic=filesystem_magic,
+            )
+            raise
+        require_activation_storage_gate_layout(
+            root_binding=root_binding,
+            shared_fd=shared_fd,
+            lock_fd=lock_fd,
+            expected_device=device,
+            expected_filesystem_magic=filesystem_magic,
+        )
+        try:
+            enrollment = _verify_activation_installation_enrollment_if_present(
+                shared_fd=shared_fd,
+                expected_device=device,
+                installation=normalized,
+            )
+        except ActivationStorageOutcomeUnknown:
+            raise
+        except ActivationStorageError:
+            require_activation_storage_gate_layout(
+                root_binding=root_binding,
+                shared_fd=shared_fd,
+                lock_fd=lock_fd,
+                expected_device=device,
+                expected_filesystem_magic=filesystem_magic,
+            )
+            raise
+        if enrollment is None:
+            try:
+                intent = _create_or_verify_activation_installation_intent(
+                    shared_fd=shared_fd,
+                    expected_device=device,
+                    installation=normalized,
+                )
+            except ActivationStorageOutcomeUnknown:
+                raise
+            except ActivationStorageError:
+                # A detached shared directory must supersede a record conflict.
+                require_activation_storage_gate_layout(
+                    root_binding=root_binding,
+                    shared_fd=shared_fd,
+                    lock_fd=lock_fd,
+                    expected_device=device,
+                    expected_filesystem_magic=filesystem_magic,
+                )
+                raise
+            if intent.disposition == "created":
+                enrollment_disposition = "created"
+        else:
+            enrollment_disposition = "existing_exact"
+        require_activation_storage_gate_layout(
+            root_binding=root_binding,
+            shared_fd=shared_fd,
+            lock_fd=lock_fd,
+            expected_device=device,
+            expected_filesystem_magic=filesystem_magic,
+        )
+        allow_layout_create = enrollment is None
+
+        activation_fd, _ = _open_or_create_private_directory(
             shared_fd,
             _ACTIVATION_DIRECTORY,
             expected_uid=effective_uid,
             expected_device=device,
             expected_filesystem_magic=filesystem_magic,
+            allow_create=allow_layout_create,
         )
-        journal_fd = _open_or_create_private_directory(
+        activation_staging_fd, _ = _open_or_create_private_directory(
+            activation_fd,
+            _ACTIVATION_STAGING_DIRECTORY,
+            expected_uid=effective_uid,
+            expected_device=device,
+            expected_filesystem_magic=filesystem_magic,
+            allow_create=allow_layout_create,
+        )
+        journal_fd, _ = _open_or_create_private_directory(
             activation_fd,
             _REGISTRATION_DIRECTORY,
             expected_uid=effective_uid,
             expected_device=device,
             expected_filesystem_magic=filesystem_magic,
+            allow_create=allow_layout_create,
         )
-        staging_fd = _open_or_create_private_directory(
+        staging_fd, _ = _open_or_create_private_directory(
             journal_fd,
-            _STAGING_DIRECTORY,
+            _REGISTRATION_STAGING_DIRECTORY,
             expected_uid=effective_uid,
             expected_device=device,
             expected_filesystem_magic=filesystem_magic,
+            allow_create=allow_layout_create,
         )
-        lock_fd = _open_and_lock_global_gate(
-            activation_fd,
-            expected_uid=effective_uid,
+        require_activation_storage_layout(
+            root_binding=root_binding,
+            shared_fd=shared_fd,
+            activation_fd=activation_fd,
+            activation_staging_fd=activation_staging_fd,
+            journal_fd=journal_fd,
+            journal_staging_fd=staging_fd,
+            lock_fd=lock_fd,
             expected_device=device,
+            expected_filesystem_magic=filesystem_magic,
         )
-        require_anchored_runner_root(root_binding)
-
-        _close_fd(shared_fd)
-        shared_fd = -1
+        if enrollment is None:
+            try:
+                enrollment = _create_or_verify_activation_installation_enrollment(
+                    shared_fd=shared_fd,
+                    activation_fd=activation_fd,
+                    activation_staging_fd=activation_staging_fd,
+                    journal_fd=journal_fd,
+                    journal_staging_fd=staging_fd,
+                    expected_device=device,
+                    installation=normalized,
+                )
+            except ActivationStorageOutcomeUnknown:
+                raise
+            except ActivationStorageError:
+                require_activation_storage_layout(
+                    root_binding=root_binding,
+                    shared_fd=shared_fd,
+                    activation_fd=activation_fd,
+                    activation_staging_fd=activation_staging_fd,
+                    journal_fd=journal_fd,
+                    journal_staging_fd=staging_fd,
+                    lock_fd=lock_fd,
+                    expected_device=device,
+                    expected_filesystem_magic=filesystem_magic,
+                )
+                raise
+            if enrollment.disposition == "created":
+                enrollment_disposition = "created"
+            elif enrollment_disposition is None:
+                enrollment_disposition = "existing_exact"
+            require_activation_storage_layout(
+                root_binding=root_binding,
+                shared_fd=shared_fd,
+                activation_fd=activation_fd,
+                activation_staging_fd=activation_staging_fd,
+                journal_fd=journal_fd,
+                journal_staging_fd=staging_fd,
+                lock_fd=lock_fd,
+                expected_device=device,
+                expected_filesystem_magic=filesystem_magic,
+            )
         session = ActivationStorageSession._adopt(
             installation=normalized,
+            installation_fingerprint=enrollment.installation_fingerprint,
             root_binding=root_binding,
+            shared_fd=shared_fd,
             activation_fd=activation_fd,
+            activation_staging_fd=activation_staging_fd,
             journal_fd=journal_fd,
             staging_fd=staging_fd,
             lock_fd=lock_fd,
             device=device,
+            filesystem_magic=filesystem_magic,
             filesystem_type=filesystem_type,
         )
+        session.require_open()
         root_binding = None
+        shared_fd = -1
         activation_fd = -1
+        activation_staging_fd = -1
         journal_fd = -1
         staging_fd = -1
         lock_fd = -1
         return session
     except ActivationStorageGateHeld:
         raise
+    except (ActivationStorageConflict, ActivationStorageUnavailable) as exc:
+        if enrollment_disposition == "created":
+            raise ActivationStorageOutcomeUnknown() from exc
+        if enrollment_disposition == "existing_exact":
+            raise ActivationStorageUnavailable() from exc
+        raise
     except ActivationStorageError:
         raise
-    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        if enrollment_disposition == "created":
+            raise ActivationStorageOutcomeUnknown() from exc
         raise ActivationStorageUnavailable() from None
     finally:
         _close_fds_noexcept(
-            lock_fd,
             staging_fd,
             journal_fd,
+            activation_staging_fd,
             activation_fd,
             shared_fd,
         )
         if root_binding is not None:
             close_anchored_runner_root_noexcept(root_binding)
+        _close_fds_noexcept(lock_fd)
 
 
 def _require_installation(installation: object) -> dict[str, object]:
@@ -363,26 +536,6 @@ def _require_installation(installation: object) -> dict[str, object]:
         raise ActivationStorageUnavailable() from None
 
 
-def _require_base_directory(
-    descriptor: int,
-    *,
-    expected_uid: int,
-    expected_device: int | None = None,
-    expected_filesystem_magic: int | None = None,
-):
-    descriptor_stat = require_trusted_directory(
-        descriptor,
-        effective_uid=expected_uid,
-    )
-    if expected_device is not None and int(descriptor_stat.st_dev) != expected_device:
-        raise OSError(errno.EXDEV, "storage crosses a device boundary")
-    if expected_filesystem_magic is not None:
-        filesystem_magic = _fstatfs_type(descriptor)
-        if filesystem_magic != expected_filesystem_magic:
-            raise OSError(errno.EXDEV, "storage crosses a filesystem boundary")
-    return descriptor_stat
-
-
 def _open_or_create_private_directory(
     parent_fd: int,
     name: str,
@@ -390,13 +543,15 @@ def _open_or_create_private_directory(
     expected_uid: int,
     expected_device: int,
     expected_filesystem_magic: int,
-) -> int:
+    allow_create: bool,
+) -> tuple[int, bool]:
     created = False
-    try:
-        os.mkdir(name, _PRIVATE_DIRECTORY_MODE, dir_fd=parent_fd)
-        created = True
-    except FileExistsError:
-        pass
+    if allow_create:
+        try:
+            os.mkdir(name, _PRIVATE_DIRECTORY_MODE, dir_fd=parent_fd)
+            created = True
+        except FileExistsError:
+            pass
 
     descriptor = open_directory_at(parent_fd, name)
     try:
@@ -412,29 +567,10 @@ def _open_or_create_private_directory(
         # process that crashed after mkdir but before its parent fsync.
         os.fsync(descriptor)
         os.fsync(parent_fd)
-        return descriptor
+        return descriptor, created
     except BaseException:
         _close_fds_noexcept(descriptor)
         raise
-
-
-def _require_private_directory(
-    descriptor: int,
-    *,
-    expected_uid: int,
-    expected_device: int,
-    expected_filesystem_magic: int,
-) -> None:
-    descriptor_stat = require_directory(descriptor)
-    if (
-        stat.S_IMODE(descriptor_stat.st_mode) != _PRIVATE_DIRECTORY_MODE
-        or int(descriptor_stat.st_uid) != expected_uid
-        or int(descriptor_stat.st_dev) != expected_device
-    ):
-        raise OSError(errno.EPERM, "private storage identity is invalid")
-    filesystem_magic = _fstatfs_type(descriptor)
-    if filesystem_magic != expected_filesystem_magic:
-        raise OSError(errno.EXDEV, "storage crosses a filesystem boundary")
 
 
 def _require_supported_root_filesystem(
@@ -560,36 +696,26 @@ def _mountpoint_covers_path(mountpoint: bytes, path: bytes) -> bool:
     return path == mountpoint or path.startswith(mountpoint + b"/")
 
 
-def _fstatfs_type(descriptor: int) -> int:
-    """Return Linux ``statfs.f_type`` without depending on struct layout."""
-
-    libc = ctypes.CDLL(None, use_errno=True)
-    fstatfs = libc.fstatfs
-    fstatfs.argtypes = (ctypes.c_int, ctypes.c_void_p)
-    fstatfs.restype = ctypes.c_int
-    buffer = ctypes.create_string_buffer(256)
-    if fstatfs(descriptor, ctypes.byref(buffer)) != 0:
-        error_number = ctypes.get_errno() or errno.EIO
-        raise OSError(error_number, "fstatfs failed")
-    return int(ctypes.c_long.from_buffer(buffer).value)
-
-
 def _open_and_lock_global_gate(
-    activation_fd: int,
+    shared_fd: int,
     *,
     expected_uid: int,
     expected_device: int,
+    allow_create: bool,
 ) -> int:
-    descriptor = _open_global_lock_file(activation_fd)
+    descriptor = _open_global_lock_file(
+        shared_fd,
+        allow_create=allow_create,
+    )
     try:
         _require_global_lock_identity(
             descriptor,
-            activation_fd=activation_fd,
+            shared_fd=shared_fd,
             expected_uid=expected_uid,
             expected_device=expected_device,
         )
         os.fsync(descriptor)
-        os.fsync(activation_fd)
+        os.fsync(shared_fd)
         try:
             import fcntl
         except ImportError:
@@ -602,7 +728,7 @@ def _open_and_lock_global_gate(
             raise
         _require_global_lock_identity(
             descriptor,
-            activation_fd=activation_fd,
+            shared_fd=shared_fd,
             expected_uid=expected_uid,
             expected_device=expected_device,
         )
@@ -612,7 +738,7 @@ def _open_and_lock_global_gate(
         raise
 
 
-def _open_global_lock_file(activation_fd: int) -> int:
+def _open_global_lock_file(shared_fd: int, *, allow_create: bool) -> int:
     base_flags = (
         os.O_RDWR
         | require_open_flag("O_NOFOLLOW")
@@ -620,19 +746,26 @@ def _open_global_lock_file(activation_fd: int) -> int:
         | getattr(os, "O_NONBLOCK", 0)
     )
     created = False
-    try:
-        descriptor = os.open(
-            _GLOBAL_LOCK_FILENAME,
-            base_flags | os.O_CREAT | os.O_EXCL,
-            _GLOBAL_LOCK_MODE,
-            dir_fd=activation_fd,
-        )
-        created = True
-    except FileExistsError:
+    if allow_create:
+        try:
+            descriptor = os.open(
+                _GLOBAL_LOCK_FILENAME,
+                base_flags | os.O_CREAT | os.O_EXCL,
+                _GLOBAL_LOCK_MODE,
+                dir_fd=shared_fd,
+            )
+            created = True
+        except FileExistsError:
+            descriptor = os.open(
+                _GLOBAL_LOCK_FILENAME,
+                base_flags,
+                dir_fd=shared_fd,
+            )
+    else:
         descriptor = os.open(
             _GLOBAL_LOCK_FILENAME,
             base_flags,
-            dir_fd=activation_fd,
+            dir_fd=shared_fd,
         )
     try:
         os.set_inheritable(descriptor, False)
@@ -642,38 +775,6 @@ def _open_global_lock_file(activation_fd: int) -> int:
     except BaseException:
         _close_fds_noexcept(descriptor)
         raise
-
-
-def _require_global_lock_identity(
-    descriptor: int,
-    *,
-    activation_fd: int,
-    expected_uid: int,
-    expected_device: int,
-) -> None:
-    descriptor_stat = os.fstat(descriptor)
-    path_stat = os.stat(
-        _GLOBAL_LOCK_FILENAME,
-        dir_fd=activation_fd,
-        follow_symlinks=False,
-    )
-    expected_identity = (int(descriptor_stat.st_dev), int(descriptor_stat.st_ino))
-    path_identity = (int(path_stat.st_dev), int(path_stat.st_ino))
-    if (
-        not stat.S_ISREG(descriptor_stat.st_mode)
-        or not stat.S_ISREG(path_stat.st_mode)
-        or expected_identity != path_identity
-        or int(descriptor_stat.st_dev) != expected_device
-        or int(descriptor_stat.st_uid) != expected_uid
-        or stat.S_IMODE(descriptor_stat.st_mode) != _GLOBAL_LOCK_MODE
-        or int(descriptor_stat.st_nlink) != 1
-        or int(path_stat.st_nlink) != 1
-    ):
-        raise OSError(errno.EPERM, "global activation lock identity is invalid")
-
-
-def _close_fd(descriptor: int) -> None:
-    os.close(descriptor)
 
 
 def _close_fds_noexcept(*descriptors: int) -> None:

@@ -241,6 +241,8 @@ jobs:
           uv run --frozen python -c 'import sys; assert sys.platform == "linux"'
           uv run --frozen python -m pytest -q \
             --basetemp "$RUNNER_TEMP/activation-storage-pytest" \
+            tests/test_remote_runner_activation_installation_storage_contract.py \
+            tests/test_remote_runner_activation_installation_storage_linux.py \
             tests/test_remote_runner_activation_registry_storage_contract.py \
             tests/test_remote_runner_activation_registry_storage_linux.py
 
