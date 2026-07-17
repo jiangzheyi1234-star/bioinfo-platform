@@ -145,6 +145,28 @@ ID，不能覆盖原路径或复用原 ID。当前 transition contract 只可立
 publisher 必须以 no-replace generation directory 和 append-only `generationId -> generationFingerprint`
 registry 检查完整历史，关闭 `A -> B -> A'` 的隔代复用，之后才能授权远端 mutation。
 
+本阶段先以 dormant pure contract 定义该 registry，不修改 protocol v5、bootstrap、rotation 或远端文件。
+每条 registration 嵌入完整的 normalized generation，并冗余保存 `generationId` 与重新计算的
+`generationFingerprint`；连续 revision 和前一 registration fingerprint 把它们组成 append-only chain。
+Registry 是由可信 no-replace registration journal 重建的 canonical read model，不是独立信任根，也不证明
+generation directory 已发布。Planner 对已登记且逐字段完全相同的 generation 返回 no-op，只表示该 ID
+不需要再次登记；同 ID 的任何漂移永久失败。
+
+Registry 的状态只有 `unseen -> permanently reserved exact mapping`，不加入 `published`、`retired` 或可被误用
+为 activation evidence 的布尔状态。Registration durable 后、generation directory 发布前崩溃会留下安全的
+reserved orphan；恢复必须先从权威 journal 重建完整 registry，再用同一 generation 精确重试，不能把游离
+registration 参数或陈旧 read model 当作历史。Registry 永不 prune；generation/release/key retention 另由
+仍可 rollback 的 committed generation reachability 决定。
+
+生产 publisher 的固定顺序必须是：在私有 staging 中从实际 bytes 重算并验证所有 generation evidence，
+durable no-replace 写 registration、fsync 并从 journal 重读，随后 no-replace 发布 generation directory、
+重新核验实际 bytes，最后才写 durable `prepared`。任一步失败或结果未知都不能进入 service mutation。
+
+当前 transition v1 不消费这份 dormant registry，因此不能宣称 generation 已获得 registry authorization。
+后续 generation-aware protocol/transition 版本必须同时绑定启动前完整 registry fingerprint、target 的精确
+registration fingerprint 与启动前 Invocation ledger fingerprint；三者都必须来自全局 gate 下对可信 journal
+的重读，不能由调用方提供一个内部自洽但可能截断的 prefix。
+
 HMAC 解决 evidence 泄露后的低熵 secret 离线猜测 oracle，不宣称抵抗同 UID 或 root compromise，也不
 防 rollback replay；后者仍由 append-only journal、ledger 与 activation gate 负责。Release archive 的
 raw digest 也不自动证明解包执行树；在 content-addressed/no-replace release 发布器落地时，必须增加严格
@@ -209,6 +231,8 @@ evidence。一个 rollback activation 的 `committed` 必须证明：
 
 ```text
 ~/.h2ometa/runner/shared/activation/
+  generation-registrations/<revision>.json
+  generation-registry.json  # registrations 重建出的 canonical read model
   generations/<generationId>/
     runner.json
     profile.v9+.yaml
