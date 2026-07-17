@@ -195,6 +195,50 @@ registration 参数或陈旧 read model 当作历史。Registry 永不 prune；g
 durable no-replace 写 registration、fsync 并从 journal 重读，随后 no-replace 发布 generation directory、
 重新核验实际 bytes，最后才写 durable `prepared`。任一步失败或结果未知都不能进入 service mutation。
 
+本阶段把这一顺序的第一个权威持久化点落成真实 Linux storage primitive，而不是继续增加纯 record。
+`activation_storage_root.py` 与 `activation_storage_session.py` 从 validated installation 的 canonical runner root 出发，
+逐组件以 directory fd、`O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开固定路径；从 `/` 到 runner root 的
+完整祖先链都必须由 root 或当前 UID 拥有且不得 group/world writable。Session 保留 runner parent capability
+与 root dev/inode，在取得 gate 后及每次权威读写前后都从 `/` 独立重开 canonical path 复核，拒绝 detached
+tree 上的第二把锁或第二本 journal。runner root 与 `shared` 同样受 owner/mode 约束，`shared/activation`、
+`generation-registrations` 与其 `.staging` 必须为当前 UID、同一 device、精确 `0700`；已有目录也总是
+`fsync(child)` 再 `fsync(parent)`，补齐前一进程可能留下的 mkdir durability window。`/proc/self/mountinfo`
+的最深唯一 mount、`st_dev` major:minor 与 `fstatfs`
+magic 必须互相一致，首版只接受精确 `ext4` 或 `xfs`；OverlayFS、NFS、tmpfs、CIFS、FUSE、歧义或
+未知 mount 均 fail closed，且没有 override。
+
+稳定 `global-activation.lock` 是当前 installation 下所有 activation mutation 未来共用的 gate：文件必须
+为当前 UID、regular、`0600`、`nlink == 1`，以 nonblocking `flock` 持有到 session 最后关闭，永不 unlink。
+本阶段尚未把 v5 bootstrap/rotation/uninstall 接到这个 gate；在接线前，旧 version-scoped install lock
+不能被描述成等价的全局授权。
+
+Registration journal 使用固定 20 位 revision 文件名与随机 128-bit 私有 staging 名。写入顺序为
+`O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC`、精确 `0600`、完整 write loop、file `fsync`、staging
+directory `fsync`、`renameat2(RENAME_NOREPLACE)`、source/destination directory `fsync`、nofollow 重开并
+逐字节复核。`EEXIST` 只有在 final 的 regular/UID/mode/nlink/size、canonical bytes、revision、predecessor
+以及完整 journal prefix 全都精确时才接受；任何明确不支持的 flag/跨设备错误都 fail closed，其他 rename
+结果、rename 后的任一失败，或 publication 已返回后 canonical root/journal 无法再次证明，都进入
+`outcome_unknown`，不能推断“没有提交”。Reconcile 必须重新取得全局
+gate，补齐两个 directory `fsync`，再从全部 immutable revision 文件重建 registry；缺失是 typed non-success，
+同 ID 漂移是永久 conflict。`.staging` orphan 不参与 registry，未知 journal entry 则直接拒绝。
+
+返回对象刻意命名为 append observation，只含 `created | reconciled_exact | already_registered_exact`、
+registration revision/fingerprint 与完整 registry head revision/fingerprint；它不是 generation publication
+receipt，也不能被 transition 当成 `prepared`。当前 generation v1 只有 release archive SHA，尚无 installed
+release-tree manifest identity；在该缺口和 versioned key material 实际 owner/mode/nlink/bytes 证明补齐前，
+generation directory publisher 与 production wiring 都是 stop condition。
+
+这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
+release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
+证明的 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV)`
+或受控构建的窄 native helper 实现；不得在 `openat2`/ABI 不可用时退回 path check + rename。
+
+Windows 测试只证明 canonical journal orchestration、错误分类与故障状态机，不冒充 Linux syscall 证据。
+CI 新增不可跳过的 Ubuntu activation-storage job，在 `$RUNNER_TEMP` 记录 mount 信息并真实运行 global gate、
+`renameat2`、EEXIST exact、file/directory `fsync` 与 rename 后 crash-reconcile；`ci-green` 对该 job 只接受
+`success`，不接受 `skipped`。这仍不是硬件撒谎、真实断电或生产远端 mount 的证明；production enablement
+前还必须在 exact runner mount 上做 release acceptance，必要时另用受控 block-device fault test。
+
 当前 transition v1 不消费这份 dormant registry，因此不能宣称 generation 已获得 registry authorization。
 后续 generation-aware protocol/transition 版本必须同时绑定启动前完整 registry fingerprint、target 的精确
 registration fingerprint 与启动前 Invocation ledger fingerprint；三者都必须来自全局 gate 下对可信 journal
@@ -318,8 +362,15 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [Linux pidfd_open(2)](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)
 - [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)
 - [Linux flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)
+- [Linux open/openat(2)：`O_EXCL`、`O_NOFOLLOW` 与 dirfd](https://man7.org/linux/man-pages/man2/open.2.html)
+- [Linux openat2(2)：受限路径解析与 Linux 5.6 边界](https://man7.org/linux/man-pages/man2/openat2.2.html)
 - [Linux rename/renameat2(2)](https://man7.org/linux/man-pages/man2/rename.2.html)
 - [Linux fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html)
+- [Linux statfs/fstatfs(2)：filesystem magic](https://man7.org/linux/man-pages/man2/statfs.2.html)
+- [Linux proc mountinfo(5)：mount ID、device 与 filesystem type](https://man7.org/linux/man-pages/man5/proc_pid_mountinfo.5.html)
+- [Linux ext4 journal：metadata transaction 与 data modes](https://docs.kernel.org/filesystems/ext4/journal.html)
+- [Linux XFS delayed logging：异步 transaction 与 fsync](https://docs.kernel.org/filesystems/xfs/xfs-delayed-logging-design.html)
+- [Linux OverlayFS：copy-up、rename 与 fsync modes](https://docs.kernel.org/filesystems/overlayfs.html)
 - [in-toto ResourceDescriptor：artifact content digest](https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md)
 - [SLSA build provenance：subject、resolved dependencies 与 external parameters](https://slsa.dev/spec/v1.2/build-provenance)
 - [RFC 8785：JCS 的 I-JSON、number 与 property ordering 约束](https://www.rfc-editor.org/rfc/rfc8785.html)

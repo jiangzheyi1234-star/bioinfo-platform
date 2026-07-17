@@ -142,6 +142,20 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "remote_runner" / "process_lifetime_lock.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_pid_file.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_owner.py").exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "activation_storage_session.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "activation_storage_root.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "activation_no_replace_io.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
+        / "activation_generation_registry_storage.py"
+    ).exists()
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
     assert (bundle.bundle_dir / "core" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "logging_config.py").exists()

@@ -206,6 +206,44 @@ jobs:
             tests/test_workflow_runtime_artifact_build_script.py \
             tests/test_update_remote_runner_release_manifest.py
 
+  activation_storage_linux:
+    name: python / activation-storage-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Inspect Linux storage boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          findmnt -T "$RUNNER_TEMP" -o TARGET,FSTYPE,OPTIONS
+          stat -f -c 'filesystem=%T magic=%t' "$RUNNER_TEMP"
+
+      - name: Prove activation journal syscalls and recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/bio-ui-uv-venv"
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/uv-python"
+          export H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1
+          unset UV_PYTHON
+          uv python install 3.12
+          uv sync --frozen --group dev
+          uv run --frozen python -c 'import sys; assert sys.platform == "linux"'
+          uv run --frozen python -m pytest -q \
+            --basetemp "$RUNNER_TEMP/activation-storage-pytest" \
+            tests/test_remote_runner_activation_registry_storage_contract.py \
+            tests/test_remote_runner_activation_registry_storage_linux.py
+
   ci_green:
     name: required / ci-green
     if: ${{ always() }}
@@ -216,6 +254,7 @@ jobs:
       - dependency_review
       - web_windows
       - linux_parity_smoke
+      - activation_storage_linux
     runs-on: ubuntu-24.04
     env:
       DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}
@@ -224,6 +263,7 @@ jobs:
       DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}
       WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}
       LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}
+      ACTIVATION_STORAGE_LINUX_RESULT: ${{ needs.activation_storage_linux.result }}
     steps:
       - name: Verify required jobs
         shell: bash
@@ -236,12 +276,15 @@ jobs:
             "security-governance:${SECURITY_GOVERNANCE_RESULT}" \
             "dependency-review:${DEPENDENCY_REVIEW_RESULT}" \
             "web-windows:${WEB_WINDOWS_RESULT}" \
-            "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}"
+            "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}" \
+            "activation-storage-linux:${ACTIVATION_STORAGE_LINUX_RESULT}"
           do
             name="${job%%:*}"
             result="${job#*:}"
             echo "$name => $result"
-            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+            if [[ "$name" == "activation-storage-linux" && "$result" != "success" ]]; then
+              failed=1
+            elif [[ "$result" != "success" && "$result" != "skipped" ]]; then
               failed=1
             fi
           done

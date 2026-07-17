@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
@@ -25,10 +27,16 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}" in source
     assert "WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}" in source
     assert "LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}" in source
+    assert (
+        "ACTIVATION_STORAGE_LINUX_RESULT: ${{ needs.activation_storage_linux.result }}"
+        in source
+    )
     assert "- security_governance" in source
     assert "- dependency_review" in source
     assert "security-governance:${SECURITY_GOVERNANCE_RESULT}" in source
     assert "dependency-review:${DEPENDENCY_REVIEW_RESULT}" in source
+    assert "activation-storage-linux:${ACTIVATION_STORAGE_LINUX_RESULT}" in source
+    assert '"$name" == "activation-storage-linux" && "$result" != "success"' in source
     assert "CODEQL_RESULT" not in source
     assert "SCORECARD_RESULT" not in source
     assert "security / codeql" not in source
@@ -48,6 +56,32 @@ def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
     assert "npm run typecheck" in source
     assert "npm run build" in source
     assert "NEXT_TELEMETRY_DISABLED" in source
+
+
+def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(source)
+    jobs = workflow["jobs"]
+    activation_job = jobs["activation_storage_linux"]
+    ci_green = jobs["ci_green"]
+    activation_script = "\n".join(
+        str(step.get("run", "")) for step in activation_job["steps"]
+    )
+
+    assert activation_job["name"] == "python / activation-storage-linux"
+    assert activation_job["runs-on"] == "ubuntu-24.04"
+    assert "if" not in activation_job
+    assert 'findmnt -T "$RUNNER_TEMP" -o TARGET,FSTYPE,OPTIONS' in activation_script
+    assert "H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1" in activation_script
+    assert '--basetemp "$RUNNER_TEMP/activation-storage-pytest"' in activation_script
+    assert (
+        "tests/test_remote_runner_activation_registry_storage_linux.py"
+        in activation_script
+    )
+    assert "activation_storage_linux" in ci_green["needs"]
+    assert ci_green["env"]["ACTIVATION_STORAGE_LINUX_RESULT"] == (
+        "${{ needs.activation_storage_linux.result }}"
+    )
 
 
 def test_ci_workflow_runs_security_governance_gate() -> None:
