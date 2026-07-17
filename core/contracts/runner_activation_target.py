@@ -12,6 +12,7 @@ from .runner_activation_validation import (
     require_absolute_posix_path as _require_absolute_posix_path,
     require_exact_string as _require_exact_string,
     require_fingerprint as _require_fingerprint,
+    require_hmac_sha256_tag as _require_hmac_sha256_tag,
     require_id as _require_id,
     require_mapping as _require_mapping,
 )
@@ -33,7 +34,8 @@ RUNNER_ACTIVATION_OPERATIONS = (
 
 _GENERATION_FIELDS = frozenset(
     {
-        "configFingerprint",
+        "configBlobIntegrityKeyId",
+        "configBlobIntegrityTag",
         "configPath",
         "generationId",
         "profileFingerprint",
@@ -73,7 +75,8 @@ def build_runner_activation_generation(
     release_path: object,
     release_artifact_sha256: object,
     config_path: object,
-    config_fingerprint: object,
+    config_blob_integrity_key_id: object,
+    config_blob_integrity_tag: object,
     runtime_config_fingerprint: object,
     profile_path: object,
     profile_fingerprint: object,
@@ -86,7 +89,8 @@ def build_runner_activation_generation(
 
     return require_runner_activation_generation(
         {
-            "configFingerprint": config_fingerprint,
+            "configBlobIntegrityKeyId": config_blob_integrity_key_id,
+            "configBlobIntegrityTag": config_blob_integrity_tag,
             "configPath": config_path,
             "generationId": generation_id,
             "profileFingerprint": profile_fingerprint,
@@ -137,10 +141,13 @@ def require_runner_activation_generation(
         "generation.tokenGenerationId",
         make_error,
     )
-    if token_generation_id == generation_id:
-        raise make_error(
-            "runner activation generation tokenGenerationId must be distinct"
-        )
+    config_blob_integrity_key_id = _require_id(
+        mapping.get("configBlobIntegrityKeyId"),
+        "generation.configBlobIntegrityKeyId",
+        make_error,
+    )
+    if len({generation_id, token_generation_id, config_blob_integrity_key_id}) != 3:
+        raise make_error("runner activation generation identity IDs must be distinct")
     release_path = _require_absolute_posix_path(
         mapping.get("releasePath"), "generation.releasePath", make_error
     )
@@ -171,9 +178,10 @@ def require_runner_activation_generation(
     ):
         raise make_error("runner activation generation protocolVersion is invalid")
     return {
-        "configFingerprint": _require_fingerprint(
-            mapping.get("configFingerprint"),
-            "generation.configFingerprint",
+        "configBlobIntegrityKeyId": config_blob_integrity_key_id,
+        "configBlobIntegrityTag": _require_hmac_sha256_tag(
+            mapping.get("configBlobIntegrityTag"),
+            "generation.configBlobIntegrityTag",
             make_error,
         ),
         "configPath": str(config_path),
@@ -281,6 +289,7 @@ def require_runner_activation_target(
         mapping.get("generation"), make_error=make_error
     )
     if activation_id in {
+        generation["configBlobIntegrityKeyId"],
         generation["generationId"],
         generation["tokenGenerationId"],
     }:

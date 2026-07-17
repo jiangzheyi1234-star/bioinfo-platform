@@ -21,6 +21,7 @@ from core.contracts.runner_activation_invocation_ledger import (
 ACTIVATION_ID = "a" * 32
 GENERATION_ID = "b" * 32
 TOKEN_GENERATION_ID = "c" * 32
+CONFIG_INTEGRITY_KEY_ID = "0123456789abcdef" * 2
 INVOCATION_ID = "d" * 32
 PREVIOUS_INVOCATION_ID = "5" * 32
 ROOT = "/home/runner/.h2ometa/runner"
@@ -34,8 +35,9 @@ def generation(
     *,
     generation_id: str = GENERATION_ID,
     token_generation_id: str = TOKEN_GENERATION_ID,
+    config_integrity_key_id: str = CONFIG_INTEGRITY_KEY_ID,
     release_name: str = "0.2.0-control-plane",
-    config_fingerprint: str = "sha256:" + "2" * 64,
+    config_integrity_tag: str = "hmac-sha256:" + "2" * 64,
     runtime_config_fingerprint: str = "sha256:" + "6" * 64,
     unit_fingerprint: str = "sha256:" + "5" * 64,
 ) -> dict[str, object]:
@@ -44,7 +46,8 @@ def generation(
         release_path=f"{ROOT}/releases/{release_name}",
         release_artifact_sha256="sha256:" + "1" * 64,
         config_path=f"{generation_root(generation_id)}/runner.json",
-        config_fingerprint=config_fingerprint,
+        config_blob_integrity_key_id=config_integrity_key_id,
+        config_blob_integrity_tag=config_integrity_tag,
         runtime_config_fingerprint=runtime_config_fingerprint,
         profile_path=f"{generation_root(generation_id)}/profile.v9+.yaml",
         profile_fingerprint="sha256:" + "3" * 64,
@@ -263,6 +266,7 @@ def committed_install(
 
 __all__ = [
     "ACTIVATION_ID",
+    "CONFIG_INTEGRITY_KEY_ID",
     "GENERATION_ID",
     "INVOCATION_ID",
     "PREVIOUS_INVOCATION_ID",

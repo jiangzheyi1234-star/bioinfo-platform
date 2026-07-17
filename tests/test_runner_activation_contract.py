@@ -28,6 +28,7 @@ from core.contracts.runner_activation_evidence import (
 )
 from tests.helpers.runner_activation_contract import (
     ACTIVATION_ID,
+    CONFIG_INTEGRITY_KEY_ID,
     GENERATION_ID,
     ROOT,
     TOKEN_GENERATION_ID,
@@ -67,7 +68,8 @@ def test_generation_is_exact_detached_and_contains_no_token_secret() -> None:
     assert normalized == payload
     assert normalized is not payload
     assert normalized == {
-        "configFingerprint": "sha256:" + "2" * 64,
+        "configBlobIntegrityKeyId": CONFIG_INTEGRITY_KEY_ID,
+        "configBlobIntegrityTag": "hmac-sha256:" + "2" * 64,
         "configPath": f"{generation_root()}/runner.json",
         "generationId": GENERATION_ID,
         "profileFingerprint": "sha256:" + "3" * 64,
@@ -88,6 +90,11 @@ def test_generation_is_exact_detached_and_contains_no_token_secret() -> None:
 
     with pytest.raises(ValueError, match="fields must match exactly"):
         require_runner_activation_generation({**payload, "token": "secret-value"})
+    legacy = dict(payload)
+    del legacy["configBlobIntegrityTag"]
+    legacy["configFingerprint"] = "sha256:" + "2" * 64
+    with pytest.raises(ValueError, match="fields must match exactly"):
+        require_runner_activation_generation(legacy)
 
 
 def test_generation_binds_credential_free_config_and_unit_template() -> None:
@@ -128,8 +135,13 @@ def test_generation_canonical_json_and_fingerprint_are_domain_separated() -> Non
         ("generationId", "A" * 32, "generationId"),
         ("generationId", "a" * 31, "generationId"),
         ("tokenGenerationId", GENERATION_ID, "must be distinct"),
+        ("configBlobIntegrityKeyId", GENERATION_ID, "must be distinct"),
         ("releaseArtifactSha256", "1" * 64, "releaseArtifactSha256"),
-        ("configFingerprint", "sha256:" + "G" * 64, "configFingerprint"),
+        (
+            "configBlobIntegrityTag",
+            "hmac-sha256:" + "G" * 64,
+            "configBlobIntegrityTag",
+        ),
         ("runtimeConfigFingerprint", "sha256:bad", "runtimeConfigFingerprint"),
         (
             "systemdUnitTemplateFingerprint",
@@ -245,8 +257,12 @@ def test_target_rejects_drifted_operation_guard_or_paths(
         require_runner_activation_target(payload)
 
 
-def test_target_requires_activation_id_distinct_from_generation_ids() -> None:
-    for conflicting_id in (GENERATION_ID, TOKEN_GENERATION_ID):
+def test_target_requires_activation_id_distinct_from_generation_identity_ids() -> None:
+    for conflicting_id in (
+        CONFIG_INTEGRITY_KEY_ID,
+        GENERATION_ID,
+        TOKEN_GENERATION_ID,
+    ):
         payload = target()
         payload["activationId"] = conflicting_id
         payload["lifecycleGuardOwner"] = f"h2ometa-remote:install:{conflicting_id}"

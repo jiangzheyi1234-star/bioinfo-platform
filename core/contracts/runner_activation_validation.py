@@ -12,6 +12,7 @@ from typing import Any
 
 _ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_HMAC_SHA256_TAG_PATTERN = re.compile(r"^hmac-sha256:[0-9a-f]{64}$")
 _MAX_PATH_LENGTH = 4096
 
 
@@ -66,6 +67,16 @@ def require_fingerprint(
     make_error: Callable[[str], Exception],
 ) -> str:
     if not isinstance(value, str) or _FINGERPRINT_PATTERN.fullmatch(value) is None:
+        raise make_error(f"runner activation {field} is invalid")
+    return value
+
+
+def require_hmac_sha256_tag(
+    value: object,
+    field: str,
+    make_error: Callable[[str], Exception],
+) -> str:
+    if not isinstance(value, str) or _HMAC_SHA256_TAG_PATTERN.fullmatch(value) is None:
         raise make_error(f"runner activation {field} is invalid")
     return value
 
@@ -127,6 +138,12 @@ def require_token_rotation_preserves_runtime(
     *,
     make_error: Callable[[str], Exception],
 ) -> None:
+    """Enforce public generation invariants, not a secret-field exact diff.
+
+    The publisher must separately prove that the trusted config snapshots differ
+    only in the operation's permitted credential fields.
+    """
+
     generation = target["generation"]
     previous_generation = previous["generation"]
     if not isinstance(generation, dict) or not isinstance(
@@ -135,6 +152,7 @@ def require_token_rotation_preserves_runtime(
     ):
         raise make_error("runner activation target generation is invalid")
     preserved_generation_fields = (
+        "configBlobIntegrityKeyId",
         "profileFingerprint",
         "protocolFingerprint",
         "protocolVersion",
@@ -153,7 +171,8 @@ def require_token_rotation_preserves_runtime(
     credential_unchanged = (
         generation["generationId"] == previous_generation["generationId"]
         or generation["tokenGenerationId"] == previous_generation["tokenGenerationId"]
-        or generation["configFingerprint"] == previous_generation["configFingerprint"]
+        or generation["configBlobIntegrityTag"]
+        == previous_generation["configBlobIntegrityTag"]
     )
     if credential_unchanged:
         raise make_error(
@@ -182,6 +201,7 @@ __all__ = [
     "require_absolute_posix_path",
     "require_exact_string",
     "require_fingerprint",
+    "require_hmac_sha256_tag",
     "require_id",
     "require_mapping",
     "require_optional_fingerprint",

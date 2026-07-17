@@ -49,7 +49,7 @@ Cleanup: 删除研究缓存与测试产物；保留用户文件和已提交 rele
 
 | 身份 | 生命周期 | 用途 |
 | --- | --- | --- |
-| `generationId` | 一组不可变 config/profile/unit/release 内容与 credential-free config digest | 证明运行内容 |
+| `generationId` | 一组不可变 config/profile/unit/release 内容、credential-free config digest 与密钥化配置完整性证据 | 证明运行内容 |
 | `activationId` | 一次 install/upgrade/rotation/repair 尝试 | 证明控制面操作与 journal |
 | `InvocationID` | systemd 每次 runtime cycle | 证明具体服务实例 |
 
@@ -95,13 +95,60 @@ Runner-side 自观察先以独立的 dormant contract 落地，不修改 protoco
 `ControlGroup` 与该 hierarchy 的候选路径精确相等，才能进入后续验证。`SYSTEMD_EXEC_PID` 从 systemd
 v248 才提供：存在时必须规范且等于 self PID，缺失不能作为 v232 基线的失败原因。
 
-本阶段有意不发布 `runner-activation-process-binding.v1`。Generation 的 raw config bytes fingerprint、
+本阶段有意不发布 `runner-activation-process-binding.v1`。Generation 的 keyed config-blob integrity tag、
 credential-free runtime-config fingerprint 与现有 owner 的 persisted/effective fingerprints 具有不同语义；
-在共享内容计算器完成前把两组 digest 一起封装，只能证明两份声明被关联，不能证明 runner 实际加载了该
-generation。Binding v1 必须等 generation config/profile/unit/release 的实际字节均可重算后再定义，并同时
+共享内容计算器现在只定义算法；在 publisher/startup 从可信 snapshot 实际重算前把两组 digest 一起封装，
+仍只能证明两份声明被关联，不能证明 runner 实际加载了该 generation。Binding v1 必须等 generation
+config/profile/unit/release 的实际字节均由生产路径重算后再定义，并同时
 精确关联 controller `FragmentPath`、template fingerprint 与对应的 cgroup hierarchy。当前也不生成可启动
 template、不把 capability 写入 v5 descriptor；generation-aware startup、runtime-state reference、
 `READY=1` 与 protocol v6 必须在后续端到端接线阶段一起完成。
+
+## Generation 内容身份
+
+原始 artifact digest 与逻辑配置 fingerprint 是两种不同证据。Profile、systemd template 与 release
+archive 使用 `sha256(exact bytes)`；读取时不转换换行、BOM 或 Unicode。Secret-bearing `runner.json`
+不发布无键 raw SHA-256：generation 只记录 `configBlobIntegrityKeyId` 与
+`configBlobIntegrityTag=hmac-sha256:...`。Tag 覆盖 schema domain、key ID、八字节大端内容长度和实际
+canonical config bytes；独立 32-byte integrity key 不进入 generation、journal 或日志。Tag 可以公开，
+key 必须由后续版本化 keyring 独立保存。Key 缺失、未知或验证失败进入 `recovery_required`，不得退回
+raw SHA，也不得静默生成新 key 后继续。
+
+旧 `configFingerprint` 只存在于尚未被 protocol v5、生产存储或远端 mutation 消费的 dormant v1
+contract。本决策在首次发布前直接将其替换为 key ID + HMAC tag，并让 exact-field validator 拒绝旧字段；
+不添加双读、fallback 或静默迁移分支。
+
+公开的 `runtimeConfigFingerprint` 由 exact `RemoteRunnerConfig` 字段集减去 `token`、
+`artifact_s3_access_key`、`artifact_s3_secret_key` 后计算；actor、roles、端口、路径、worker policy、
+storage endpoint/bucket/region/prefix 与 protocol expectation 都保留。当前 SQLite-only 约束下
+`database_url` 必须为空，不能把带拓扑和凭据双重语义的 URL 整体删除后仍宣称 runtime identity 完整。
+配置字节采用仓库自有 deterministic JSON（固定字段、sorted keys、compact UTF-8、单一尾 LF），不把
+Python `json.dumps` 错称为 RFC 8785/JCS。
+
+内容计算器只接受已经通过生产语义校验的 effective config；它的 exact field/type envelope 不替代 path、
+protocol、role、URL 或 environment policy。Publisher 必须拒绝把 userinfo、签名 query、明文密码等塞进
+本应公开的 endpoint/path/source 字段，并禁止未进入 effective config 的 ambient override。Profile builder
+只接受 canonical absolute POSIX conda path 和无 userinfo/query/fragment 的 `https` 或本地 `file`
+wrapper prefix；动态 YAML scalar 使用确定性双引号，拒绝 host `PathLike` 转换以及 C1/NEL/LS/PS 注入。
+Publisher 还必须证明 `file` wrapper 位于 generation-owned、由 release digest 覆盖的只读树中；仅有 profile
+bytes digest 不证明 wrapper 源内容不可变。
+
+`tokenGenerationId` 与 integrity key ID 都是随机 opaque 128-bit ID，不从 token、key 或 digest 推导。
+Token rotation 必须保持 integrity key ID 和所有 credential-free runtime identity 不变，同时创建新的
+generation ID、token generation ID 与 config-blob tag；tag 变化只证明 blob 变化，publisher 后续还必须
+验证 operation-specific exact diff。Integrity key rotation 是独立的 reseal/repair，不得冒充 token
+rotation。只要 retained rollback generation 仍引用旧 key ID，keyring 就不得 prune 对应 key。
+
+相同 `generationId` 在所有 operation 中都必须对应逐字段完全相同的 generation record。Repair 可以用新的
+activation 重启同一 generation；若 reseal、key rotation 或任何内容证据改变，必须创建新的 generation
+ID，不能覆盖原路径或复用原 ID。当前 transition contract 只可立即拒绝与上一 committed target 的冲突；
+publisher 必须以 no-replace generation directory 和 append-only `generationId -> generationFingerprint`
+registry 检查完整历史，关闭 `A -> B -> A'` 的隔代复用，之后才能授权远端 mutation。
+
+HMAC 解决 evidence 泄露后的低熵 secret 离线猜测 oracle，不宣称抵抗同 UID 或 root compromise，也不
+防 rollback replay；后者仍由 append-only journal、ledger 与 activation gate 负责。Release archive 的
+raw digest 也不自动证明解包执行树；在 content-addressed/no-replace release 发布器落地时，必须增加严格
+tree manifest 或逐文件安装验证。
 
 `MainPID` 会复用，cgroup 路径会随 unit 名复用，`INVOCATION_ID` 也不是 secret；任何一个字段都不能
 单独授权 mutation。唯一 unit 实例使 stop 可以针对不会被新 activation 复用的对象调用 `StopUnit` 并
@@ -147,7 +194,7 @@ Hash chain 只证明所给记录的顺序，不能替代可信 no-replace journa
 `aborted` 只允许在尚未产生 live mutation时使用；若已获取 guard，还必须绑定 owner-matched guard-release
 evidence。一个 rollback activation 的 `committed` 必须证明：
 
-1. 旧 generation 的 config/profile/unit/release fingerprints 全部匹配；
+1. 旧 generation 的 config HMAC、profile/unit/release fingerprints 全部匹配；
 2. 它以一个新的唯一 unit 和新的 `InvocationID` 启动；
 3. systemd `MainPID`、procfs incarnation、cgroup 与 owner record 一致；
 4. 使用旧 generation 对应 credential 完成认证 ready；
@@ -173,10 +220,10 @@ evidence。一个 rollback activation 的 `committed` 必须证明：
   current.json
 ```
 
-目录在写入 secret-bearing config 前必须为 `0700`，配置文件为 `0600`。完整 config fingerprint 绑定
-实际字节；独立的 credential-free runtime-config fingerprint 必须由移除 credential 后的规范 payload
-计算，使 token rotation 无法夹带端口、路径或 runtime policy 变化。Generation 只有在所有文件、
-digest 和 protocol preflight 验证成功后才可成为候选。`current.json`/`current` 只在 durable
+目录在写入 secret-bearing config 前必须为 `0700`，配置文件为 `0600`。完整 config 使用独立 key 的
+HMAC 绑定实际 canonical bytes；credential-free runtime-config fingerprint 由严格字段分区后的规范
+payload 计算，使 token rotation 无法夹带端口、路径或 runtime policy 变化。Generation 只有在所有文件、
+tag、digest 和 protocol preflight 验证成功后才可成为候选。`current.json`/`current` 只在 durable
 `COMMITTED` 后更新，供诊断、UI 和人工导航使用；运行时不把它当信任根。
 
 单个本地文件的发布继续使用临时文件、fsync、rename 与父目录 fsync；这只保证该文件的替换语义，
@@ -216,5 +263,10 @@ digest 和 protocol preflight 验证成功后才可成为候选。`current.json`
 - [Linux flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)
 - [Linux rename/renameat2(2)](https://man7.org/linux/man-pages/man2/rename.2.html)
 - [Linux fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html)
+- [in-toto ResourceDescriptor：artifact content digest](https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md)
+- [SLSA build provenance：subject、resolved dependencies 与 external parameters](https://slsa.dev/spec/v1.2/build-provenance)
+- [RFC 8785：JCS 的 I-JSON、number 与 property ordering 约束](https://www.rfc-editor.org/rfc/rfc8785.html)
+- [systemd.unit：fragment、drop-in 与 load path 组合语义](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html)
+- [systemctl：`cat` 读取磁盘 backing files，不代表 manager 已加载状态](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
 - [Nix profiles：不可变 generation 与原子 selector](https://nix.dev/manual/nix/latest/package-management/profiles)
 - [OSTree atomic upgrades：先构建 deployment，再切换 selector](https://ostreedev.github.io/ostree/atomic-upgrades/)

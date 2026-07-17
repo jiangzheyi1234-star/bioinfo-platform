@@ -194,6 +194,11 @@ def build_runner_activation_transition(
             "toState": to_state,
         }
     )
+    _require_target_bound_invocation_identity_distinct(
+        transition,
+        target=normalized_target,
+        make_error=ValueError,
+    )
     if transition["systemdInvocationId"] in ledger[1]:
         raise ValueError("runner activation reused reserved invocation")
     return transition
@@ -441,6 +446,11 @@ def _require_target_bound_transition_chain(
             raise make_error(
                 "runner activation transition chain target binding mismatch"
             )
+        _require_target_bound_invocation_identity_distinct(
+            transition,
+            target=target,
+            make_error=make_error,
+        )
         if index == 0:
             if transition["revision"] != 1:
                 raise make_error(
@@ -475,6 +485,21 @@ def _require_target_bound_transition_chain(
             verification_binding = current_binding
         normalized.append(transition)
     return normalized
+
+
+def _require_target_bound_invocation_identity_distinct(
+    transition: dict[str, object],
+    *,
+    target: dict[str, object],
+    make_error: Callable[[str], Exception],
+) -> None:
+    invocation_id = str(transition["systemdInvocationId"])
+    generation = target["generation"]
+    if invocation_id and invocation_id in {
+        generation["configBlobIntegrityKeyId"],
+        generation["tokenGenerationId"],
+    }:
+        raise make_error("runner activation systemdInvocationId must be distinct")
 
 
 def _require_trusted_journal_chain(
@@ -605,8 +630,17 @@ def _require_previous_target_compatibility(
         )
     if previous["systemdUnitTemplatePath"] != target["systemdUnitTemplatePath"]:
         raise make_error("runner activation previous target uses another unit template")
+    previous_generation = previous["generation"]
+    target_generation = target["generation"]
+    if (
+        previous_generation["generationId"] == target_generation["generationId"]
+        and previous_generation != target_generation
+    ):
+        raise make_error(
+            "runner activation generationId was reused with different content"
+        )
     if operation == "upgrade" and (
-        previous["generation"]["generationId"] == target["generation"]["generationId"]
+        previous_generation["generationId"] == target_generation["generationId"]
     ):
         raise make_error("runner activation upgrade requires a new generation")
     if operation == "token_rotation":

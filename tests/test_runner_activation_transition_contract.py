@@ -395,7 +395,7 @@ def test_token_rotation_preserves_credential_free_runtime_identity() -> None:
         generation_id="9" * 32,
         token_generation_id="0" * 32,
         release_name="0.1.9-control-plane",
-        config_fingerprint="sha256:" + "9" * 64,
+        config_integrity_tag="hmac-sha256:" + "9" * 64,
     )
     rotated_target = target(
         selected_generation=rotated_generation,
@@ -427,9 +427,17 @@ def test_token_rotation_preserves_credential_free_runtime_identity() -> None:
             to_state="prepared",
             **lineage,
         )
+    integrity_key_drift = deepcopy(rotated_target)
+    integrity_key_drift["generation"]["configBlobIntegrityKeyId"] = "1" * 32
+    with pytest.raises(ValueError, match="changed runtime identity"):
+        build_runner_activation_transition(
+            target=integrity_key_drift,
+            to_state="prepared",
+            **lineage,
+        )
     unchanged_credential = deepcopy(rotated_target)
-    unchanged_credential["generation"]["configFingerprint"] = previous_generation[
-        "configFingerprint"
+    unchanged_credential["generation"]["configBlobIntegrityTag"] = previous_generation[
+        "configBlobIntegrityTag"
     ]
     with pytest.raises(ValueError, match="new credential generation"):
         build_runner_activation_transition(
@@ -582,7 +590,7 @@ def test_new_activation_rejects_previous_committed_invocation_reuse(
                 generation_id="9" * 32,
                 token_generation_id="0" * 32,
                 release_name="0.1.9-control-plane",
-                config_fingerprint="sha256:" + "9" * 64,
+                config_integrity_tag="hmac-sha256:" + "9" * 64,
             ),
             operation=operation,
         )
