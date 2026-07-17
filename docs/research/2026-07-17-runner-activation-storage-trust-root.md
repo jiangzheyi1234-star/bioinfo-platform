@@ -5,11 +5,13 @@ Status: decision input for the dormant Agent-first activation control plane
 
 ## Executive summary
 
-The next safe implementation step is not generation publication or secret-key
-storage. The runner first needs an immutable two-name enrollment phase
-promotion that binds one canonical `runnerRoot` to one installation record, plus a
-session that continuously reproves every retained child file descriptor
-against its canonical pathname.
+Generation publication remains unsafe. The runner first needed an immutable
+two-name enrollment phase promotion that binds one canonical `runnerRoot` to
+one installation record, plus a session that continuously reproves every
+retained child file descriptor against its canonical pathname. With that trust
+root defined, the next accepted dormant slices are installed release-tree
+publication and versioned config-integrity key storage; they may progress in
+parallel, but neither may be mistaken for generation readiness on its own.
 
 Without those two properties, a caller can present a different installation ID
 for the same root, or a same-UID process can rename a child tree while an old
@@ -176,16 +178,48 @@ XFS with matching mountinfo device and `fstatfs` magic. NFS rename errors can be
 ambiguous, while OverlayFS copy-up and inode behavior weaken the intended
 identity proof. There is no portable fallback.
 
-### 4. Key storage is the next separate dependency
+### 4. Key storage is an accepted separate dormant dependency
 
-After enrollment, versioned config-integrity keys can use the same no-replace
-protocol under private `0700` directories. Each final file contains exactly 32
-raw bytes, has mode `0600`, current UID, link count one, and is named only from
-a validated key ID. Exact retries compare fixed-length bytes with
-`hmac.compare_digest`; observations expose fingerprints and dispositions, not
-material, paths, raw IDs, or tags.
+After enrollment, the dormant key-store implementation uses the same global gate and
+no-replace protocol, but does not enlarge the enrollment skeleton or the set of
+file descriptors retained by `ActivationStorageSession`. Each key operation
+reproves the canonical session and dynamically opens or creates this exact
+private scope:
 
-Random material should come from `secrets.token_bytes(32)`/the OS CSPRNG. On
+```text
+activation/secrets/config-integrity/
+  .staging/<configBlobIntegrityKeyId>.pending
+  <configBlobIntegrityKeyId>.key
+```
+
+All three directories are current-UID, same-device, exact `0700` directories.
+The deterministic pending name permits a fresh process to classify a crashed
+publication without scanning or adopting arbitrary files. Pending and final
+are current-UID regular files with exact mode `0600`, link count one, the same
+device, and exactly 32 raw bytes. Every fixed path it consumes rejects an
+unexpected name, type, link count, length, owner, mode, or device.
+
+Create-or-verify receives explicit material; it does not generate, rotate,
+prune, import, or export a key. A read with no final, or reconciliation with
+neither an exact final nor an exact pending entry, returns typed `absent`
+instead of generating material or collapsing absence into a generic backend
+error. Exact retries first prove fixed length and then use
+`hmac.compare_digest`; a different payload for the same key ID is a permanent
+conflict. Observations expose only non-secret fingerprints and dispositions,
+not material, paths, raw IDs, or tags.
+
+Any ambiguous rename result, or any durability/reproof failure after rename is
+`outcome_unknown`. Reconciliation must close the old capabilities and start a
+fresh storage session that reacquires the global gate, reproves the canonical
+root/layout, and classifies the deterministic pending and final entries. It
+must never infer success or absence from the previous exception or detached
+file descriptors. This store remains disconnected from protocol v5,
+bootstrap, rotation, generation publication, transitions, and `prepared`.
+The implementation is therefore a dormant dependency, not a production-wired
+credential backend or generation-readiness claim.
+
+When an authorized caller creates new material, it should come from
+`secrets.token_bytes(32)`/the OS CSPRNG. On
 Linux, Python's `os.urandom` uses blocking `getrandom` semantics so it does not
 return weak early-boot entropy. `GRND_RANDOM` is unnecessary.
 
@@ -193,6 +227,18 @@ Python cannot promise complete memory erasure: immutable `bytes`, allocator
 arenas, hash/HMAC temporaries, stack, and register copies may remain. Mutable
 buffers may be overwritten as best effort, but a verified erasure requirement
 needs a native isolated component, TPM/HSM, KMS, or another custody boundary.
+
+Likewise, private modes and nofollow proof do not defend against root or a
+malicious process with the same UID; that process can read or mutate the same
+namespace. Stronger custody requires a separately constrained service UID or
+an external credential boundary, not a stronger claim about `0600`.
+
+Windows tests may cover canonical orchestration, error taxonomy, and the fault
+state machine, but they are not Linux syscall evidence. The Ubuntu job must be
+non-skippable and cover dynamic directory creation/reopen, owner/mode/link/
+device checks, deterministic pending recovery, no-replace publication,
+file/directory `fsync`, typed `absent`, and fresh-session reconciliation after
+every ambiguous crash boundary.
 
 For derived keys, use HKDF-SHA-256 or NIST SP 800-108r1 with versioned,
 unambiguous domain separation that includes purpose, installation, generation,
@@ -232,11 +278,27 @@ The current bundled runtime is a publisher stop condition. First startup runs
 relocation can also write the absolute runtime prefix into installed files. A
 staging directory renamed to a digest-derived final path may therefore contain
 the wrong prefix, while post-publication relocation immediately invalidates the
-recorded tree. Publisher work must first prove a relocation-free, post-publish
-read-only runtime, or reserve a unique final path and finish relocation there
-before a durable no-replace final marker. In either design, startup-time
-`conda-unpack` and execution through mutable `current/runtime` must disappear
-before production activation is enabled.
+recorded tree.
+
+The official conda-pack documentation closes the tempting shortcuts. In the
+default flow the target location needs `conda-unpack` to clean prefixes, and
+after `conda-unpack` has executed the environment cannot be relocated again.
+With `--dest-prefix`, prefixes are rewritten to the exact absolute destination
+at packaging time and no `conda-unpack` script is generated. That can work only
+when the immutable destination is already known; it does not make the archive
+independent of its final path.
+
+The recommended publisher direction is therefore an opaque, never-reused real
+final path. Reserve that path, perform extraction and relocation in place,
+verify the resulting bytes, apply final read-only modes, construct the
+canonical manifest, and fsync the tree and required parents there. Only then
+commit authority with a durable no-replace marker stored outside the release
+tree. Before the marker the directory is non-authoritative; after the marker it
+is immutable. A proven relocation-free artifact remains an alternative, but
+both directions require removal of startup-time `conda-unpack` and execution
+through mutable `current/runtime`. Key-store work may proceed in parallel with
+this stop condition; generation publication must wait for both authoritative
+dependencies.
 
 ### 6. Systemd credentials are an optional stronger backend
 
@@ -283,14 +345,16 @@ significant.
    authority proof. Keep protocol v5 and production mutation paths unchanged.
 2. Define canonical installed release-tree identities without treating a
    self-consistent manifest as storage or publication proof.
-3. Remove the startup-time relocation/write boundary, then publish and reprove
-   canonical installed release trees under the global gate.
-4. Persist/reconcile immutable versioned config-integrity key material.
-5. Publish verified immutable generation directories only after tree and key
+3. In parallel: (a) remove the startup-time relocation/write boundary and
+   publish/reprove installed trees using an opaque never-reused final path plus
+   an external no-replace commit marker (or a proven relocation-free artifact);
+   and (b) persist/reconcile versioned config-integrity key material through the
+   dynamic scoped store, deterministic pending name, and fresh-session recovery.
+4. Publish verified immutable generation directories only after tree and key
    dependencies are authoritative.
-6. Add transition and invocation journals.
-7. Introduce protocol v6 startup verification.
-8. Move bootstrap, rotation, rollback, prune, and uninstall behind the same
+5. Add transition and invocation journals.
+6. Introduce protocol v6 startup verification.
+7. Move bootstrap, rotation, rollback, prune, and uninstall behind the same
    global lifecycle gate; remove mutable legacy paths rather than adding silent
    compatibility fallbacks.
 
@@ -318,6 +382,8 @@ significant.
 - [Linux flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)
 - [Linux capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html)
 - [Python secrets](https://docs.python.org/3/library/secrets.html)
+- [conda-pack deployment flow and relocation caveat](https://conda.github.io/conda-pack/)
+- [conda-pack CLI `--dest-prefix`](https://conda.github.io/conda-pack/cli.html)
 - [PEP 524: blocking `os.urandom`](https://peps.python.org/pep-0524/)
 - [Python bytes, bytearray, and memoryview](https://docs.python.org/3/library/stdtypes.html)
 - [CPython memory management](https://docs.python.org/3/c-api/memory.html)

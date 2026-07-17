@@ -90,6 +90,14 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
         "tests/test_remote_runner_activation_registry_storage_linux.py"
         in activation_script
     )
+    assert (
+        "tests/test_remote_runner_activation_config_integrity_key_storage_contract.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_config_integrity_key_storage_linux.py"
+        in activation_script
+    )
     assert "activation_storage_linux" in ci_green["needs"]
     assert ci_green["env"]["ACTIVATION_STORAGE_LINUX_RESULT"] == (
         "${{ needs.activation_storage_linux.result }}"

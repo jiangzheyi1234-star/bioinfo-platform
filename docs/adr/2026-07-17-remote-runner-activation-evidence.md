@@ -167,10 +167,28 @@ material 永不进入 locator、generation、descriptor、journal、异常或日
 面向 generation 的高层 binding 必须一次核对 installation root、generation fingerprint、token locator、
 integrity descriptor 以及 installation/generation/token/key 四类 ID 分离。当前 binding 仍是 dormant record
 validation，不是 transition evidence；future generation-aware transition 才能消费它。实际 store 阶段必须在
-全局 activation gate 下实现 create-or-verify：不存在时写入，已存在且 constant-time 相同才幂等接受，不同则
-永久冲突；写后重读，backend unavailable/locked/missing/结果未知都 fail closed。Python keyring 公共 API
+全局 activation gate 下实现 create-or-verify。已接受的 dormant store 设计在每次 key operation 中，从经过
+重证的 `activation` capability 动态打开或创建私有
+`secrets/config-integrity/.staging` scope；这三个目录不属于 enrollment 固定 skeleton，也不成为 session
+长期保留的 fd。Final 名固定为 `<configBlobIntegrityKeyId>.key`，deterministic pending 名固定为
+`.staging/<configBlobIntegrityKeyId>.pending`；两者只允许当前 UID、regular、精确 `0600`、`nlink == 1`、
+同 activation device，内容必须恰为 32 raw bytes。不存在 final 时返回 typed `absent`，不会顺便生成 key；
+material 只能由显式 create-or-verify 输入提供，store 不自动生成、轮换、prune 或导入导出。
+
+Pending 与 final 均使用 no-replace publication；精确重试只在固定长度检查后用 `hmac.compare_digest` 接受相同
+bytes，不同 material 是永久冲突。任一 rename 后错误、directory `fsync` 错误或 post-proof 失败都进入
+`outcome_unknown`；reconcile 必须丢弃旧 session，在 fresh session 中重新取得 global gate、重证 canonical
+root/layout，再检查 deterministic pending/final，不能从异常或旧 fd 猜测提交结果。Observation 不输出 material、
+raw key ID、路径或 tag。该切片保持 protocol v5、bootstrap、rotation、generation publisher、transition 和
+`prepared` 全部不接线；当前实现只提供这一 dormant storage primitive，不宣称可供生产消费。Python keyring 公共 API
 没有 CAS/no-replace 事务，Windows `CredWrite` 和 Secret Service 的 replace 语义也会覆盖同名 credential，
 因此底层 `set_password` 不能单独证明 immutable storage。
+
+`0700`/`0600`、nofollow 与 link-count proof 不抵抗 root 或恶意同 UID 进程；后者能够读取或改写同一私有
+namespace，生产强化需要独立 service UID 或外部 custody boundary。Python 也不能证明 immutable `bytes`、
+allocator/HMAC 临时副本已擦除；mutable buffer 只能 best-effort overwrite。Windows 测试只证明 orchestration
+与状态机；Linux CI 必须不可跳过地覆盖真实 nofollow/open、owner/mode/nlink/device、deterministic pending、
+no-replace、file/directory `fsync`、crash/unknown 后 fresh-session reconcile 以及 typed `absent`。
 
 相同 `generationId` 在所有 operation 中都必须对应逐字段完全相同的 generation record。Repair 可以用新的
 activation 重启同一 generation；若 reseal、key rotation 或任何内容证据改变，必须创建新的 generation
@@ -273,9 +291,16 @@ directory/file/symlink/internal-hardlink 语义构造 tree content fingerprint�
 当前 `runner_lifetime_launcher._prepare_bundled_runtime()` 会在首次启动时于 release tree 内运行
 `conda-unpack` 并写 `.h2ometa-conda-unpacked`；relocation 还可能把绝对 runtime prefix 写入实际文件。因此
 “在 staging fixup 后 rename 到 post-fixup digest path”可能固化 staging prefix，而“发布后再 fixup”会立即
-破坏 tree identity。Publisher 是明确 P0 stop condition：必须先证明 relocation-free、发布后零写入的 runtime，
-或先保留不可复用 final path、在该路径完成 relocation 后用 durable no-replace final marker 提交。两种方案
-都必须移除 startup-time `conda-unpack` 与对 mutable `current/runtime` 的执行依赖后，才可进入 production wiring。
+破坏 tree identity。conda-pack 官方文档明确：默认 archive 在目标位置执行 `conda-unpack` 后不能再次搬迁；
+`--dest-prefix` 则在打包时绑定精确 absolute destination，并且不会生成 `conda-unpack`，所以它也不是可在任意
+digest path 解包的通用方案。
+
+当前推荐 publisher 方向是先选择并保留 opaque、永不复用的真实 final path，在该确切路径完成 extraction、
+relocation、实际 bytes verification、只读 chmod、canonical manifest 构造以及 file/directory `fsync`；最后以
+位于 release tree 之外的 durable no-replace marker 提交。Marker 前该目录不具 authority，marker 后不得再写。
+Publisher 仍是明确 P0 stop condition；实现可以与 versioned key store 并行，但 generation publisher 必须等待
+二者都完成。无论最终选该方向还是 relocation-free artifact，都必须移除 startup-time `conda-unpack` 与对
+mutable `current/runtime` 的执行依赖后，才可进入 production wiring。
 
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
@@ -366,6 +391,10 @@ evidence。一个 rollback activation 的 `committed` 必须证明：
       .staging/
       <revision>.json
     generation-registry.json  # registrations 重建出的 canonical read model
+    secrets/                  # key operation 按需建立，不属于 enrollment skeleton
+      config-integrity/
+        .staging/<configBlobIntegrityKeyId>.pending
+        <configBlobIntegrityKeyId>.key
     generations/<generationId>/
       runner.json
       profile.v9+.yaml
@@ -396,8 +425,10 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
    inode 原子晋级为 final-only；final 后不重建缺失 child/gate。此阶段只提供 dormant authority primitive。
 3. 先定义 pinned materialization policy 与 installed release-tree 纯 identity contract；它不构成 storage
    observation、publisher receipt 或 `prepared` evidence。
-4. 消除 startup-time relocation/write 后，再以独立切片实现 installed release-tree publisher；versioned
-   config-integrity key material store 可并行推进。二者都未完成前不得发布 generation。
+4. 并行推进两个独立依赖：(a) 消除 startup-time relocation/write，以 opaque 永不复用真实 final path 加树外
+   no-replace marker（或经证明的 relocation-free artifact）实现 installed release-tree publisher；(b) 按 dynamic
+   scoped directories、deterministic pending 与 fresh-session reconcile 实现 dormant versioned config-integrity
+   key material store。二者都未完成前不得发布 generation。
 5. 只有 tree identity、key material、registration history 与 generation 实际 bytes 全部可重证后，才实现
    verified immutable generation publisher 和 durable `prepared` receipt。
 6. 再实现 transition 与 Invocation reservation journals、unique unit start/stop、systemd 权威核验和完整
@@ -446,6 +477,8 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [RFC 5869：HKDF extract/expand 与 context separation](https://www.rfc-editor.org/rfc/rfc5869.html)
 - [NIST SP 800-108r1：HMAC KDF 与 FixedInfo domain separation](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-108r1.pdf)
 - [Python secrets：OS CSPRNG 与 compare_digest](https://docs.python.org/3/library/secrets.html)
+- [conda-pack：目标端 `conda-unpack` 与执行后不可再次搬迁](https://conda.github.io/conda-pack/)
+- [conda-pack CLI：`--dest-prefix` 精确路径绑定且不生成 `conda-unpack`](https://conda.github.io/conda-pack/cli.html)
 - [Python tarfile：extraction filter 与 installed-tree 差异](https://docs.python.org/3/library/tarfile.html)
 - [systemd credentials：unit-scoped credential custody](https://systemd.io/CREDENTIALS/)
 - [Python keyring：get/set/delete 公共 API 与错误语义](https://keyring.readthedocs.io/en/latest/)

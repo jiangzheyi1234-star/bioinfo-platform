@@ -244,7 +244,9 @@ jobs:
             tests/test_remote_runner_activation_installation_storage_contract.py \
             tests/test_remote_runner_activation_installation_storage_linux.py \
             tests/test_remote_runner_activation_registry_storage_contract.py \
-            tests/test_remote_runner_activation_registry_storage_linux.py
+            tests/test_remote_runner_activation_registry_storage_linux.py \
+            tests/test_remote_runner_activation_config_integrity_key_storage_contract.py \
+            tests/test_remote_runner_activation_config_integrity_key_storage_linux.py
 
   ci_green:
     name: required / ci-green

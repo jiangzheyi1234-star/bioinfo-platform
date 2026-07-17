@@ -44,7 +44,6 @@ from .activation_storage_layout import (
     ACTIVATION_STAGING_DIRECTORY as _ACTIVATION_STAGING_DIRECTORY,
     GLOBAL_LOCK_FILENAME as _GLOBAL_LOCK_FILENAME,
     GLOBAL_LOCK_MODE as _GLOBAL_LOCK_MODE,
-    PRIVATE_DIRECTORY_MODE as _PRIVATE_DIRECTORY_MODE,
     REGISTRATION_DIRECTORY as _REGISTRATION_DIRECTORY,
     REGISTRATION_STAGING_DIRECTORY as _REGISTRATION_STAGING_DIRECTORY,
     SHARED_DIRECTORY as _SHARED_DIRECTORY,
@@ -53,7 +52,9 @@ from .activation_storage_layout import (
     require_activation_storage_layout,
     require_base_directory_identity as _require_base_directory,
     require_global_lock_identity as _require_global_lock_identity,
-    require_private_directory_identity as _require_private_directory,
+)
+from .activation_storage_private_directories import (
+    _open_or_create_private_directory,
 )
 
 
@@ -515,43 +516,6 @@ def _require_installation(installation: object) -> dict[str, object]:
         raise
     except (AttributeError, RuntimeError, TypeError, ValueError):
         raise ActivationStorageUnavailable() from None
-
-
-def _open_or_create_private_directory(
-    parent_fd: int,
-    name: str,
-    *,
-    expected_uid: int,
-    expected_device: int,
-    expected_filesystem_magic: int,
-    allow_create: bool,
-) -> tuple[int, bool]:
-    created = False
-    if allow_create:
-        try:
-            os.mkdir(name, _PRIVATE_DIRECTORY_MODE, dir_fd=parent_fd)
-            created = True
-        except FileExistsError:
-            pass
-
-    descriptor = open_directory_at(parent_fd, name)
-    try:
-        if created:
-            os.fchmod(descriptor, _PRIVATE_DIRECTORY_MODE)
-        _require_private_directory(
-            descriptor,
-            expected_uid=expected_uid,
-            expected_device=expected_device,
-            expected_filesystem_magic=expected_filesystem_magic,
-        )
-        # Always sync both levels.  EEXIST may be the residue of a previous
-        # process that crashed after mkdir but before its parent fsync.
-        os.fsync(descriptor)
-        os.fsync(parent_fd)
-        return descriptor, created
-    except BaseException:
-        _close_fds_noexcept(descriptor)
-        raise
 
 
 def _open_and_lock_global_gate(

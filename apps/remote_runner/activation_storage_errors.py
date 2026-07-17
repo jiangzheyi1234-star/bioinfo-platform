@@ -48,7 +48,15 @@ class ActivationRegistrationAbsent(ActivationStorageError):
     public_message = "activation generation registration is absent"
 
 
+class ActivationConfigIntegrityKeyMaterialAbsent(ActivationStorageError):
+    """The requested immutable config-integrity key material does not exist."""
+
+    reason_code = "ACTIVATION_CONFIG_INTEGRITY_KEY_MATERIAL_ABSENT"
+    public_message = "activation config integrity key material is absent"
+
+
 __all__ = [
+    "ActivationConfigIntegrityKeyMaterialAbsent",
     "ActivationRegistrationAbsent",
     "ActivationStorageConflict",
     "ActivationStorageError",
