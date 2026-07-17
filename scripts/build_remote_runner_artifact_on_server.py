@@ -25,6 +25,9 @@ from core.contracts.runner_process_lifetime import (  # noqa: E402
 from core.contracts.runner_process_owner import (  # noqa: E402
     RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS,
 )
+from core.contracts.runner_activation_release_bootstrap_manifest import (  # noqa: E402
+    require_runner_activation_release_bootstrap_manifest,
+)
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
 
@@ -315,14 +318,27 @@ cp -a "$SRC" bundle/runtime
     raise RuntimeError(f"unsupported runtime source: {runtime_source}")
 
 
+def build_bootstrap_manifest(*, version: str, platform: str) -> dict[str, object]:
+    return require_runner_activation_release_bootstrap_manifest(
+        {
+            "service": REMOTE_RUNNER_ARTIFACT.service,
+            "version": version,
+            "platform": platform,
+            "runtime": {
+                "provider": "bundled",
+                "python": "runtime/bin/python",
+            },
+            **build_runner_protocol_manifest_fields(),
+        },
+    )
+
+
 def build_remote_script(
     *,
     version: str,
     platform: str,
     runtime_source: str,
     artifact_name: str,
-    lock_file_name: str,
-    lock_sha256: str,
 ) -> str:
     if runtime_source == "copy-from-current":
         runtime_validation = '"$BUILD_ROOT/bundle/runtime/bin/python" -c "import fastapi, uvicorn, pydantic"'
@@ -334,21 +350,7 @@ def build_remote_script(
             '-o "$BUILD_ROOT/runtime.tar.gz" --force\n'
             'tar -xzf "$BUILD_ROOT/runtime.tar.gz" -C "$BUILD_ROOT/bundle/runtime"'
         )
-    manifest = {
-        "service": REMOTE_RUNNER_ARTIFACT.service,
-        "version": version,
-        "platform": platform,
-        "runtime": {
-            "provider": "bundled",
-            "python": "runtime/bin/python",
-        },
-        "build": {
-            "runtimeSource": runtime_source,
-            "lockFile": lock_file_name if runtime_source == "lockfile" else "",
-            "lockSha256": lock_sha256 if runtime_source == "lockfile" else "",
-        },
-        **build_runner_protocol_manifest_fields(),
-    }
+    manifest = build_bootstrap_manifest(version=version, platform=platform)
     return f"""
 set -euo pipefail
 cd "$BUILD_ROOT"
@@ -440,6 +442,9 @@ RestartSec=2
 [Install]
 WantedBy=default.target
 SERVICE
+find "$BUILD_ROOT/bundle" -type d -exec chmod 755 {{}} +
+find "$BUILD_ROOT/bundle" -type f -perm /111 -exec chmod 755 {{}} +
+find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {{}} +
 chmod 755 "$BUILD_ROOT/bundle"/*.sh
 test -x "$BUILD_ROOT/bundle/runtime/bin/python"
 tar -czf {shlex.quote(artifact_name)} -C "$BUILD_ROOT/bundle" .
@@ -461,13 +466,13 @@ def build_remote_script_plan(
         "version": version,
         "platform": platform,
         "runtimeSource": runtime_source,
+        "lockFile": lock_file_name if runtime_source == "lockfile" else "",
+        "lockSha256": lock_sha256 if runtime_source == "lockfile" else "",
         "remoteScript": build_remote_script(
             version=version,
             platform=platform,
             runtime_source=runtime_source,
             artifact_name=artifact_name,
-            lock_file_name=lock_file_name,
-            lock_sha256=lock_sha256,
         ),
     }
 

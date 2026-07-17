@@ -24,6 +24,12 @@ from core.contracts.runner_process_owner import (
     RUNNER_PROCESS_OWNER_CONFIGURED_MODES,
     RUNNER_PROCESS_OWNER_SERVICE,
 )
+from core.contracts.runner_activation_release_bootstrap_manifest import (
+    RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_MAX_BYTES,
+    require_runner_activation_release_artifact_version,
+    require_runner_activation_release_bootstrap_manifest,
+    runner_activation_release_bootstrap_manifest_fingerprint,
+)
 
 from .runtime_state import RUNNER_RUNTIME_STATE_FILENAME
 from .workflow_runtime_config import DEFAULT_WORKFLOW_PROFILE_NAME
@@ -31,7 +37,7 @@ from .workflow_runtime_config import DEFAULT_WORKFLOW_PROFILE_NAME
 
 REMOTE_CONFIG_ENV = "H2OMETA_REMOTE_CONFIG"
 
-_JSON_SNAPSHOT_LIMIT_BYTES = 1024 * 1024
+_JSON_SNAPSHOT_LIMIT_BYTES = RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_MAX_BYTES
 _ARTIFACT_SHA256_SNAPSHOT_LIMIT_BYTES = 65
 _PERSISTED_CONFIG_FINGERPRINT_DOMAIN = (
     b"h2ometa.remote-runner.startup.persisted-config.v1"
@@ -39,11 +45,7 @@ _PERSISTED_CONFIG_FINGERPRINT_DOMAIN = (
 _EFFECTIVE_CONFIG_FINGERPRINT_DOMAIN = (
     b"h2ometa.remote-runner.startup.effective-config.v1"
 )
-_BOOTSTRAP_MANIFEST_FINGERPRINT_DOMAIN = (
-    b"h2ometa.remote-runner.startup.bootstrap-manifest.v1"
-)
 _ARTIFACT_ARCHIVE_SHA256_PATTERN = re.compile(rb"[0-9a-f]{64}(?:\n)?\Z")
-_RUNNER_VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _EXPLICIT_STARTUP_IDENTITY_FIELDS = frozenset(
     {"mode", "service_name", "version", "workflow_profile_name"}
 )
@@ -138,7 +140,7 @@ def load_remote_runner_startup_snapshot(
         missing_code="REMOTE_RUNNER_ARTIFACT_MANIFEST_MISSING",
         invalid_code="REMOTE_RUNNER_ARTIFACT_MANIFEST_INVALID",
     )
-    _require_bootstrap_manifest_matches_config(
+    manifest = _require_bootstrap_manifest_matches_config(
         manifest,
         config_payload=config_payload,
         expectation=expectation,
@@ -179,9 +181,10 @@ def load_remote_runner_startup_snapshot(
         "packagePath": str(actual_package_dir),
         "runnerPythonPath": str(expected_python),
         "manifestPath": str(manifest_path),
-        "bootstrapManifestFingerprint": _fingerprint_json(
-            _BOOTSTRAP_MANIFEST_FINGERPRINT_DOMAIN,
-            manifest,
+        "bootstrapManifestFingerprint": (
+            runner_activation_release_bootstrap_manifest_fingerprint(
+                manifest,
+            )
         ),
         "artifactArchiveSha256Path": str(artifact_sha256_path),
         "declaredArtifactArchiveSha256": declared_artifact_sha256,
@@ -215,11 +218,7 @@ def _require_exact_mutable_runtime_layout(
         )
     if cfg.mode not in RUNNER_PROCESS_OWNER_CONFIGURED_MODES:
         raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: mode")
-    if (
-        not isinstance(cfg.version, str)
-        or _RUNNER_VERSION_PATTERN.fullmatch(cfg.version) is None
-    ):
-        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: version")
+    _require_mutable_layout_artifact_version(cfg.version)
     if (
         config_payload.get("workflow_profile_name")
         != DEFAULT_WORKFLOW_PROFILE_NAME
@@ -417,9 +416,10 @@ def _require_bootstrap_manifest_matches_config(
     *,
     config_payload: Mapping[str, Any],
     expectation: Mapping[str, str],
-) -> None:
+) -> dict[str, object]:
     if manifest.get("service") != "h2ometa-remote":
         raise RuntimeError("REMOTE_RUNNER_ARTIFACT_MANIFEST_SERVICE_MISMATCH")
+    _require_mutable_layout_artifact_version(config_payload.get("version"))
     if manifest.get("version") != config_payload.get("version"):
         raise RuntimeError("REMOTE_RUNNER_ARTIFACT_MANIFEST_VERSION_MISMATCH")
     runtime = manifest.get("runtime")
@@ -447,6 +447,20 @@ def _require_bootstrap_manifest_matches_config(
         descriptor["protocolVersion"],
     ):
         raise RuntimeError("REMOTE_RUNNER_CONFIG_ARTIFACT_PROTOCOL_MISMATCH")
+    return require_runner_activation_release_bootstrap_manifest(
+        manifest,
+        make_error=RuntimeError,
+    )
+
+
+def _require_mutable_layout_artifact_version(value: object) -> None:
+    try:
+        require_runner_activation_release_artifact_version(
+            value,
+            make_error=RuntimeError,
+        )
+    except RuntimeError:
+        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: version") from None
 
 
 def _read_json_object_snapshot(
@@ -468,7 +482,7 @@ def _read_json_object_snapshot(
             parse_constant=_reject_non_finite_json_number,
         )
         _require_utf8_scalar_json(payload)
-    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+    except (UnicodeError, ValueError, RecursionError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"{invalid_code}: {path}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"{invalid_code}: expected JSON object")

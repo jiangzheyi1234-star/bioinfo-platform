@@ -82,6 +82,16 @@ def build_runner_activation_release_tree_manifest(
     return _normalized_manifest(normalized_entries)
 
 
+def require_runner_activation_release_tree_entries(
+    entries: object,
+    *,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> list[dict[str, object]]:
+    """Validate portable tree entries without constructing or hashing a manifest."""
+
+    return _require_entries(entries, make_error=make_error)
+
+
 def require_runner_activation_release_tree_manifest(
     payload: object,
     *,
@@ -634,6 +644,7 @@ __all__ = [
     "RUNNER_ACTIVATION_RELEASE_TREE_ROOT_MODE",
     "RUNNER_ACTIVATION_RELEASE_TREE_SCHEMA",
     "build_runner_activation_release_tree_manifest",
+    "require_runner_activation_release_tree_entries",
     "require_runner_activation_release_tree_manifest",
     "runner_activation_release_tree_content_fingerprint",
     "runner_activation_release_tree_manifest_canonical_json",

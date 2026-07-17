@@ -313,8 +313,9 @@ tree immutable 或 startup zero-write。PID、owner、socket、日志和 runtime
 
 - 每次发布使用 128-bit lowercase hex `publicationId`，唯一派生
   `release-objects/<publicationId>`；调用方不能提供 descendant path，已用 ID 永不重用；
-- tree 外的 exact intent 绑定 installation fingerprint、artifact version/platform、archive SHA/size、artifact
-  manifest/provenance fingerprint，以及固定 materialization/extraction/relocation policy；
+- tree 外的 exact intent 绑定 installation fingerprint、artifact version/platform、archive SHA/size、内嵌
+  `bootstrap_manifest.json` 的 semantic fingerprint、provenance fingerprint，以及固定
+  materialization/extraction/relocation policy；
 - external manifest 与最终 receipt 分别 durable no-replace 保存；receipt 冗余校验 intent fingerprint，并绑定
   actual tree content/manifest fingerprint 与本地 root dev/inode。Intent、manifest 或自洽 receipt 单独存在都
   不是 `prepared`，marker/receipt 后仍需完整 tree reproof；
@@ -333,6 +334,43 @@ symlink/hardlink escape、容量炸弹与未政策化 metadata；relocation 必�
 遗留 writable fd。Fresh session 绝不能领养 markerless partial tree：它只能被标为 abandoned 并由新的
 publication ID 重试。Marker rename 后结果未知则只能通过 external records 与完整实际 tree 的 exact reproof
 化解。
+
+2026-07-18 的 exhaustive archive 专项研究进一步固定了下一层边界：Python `tarfile` 只能用作未来 inspector
+的 bounded parser/regular-payload reader，authority publisher 永不调用 `extract`、`extractall`、
+`shutil.unpack_archive` 或 shell `tar`。PEP 706 与 Python 文档明确说明 filter 不覆盖 DoS，异常还可能留下 partial
+tree；GNU tar 与 libarchive 也把 absolute/dotdot、symlink、overwrite 和可信空目录作为独立控制面。
+
+首个 dormant archive contract 因此只描述 inspector 应产出的 normalized record：它精确绑定 compressed archive
+SHA/size、inspector 实测的 decompressed tar-stream bytes、`tar+gzip`、extraction policy、member/byte summary，以及
+有序的 directory/file/symlink/hardlink 图。它封闭 printable-ASCII path、显式 parent、duplicate/prefix collision、
+source mode、regular content SHA、内部 link graph、aggregate canonical member bytes、完整 canonical manifest bytes、
+raw stream 绝对上限和基于 raw stream 的 compression ratio。Tar header、padding、PAX/GNU long-name 因此不能再以
+tiny payload 绕过容量政策。Graph 复用不产生 fingerprint 的纯 release-tree entry validator，不为临时校验构造并
+散列第二份大 manifest。
+
+Record 还内嵌从固定 regular member `bootstrap_manifest.json` 解析出的 exact normalized semantic object、raw-content
+SHA-256 与 domain-separated fingerprint。共享 core contract 将 raw JSON 限为 1 MiB，拒绝 duplicate key、non-finite
+number 与非法 UTF-8，并封闭 service/version/platform、bundled runtime 与 runner protocol；startup preflight 和未来
+inspector 共用既有 `h2ometa.remote-runner.startup.bootstrap-manifest.v1` domain。Publication intent 升级为 v2：
+保留独立 `bootstrapManifestFingerprint`，另设 `archiveInspectionManifestFingerprint`；binding 同时比较两者、
+version、platform、archive digest/size 与 policy，不再重载一个字段表示两份文档。Raw UID/GID、mtime、PAX、
+sparse、device、xattr/ACL/capability 等不能由调用方在 normalized record 中自证；未来真实 inspector 必须先从
+held archive fd 拒绝任何非政策 raw metadata，再构造该 record。自洽 record 仍不是 archive observation、tree
+authority 或 `prepared`。
+
+旧 0.1.1 bundle 的只读采样含 1,175 个 symlink 与 3 个 hardlink，因此简单拒绝全部 link 会破坏真实 conda
+环境；安全策略改为完整内部图解析。Raw archive hardlink 可指向任意 regular primary；进入 installed-tree 合同前，
+每个 inode-alias group 都重写为 lexicographically first path 是唯一 canonical file，其余路径 hardlink 到它，从而
+避免同一实际 tree 有两份 identity。该旧包还含 242 个非政策 mode 与 legacy
+`.h2ometa-conda-unpacked`，只能作为 link-topology 样本。当前声明的 0.1.5 包也尚未通过：conda-pack 0.9.1
+生成的 `runtime/bin/conda_unpack_progress.py` 是 `0600`；bootstrap JSON 还含 legacy `build` object，缺少 required
+`runnerProtocol`/`runnerProtocolFingerprint`。仓库内的 artifact builder 现已在打包前把 non-executable file
+确定性规范化为 `0644`、executable file 与 directory 规范化为 `0755`，并输出 exact current bootstrap contract；
+已发布的 0.1.5 仍须由该 builder 重建后才能作为验收候选。Raw-name 兼容只允许忽略一个 root `.`/`./` header，并从 member
+name/hardlink target 精确移除一次前导 `./`；禁止 `strip("./")`、重复 prefix 清除或改写 symlink target。
+
+Materializer 仍必须先 reserve 永不复用的 real final path，在该 path 内逐 member fd-relative 创建，最后创建
+link，原地完成 conda relocation，然后 seal/fsync/fresh-walk/marker-last。本轮仍不接 bootstrap 或 generation。
 
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
@@ -511,7 +549,12 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [Python secrets：OS CSPRNG 与 compare_digest](https://docs.python.org/3/library/secrets.html)
 - [conda-pack：目标端 `conda-unpack` 与执行后不可再次搬迁](https://conda.github.io/conda-pack/)
 - [conda-pack CLI：`--dest-prefix` 精确路径绑定且不生成 `conda-unpack`](https://conda.github.io/conda-pack/cli.html)
+- [conda-pack 0.9.1 source：generated text file mode](https://github.com/conda/conda-pack/blob/0.9.1/conda_pack/core.py)
 - [Python tarfile：extraction filter 与 installed-tree 差异](https://docs.python.org/3/library/tarfile.html)
+- [PEP 706：tarfile extraction filter 的政策边界](https://peps.python.org/pep-0706/)
+- [POSIX pax archive semantics](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html)
+- [GNU tar manual 与 archive security guidance](https://www.gnu.org/software/tar/manual/tar.html)
+- [libarchive extraction option boundaries](https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_extract.3)
 - [Linux `openat2`：beneath、nofollow、no-magiclink 与 no-xdev resolve policy](https://man7.org/linux/man-pages/man2/openat2.2.html)
 - [Linux `fsync`：文件与 containing directory 的独立持久化边界](https://man7.org/linux/man-pages/man2/fsync.2.html)
 - [systemd credentials：unit-scoped credential custody](https://systemd.io/CREDENTIALS/)

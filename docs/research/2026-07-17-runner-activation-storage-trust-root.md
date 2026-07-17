@@ -313,8 +313,9 @@ The next architecture-track slice is a dormant publication foundation. A
 128-bit lowercase hexadecimal publication ID uniquely derives
 `release-objects/<publicationId>`; callers never provide a descendant path and
 IDs are never reused. An external exact intent binds installation, artifact
-version/platform, archive digest/size, artifact-manifest and provenance
-fingerprints, and pinned materialization/extraction/relocation policies. The
+version/platform, archive digest/size, the embedded `bootstrap_manifest.json`
+semantic fingerprint, provenance fingerprint, and pinned
+materialization/extraction/relocation policies. The
 external manifest and final receipt remain separate no-replace records. The
 receipt binds the normalized intent fingerprint, actual tree-content and
 manifest fingerprints, and local root device/inode. None of these records alone
@@ -343,6 +344,125 @@ descriptor survives. A fresh session must never adopt or continue a markerless
 partial tree: it is abandoned and a new publication ID is required. Only a
 possibly committed marker can be reconciled, through exact external-record and
 full-tree proof.
+
+#### Exhaustive archive-inspection update (2026-07-18)
+
+The archive-specific follow-up used more than ten Firecrawl search angles and
+scraped over twenty-five upstream, standards, kernel, and security sources. It
+covered CPython/tarfile and PEP 706, POSIX pax and GNU tar semantics,
+libarchive's secure-extraction flags, Linux pathname/publication syscalls,
+conda-pack source and relocation, OCI layer/descriptor rules, CWE resource/path
+weaknesses, and OWASP archive-upload guidance. The result strengthens, rather
+than relaxes, the earlier stop condition: neither `TarFile.data_filter` nor a
+post-hoc pathname check is the installed-tree security boundary.
+
+Python's documentation explicitly requires prior inspection of untrusted
+archives, warns that filters do not stop denial-of-service, and notes that an
+exception can leave a partially extracted tree. PEP 706 deliberately keeps
+filters as policy hooks rather than promising a universal safe extractor.
+Libarchive exposes separate flags for `NOABSOLUTEPATHS`, `NODOTDOT`, secure
+symlinks and no-overwrite, which is useful corroboration that these are
+independent decisions. GNU tar likewise recommends an empty trusted extraction
+directory and treats links and writable ancestors as separate risks. H2OMeta
+therefore uses Python tar parsing only for a future bounded inspector and
+regular payload reader; it will never call `extract`, `extractall`,
+`shutil.unpack_archive`, or shell `tar` in the authority publisher.
+
+A read-only sample of the repository's old 0.1.1 control-plane bundle contained
+13,468 members, including 1,175 symlinks and three hardlinks. Most symlink
+targets containing `..` still resolved inside the tree. This sample is not
+current-artifact acceptance evidence, but it disproves the tempting rule
+"reject every link". The accepted model is an explicit internal link graph:
+relative symlinks may contain `.`/`..` only when complete graph resolution stays
+inside the root, terminates, and has bounded depth. Raw archive hardlinks may
+target any canonical regular member, never another link or a directory. Before
+installed-tree validation, each inode-alias group is rewritten so its
+lexicographically first path is the sole canonical file and every later path is
+a hardlink to it; one real tree therefore has only one portable identity.
+
+The first dormant archive manifest is intentionally an inspection-record
+contract, not a tar reader. It binds exact compressed archive SHA-256 and byte
+length, the inspector-observed decompressed tar-stream byte length, `tar+gzip`,
+extraction policy v1, derived member and byte totals, and an ordered normalized
+member list. Each member has only path, type, source mode, size, regular-file
+content SHA-256, and link target. The contract closes printable ASCII
+component/path rules, explicit directory parents, duplicate/prefix collisions,
+file/directory/symlink/hardlink metadata, internal link graph, member count,
+per-file bytes, aggregate payload/logical-tree bytes, aggregate canonical
+member-record bytes, full canonical manifest bytes, compressed and raw-stream
+absolute limits, and the raw-stream compression ratio. Tar headers, padding,
+PAX records, and GNU long-name records therefore cannot bypass the ratio with a
+tiny regular payload. It accepts only source file modes `0644|0755`, directory
+`0755`, and symlink `0777`; special/sparse/unknown types are outside policy.
+
+The record embeds the exact normalized semantic object parsed from the fixed
+regular member `bootstrap_manifest.json`, its raw-content SHA-256, and its
+domain-separated semantic fingerprint. A shared core contract caps the raw JSON
+at 1 MiB, rejects duplicate keys, non-finite numbers and invalid UTF-8, and
+closes service, version, platform, bundled-runtime and runner-protocol fields.
+The startup preflight and future inspector use the same existing
+`h2ometa.remote-runner.startup.bootstrap-manifest.v1` identity. Publication
+intent v2 retains that bootstrap identity and adds a separate
+`archiveInspectionManifestFingerprint`; the archive binder compares both
+identities plus version, platform, archive digest/size, and extraction policy.
+The repository release declaration, embedded bootstrap manifest, archive
+inspection record, and installed-tree manifest are four distinct documents. No
+field is reused for more than one.
+
+Raw tar UID/GID, uname/gname, mtime, PAX keys, GNU sparse metadata, device
+numbers, xattrs, ACLs, capabilities, and exact `./` spelling are deliberately
+not fields callers may assert in that normalized contract. The future real
+inspector must reject any non-policy raw metadata before constructing the
+record. It must also snapshot a held regular archive fd, prove fstat identity
+before and after, make two bounded passes, reject normalization collisions, and
+hash every regular payload. A self-consistent manifest still proves none of
+those observations. For current builder compatibility, the inspector may ignore
+one root `.`/`./` directory header and remove exactly one leading `./` from a
+non-root member name or hardlink target before validation. It must not use
+`strip("./")`, remove repeated prefixes, or rewrite symlink target text; any
+remaining absolute, dot-component, duplicate, or normalization collision is a
+hard failure.
+
+The declared 0.1.5 control-plane archive (SHA-256
+`d9624da99cff5334a92b53a48a4176a421d1e9b27da23a339939aaa6eaf9b961`,
+105,989,502 bytes) is not yet acceptance evidence for this policy. Conda-pack
+0.9.1 emitted `runtime/bin/conda_unpack_progress.py` with mode `0600`; its
+bootstrap JSON also has a legacy `build` object and lacks the required
+`runnerProtocol` and `runnerProtocolFingerprint`. Its three raw hardlinks are
+safe under the two-phase canonicalization above. The repository artifact builder
+now deterministically normalizes non-executable regular files to `0644`, executable
+files and directories to `0755`, and emits the exact current bootstrap contract.
+The published 0.1.5 archive still needs to be rebuilt by that builder before it can
+become an acceptance candidate. The older 0.1.1 sample is useful only for link
+topology; it has 242 non-policy modes and a legacy `.h2ometa-conda-unpacked`
+member, so it is explicitly rejected as an acceptance fixture.
+
+The later materializer reserves the opaque final directory first, extracts
+there through held directory fds, and performs conda relocation at that exact
+path before sealing. It creates regular files exclusively, creates hardlinks
+only from verified primary inodes, and creates symlinks last without traversing
+them. It then applies read-only modes, fsyncs unique files and directories,
+closes writable descriptors, walks the real tree afresh, and only then commits
+external evidence and a marker. Markerless trees are abandoned; a possible
+marker commit followed by any uncertain durability or reproof result is
+`outcome_unknown`.
+
+Contrarian limits remain. Fixed quotas are availability policy, not a proof
+that memory, CPU, disk allocation, or decompressor implementation has no bugs.
+ASCII-only names and normalized modes trade artifact generality for a closed
+execution surface. Link-graph acceptance does not make links safe to traverse
+during extraction. The installed-tree publisher still cannot enter production
+until startup relocation, release-root PID/marker writes, and mutable `current`
+execution are removed.
+
+Research rerun inputs:
+
+```text
+workflow: firecrawl-deep-research
+topic: secure tar+gzip inspection, fd-relative materialization, conda-pack relocation, and durable installed-tree publication
+depth: exhaustive (no time limit)
+output: markdown decision update
+```
 
 ### 6. Systemd credentials are an optional stronger backend
 
@@ -436,6 +556,20 @@ significant.
 - [RFC 5869: HKDF](https://www.rfc-editor.org/rfc/rfc5869.html)
 - [NIST SP 800-108r1](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-108r1.pdf)
 - [Python tarfile extraction filters](https://docs.python.org/3/library/tarfile.html)
+- [conda-pack 0.9.1 source: generated text-file mode behavior](https://github.com/conda/conda-pack/blob/0.9.1/conda_pack/core.py)
+- [PEP 706: tarfile extraction filters](https://peps.python.org/pep-0706/)
+- [POSIX pax](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html)
+- [GNU tar manual and archive security guidance](https://www.gnu.org/software/tar/manual/tar.html)
+- [libarchive extraction options](https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_extract.3)
+- [Linux kernel pathname lookup](https://docs.kernel.org/filesystems/path-lookup.html)
+- [Linux link/linkat(2)](https://man7.org/linux/man-pages/man2/linkat.2.html)
+- [Linux unlink/unlinkat(2)](https://man7.org/linux/man-pages/man2/unlink.2.html)
+- [Linux mkdir/mkdirat(2)](https://man7.org/linux/man-pages/man2/mkdir.2.html)
+- [Linux statx(2)](https://man7.org/linux/man-pages/man2/statx.2.html)
+- [CWE-22: path traversal](https://cwe.mitre.org/data/definitions/22.html)
+- [CWE-409: improper handling of highly compressed data](https://cwe.mitre.org/data/definitions/409.html)
+- [OWASP file upload cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
+- [OCI image layer filesystem changeset](https://github.com/opencontainers/image-spec/blob/main/layer.md)
 - [TUF specification](https://theupdateframework.github.io/specification/latest/)
 - [in-toto Statement v1](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)
 - [OCI descriptor specification](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)

@@ -11,8 +11,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import hmac
-import re
 
+from .runner_activation_release_archive import (
+    RUNNER_ACTIVATION_RELEASE_ARCHIVE_EXTRACTION_POLICY,
+    RUNNER_ACTIVATION_RELEASE_ARTIFACT_PLATFORMS,
+    require_runner_activation_release_archive_manifest,
+    require_runner_activation_release_artifact_platform,
+    require_runner_activation_release_artifact_version,
+    runner_activation_release_archive_manifest_fingerprint,
+)
 from .runner_activation_release_tree import (
     RUNNER_ACTIVATION_RELEASE_TREE_MATERIALIZATION_POLICY,
     require_runner_activation_release_tree_manifest,
@@ -32,29 +39,30 @@ from .runner_activation_validation import (
 
 
 RUNNER_ACTIVATION_RELEASE_PUBLICATION_INTENT_SCHEMA = (
-    "h2ometa.runner-installed-release-publication-intent.v1"
+    "h2ometa.runner-installed-release-publication-intent.v2"
 )
 RUNNER_ACTIVATION_RELEASE_PUBLICATION_RECEIPT_SCHEMA = (
-    "h2ometa.runner-installed-release-publication-receipt.v1"
+    "h2ometa.runner-installed-release-publication-receipt.v2"
 )
 RUNNER_ACTIVATION_RELEASE_EXTRACTION_POLICY = (
-    "h2ometa.runner-installed-release-extraction.v1"
+    RUNNER_ACTIVATION_RELEASE_ARCHIVE_EXTRACTION_POLICY
 )
 RUNNER_ACTIVATION_RELEASE_RELOCATION_POLICY = (
     "h2ometa.runner-installed-release-relocation.v1"
 )
 RUNNER_ACTIVATION_RELEASE_PUBLICATION_SERVICE = RUNNER_ACTIVATION_SERVICE
 RUNNER_ACTIVATION_RELEASE_OBJECTS_DIRECTORY = "release-objects"
-RUNNER_ACTIVATION_RELEASE_PLATFORMS = frozenset({"linux-64", "linux-aarch64"})
+RUNNER_ACTIVATION_RELEASE_PLATFORMS = RUNNER_ACTIVATION_RELEASE_ARTIFACT_PLATFORMS
 
 _INTENT_FIELDS = frozenset(
     {
         "artifactArchiveSha256",
         "artifactArchiveSizeBytes",
-        "artifactManifestFingerprint",
         "artifactPlatform",
         "artifactProvenanceFingerprint",
         "artifactVersion",
+        "archiveInspectionManifestFingerprint",
+        "bootstrapManifestFingerprint",
         "extractionPolicyVersion",
         "installationFingerprint",
         "materializationPolicyVersion",
@@ -76,9 +84,6 @@ _RECEIPT_FIELDS = frozenset(
         "schemaVersion",
         "service",
     }
-)
-_ARTIFACT_VERSION_PATTERN = re.compile(
-    r"^[0-9A-Za-z](?:[0-9A-Za-z._+-]{0,126}[0-9A-Za-z])?$"
 )
 _INTENT_FINGERPRINT_DOMAIN = RUNNER_ACTIVATION_RELEASE_PUBLICATION_INTENT_SCHEMA.encode(
     "ascii"
@@ -111,7 +116,8 @@ def build_runner_activation_release_publication_intent(
     artifact_platform: object,
     artifact_archive_sha256: object,
     artifact_archive_size_bytes: object,
-    artifact_manifest_fingerprint: object,
+    bootstrap_manifest_fingerprint: object,
+    archive_inspection_manifest_fingerprint: object,
     artifact_provenance_fingerprint: object,
     make_error: Callable[[str], Exception] = ValueError,
 ) -> dict[str, object]:
@@ -121,10 +127,13 @@ def build_runner_activation_release_publication_intent(
         {
             "artifactArchiveSha256": artifact_archive_sha256,
             "artifactArchiveSizeBytes": artifact_archive_size_bytes,
-            "artifactManifestFingerprint": artifact_manifest_fingerprint,
             "artifactPlatform": artifact_platform,
             "artifactProvenanceFingerprint": artifact_provenance_fingerprint,
             "artifactVersion": artifact_version,
+            "archiveInspectionManifestFingerprint": (
+                archive_inspection_manifest_fingerprint
+            ),
+            "bootstrapManifestFingerprint": bootstrap_manifest_fingerprint,
             "extractionPolicyVersion": (RUNNER_ACTIVATION_RELEASE_EXTRACTION_POLICY),
             "installationFingerprint": installation_fingerprint,
             "materializationPolicyVersion": (
@@ -185,18 +194,14 @@ def require_runner_activation_release_publication_intent(
         field="releasePublicationIntent.releaseTreeRelativePath",
         make_error=make_error,
     )
-    artifact_version = _require_artifact_version(
+    artifact_version = require_runner_activation_release_artifact_version(
         mapping.get("artifactVersion"),
         make_error=make_error,
     )
-    artifact_platform = mapping.get("artifactPlatform")
-    if (
-        not isinstance(artifact_platform, str)
-        or artifact_platform not in RUNNER_ACTIVATION_RELEASE_PLATFORMS
-    ):
-        raise make_error(
-            "runner activation releasePublicationIntent.artifactPlatform is invalid"
-        )
+    artifact_platform = require_runner_activation_release_artifact_platform(
+        mapping.get("artifactPlatform"),
+        make_error=make_error,
+    )
     _require_exact_string(
         mapping.get("materializationPolicyVersion"),
         expected=RUNNER_ACTIVATION_RELEASE_TREE_MATERIALIZATION_POLICY,
@@ -225,9 +230,14 @@ def require_runner_activation_release_publication_intent(
         "releasePublicationIntent.artifactArchiveSha256",
         make_error,
     )
-    artifact_manifest_fingerprint = _require_fingerprint(
-        mapping.get("artifactManifestFingerprint"),
-        "releasePublicationIntent.artifactManifestFingerprint",
+    bootstrap_manifest_fingerprint = _require_fingerprint(
+        mapping.get("bootstrapManifestFingerprint"),
+        "releasePublicationIntent.bootstrapManifestFingerprint",
+        make_error,
+    )
+    archive_inspection_manifest_fingerprint = _require_fingerprint(
+        mapping.get("archiveInspectionManifestFingerprint"),
+        "releasePublicationIntent.archiveInspectionManifestFingerprint",
         make_error,
     )
     artifact_provenance_fingerprint = _require_fingerprint(
@@ -242,10 +252,13 @@ def require_runner_activation_release_publication_intent(
             "releasePublicationIntent.artifactArchiveSizeBytes",
             make_error,
         ),
-        "artifactManifestFingerprint": artifact_manifest_fingerprint,
         "artifactPlatform": artifact_platform,
         "artifactProvenanceFingerprint": artifact_provenance_fingerprint,
         "artifactVersion": artifact_version,
+        "archiveInspectionManifestFingerprint": (
+            archive_inspection_manifest_fingerprint
+        ),
+        "bootstrapManifestFingerprint": bootstrap_manifest_fingerprint,
         "extractionPolicyVersion": RUNNER_ACTIVATION_RELEASE_EXTRACTION_POLICY,
         "installationFingerprint": installation_fingerprint,
         "materializationPolicyVersion": (
@@ -480,6 +493,53 @@ def require_runner_activation_release_publication_manifest_binding(
     return receipt
 
 
+def require_runner_activation_release_publication_archive_binding(
+    intent_payload: object,
+    *,
+    archive_manifest: object,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> dict[str, object]:
+    """Bind a publication intent to one supplied archive inspection manifest."""
+
+    intent = require_runner_activation_release_publication_intent(
+        intent_payload,
+        make_error=make_error,
+    )
+    manifest = require_runner_activation_release_archive_manifest(
+        archive_manifest,
+        make_error=make_error,
+    )
+    expected_manifest_fingerprint = (
+        runner_activation_release_archive_manifest_fingerprint(
+            manifest,
+            make_error=make_error,
+        )
+    )
+    if (
+        not hmac.compare_digest(
+            str(intent["artifactArchiveSha256"]),
+            str(manifest["artifactArchiveSha256"]),
+        )
+        or intent["artifactArchiveSizeBytes"] != manifest["artifactArchiveSizeBytes"]
+        or intent["extractionPolicyVersion"] != manifest["extractionPolicyVersion"]
+        or not hmac.compare_digest(
+            str(intent["archiveInspectionManifestFingerprint"]),
+            expected_manifest_fingerprint,
+        )
+        or not hmac.compare_digest(
+            str(intent["bootstrapManifestFingerprint"]),
+            str(manifest["bootstrapManifestFingerprint"]),
+        )
+        or not isinstance(manifest["bootstrapManifest"], dict)
+        or intent["artifactVersion"] != manifest["bootstrapManifest"]["version"]
+        or intent["artifactPlatform"] != manifest["bootstrapManifest"]["platform"]
+    ):
+        raise make_error(
+            "runner activation release publication archive binding is invalid"
+        )
+    return intent
+
+
 def runner_activation_release_publication_receipt_canonical_json(
     payload: object,
     *,
@@ -508,22 +568,6 @@ def runner_activation_release_publication_receipt_fingerprint(
     )
 
 
-def _require_artifact_version(
-    value: object,
-    *,
-    make_error: Callable[[str], Exception],
-) -> str:
-    if (
-        not isinstance(value, str)
-        or _ARTIFACT_VERSION_PATTERN.fullmatch(value) is None
-        or ".." in value
-    ):
-        raise make_error(
-            "runner activation releasePublicationIntent.artifactVersion is invalid"
-        )
-    return value
-
-
 __all__ = [
     "RUNNER_ACTIVATION_RELEASE_EXTRACTION_POLICY",
     "RUNNER_ACTIVATION_RELEASE_OBJECTS_DIRECTORY",
@@ -535,6 +579,7 @@ __all__ = [
     "build_runner_activation_release_publication_intent",
     "build_runner_activation_release_publication_receipt",
     "require_runner_activation_release_publication_intent",
+    "require_runner_activation_release_publication_archive_binding",
     "require_runner_activation_release_publication_manifest_binding",
     "require_runner_activation_release_publication_receipt",
     "runner_activation_release_publication_intent_canonical_json",

@@ -36,16 +36,18 @@ from core.contracts.runner_activation_release_tree import (
 PUBLICATION_ID = "1" * 32
 INSTALLATION_FINGERPRINT = "sha256:" + "a" * 64
 ARCHIVE_SHA256 = "sha256:" + "b" * 64
-ARTIFACT_MANIFEST_FINGERPRINT = "sha256:" + "c" * 64
+BOOTSTRAP_MANIFEST_FINGERPRINT = "sha256:" + "c" * 64
 PROVENANCE_FINGERPRINT = "sha256:" + "d" * 64
+ARCHIVE_INSPECTION_MANIFEST_FINGERPRINT = "sha256:" + "e" * 64
 
 INTENT_FIELDS = {
     "artifactArchiveSha256",
     "artifactArchiveSizeBytes",
-    "artifactManifestFingerprint",
     "artifactPlatform",
     "artifactProvenanceFingerprint",
     "artifactVersion",
+    "archiveInspectionManifestFingerprint",
+    "bootstrapManifestFingerprint",
     "extractionPolicyVersion",
     "installationFingerprint",
     "materializationPolicyVersion",
@@ -75,7 +77,10 @@ def _intent(**overrides: object) -> dict[str, object]:
         "artifact_platform": "linux-64",
         "artifact_archive_sha256": ARCHIVE_SHA256,
         "artifact_archive_size_bytes": 987_654,
-        "artifact_manifest_fingerprint": ARTIFACT_MANIFEST_FINGERPRINT,
+        "bootstrap_manifest_fingerprint": BOOTSTRAP_MANIFEST_FINGERPRINT,
+        "archive_inspection_manifest_fingerprint": (
+            ARCHIVE_INSPECTION_MANIFEST_FINGERPRINT
+        ),
         "artifact_provenance_fingerprint": PROVENANCE_FINGERPRINT,
     }
     values.update(overrides)
@@ -149,7 +154,10 @@ def test_intent_builder_does_not_accept_a_caller_selected_path() -> None:
             artifact_platform="linux-64",
             artifact_archive_sha256=ARCHIVE_SHA256,
             artifact_archive_size_bytes=1,
-            artifact_manifest_fingerprint=ARTIFACT_MANIFEST_FINGERPRINT,
+            bootstrap_manifest_fingerprint=BOOTSTRAP_MANIFEST_FINGERPRINT,
+            archive_inspection_manifest_fingerprint=(
+                ARCHIVE_INSPECTION_MANIFEST_FINGERPRINT
+            ),
             artifact_provenance_fingerprint=PROVENANCE_FINGERPRINT,
             release_tree_relative_path="release-objects/caller-choice",  # type: ignore[call-arg]
         )
@@ -322,7 +330,11 @@ def test_platform_set_is_exact() -> None:
     [
         ("installation_fingerprint", "installationFingerprint"),
         ("artifact_archive_sha256", "artifactArchiveSha256"),
-        ("artifact_manifest_fingerprint", "artifactManifestFingerprint"),
+        ("bootstrap_manifest_fingerprint", "bootstrapManifestFingerprint"),
+        (
+            "archive_inspection_manifest_fingerprint",
+            "archiveInspectionManifestFingerprint",
+        ),
         (
             "artifact_provenance_fingerprint",
             "artifactProvenanceFingerprint",
@@ -401,7 +413,7 @@ def test_receipt_rejects_missing_or_extra_fields(field: str) -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("schemaVersion", "h2ometa.runner-installed-release-publication-intent.v2"),
+        ("schemaVersion", "h2ometa.runner-installed-release-publication-intent.v3"),
         ("service", "another-service"),
         ("materializationPolicyVersion", "materialization.v2"),
         ("extractionPolicyVersion", "extraction.v2"),
@@ -455,7 +467,7 @@ def test_receipt_rejects_invalid_fingerprints(
     [
         (
             "schemaVersion",
-            "h2ometa.runner-installed-release-publication-receipt.v2",
+            "h2ometa.runner-installed-release-publication-receipt.v3",
         ),
         ("service", "another-service"),
     ],
@@ -570,18 +582,19 @@ def test_archive_tree_manifest_intent_and_receipt_identities_are_distinct() -> N
     receipt = _receipt(intent=intent, manifest=manifest)
     identities = {
         str(intent["artifactArchiveSha256"]),
-        str(intent["artifactManifestFingerprint"]),
+        str(intent["bootstrapManifestFingerprint"]),
+        str(intent["archiveInspectionManifestFingerprint"]),
         runner_activation_release_tree_content_fingerprint(manifest),
         runner_activation_release_tree_manifest_fingerprint(manifest),
         runner_activation_release_publication_intent_fingerprint(intent),
         runner_activation_release_publication_receipt_fingerprint(receipt),
     }
 
-    assert len(identities) == 6
+    assert len(identities) == 7
 
 
 def test_intent_allows_independently_derived_evidence_values_to_coincide() -> None:
-    intent = _intent(artifact_manifest_fingerprint=ARCHIVE_SHA256)
+    intent = _intent(bootstrap_manifest_fingerprint=ARCHIVE_SHA256)
 
     assert require_runner_activation_release_publication_intent(intent) == intent
     assert isinstance(

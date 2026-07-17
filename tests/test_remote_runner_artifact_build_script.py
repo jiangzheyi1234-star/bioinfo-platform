@@ -3,6 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from core.contracts.runner_activation_release_bootstrap_manifest import (
+    require_runner_activation_release_bootstrap_manifest,
+)
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from scripts import build_remote_runner_artifact_on_server as builder
 
@@ -85,6 +90,54 @@ def test_remote_build_script_embeds_exact_runner_protocol_descriptor() -> None:
 
     assert '"runnerProtocol"' in plan["remoteScript"]
     assert str(fields["runnerProtocolFingerprint"]) in plan["remoteScript"]
+
+
+def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_metadata() -> None:
+    manifest = builder.build_bootstrap_manifest(
+        version="protocol-test",
+        platform="linux-64",
+    )
+    plan = builder.build_remote_script_plan(
+        version="protocol-test",
+        platform="linux-64",
+        runtime_source="lockfile",
+        lock_file_name="explicit.txt",
+        lock_sha256="a" * 64,
+    )
+
+    assert require_runner_activation_release_bootstrap_manifest(manifest) == manifest
+    assert set(manifest) == {
+        "platform",
+        "runnerProtocol",
+        "runnerProtocolFingerprint",
+        "runtime",
+        "service",
+        "version",
+    }
+    assert '"build"' not in plan["remoteScript"]
+    assert plan["lockFile"] == "explicit.txt"
+    assert plan["lockSha256"] == "a" * 64
+    assert 'find "$BUILD_ROOT/bundle" -type d -exec chmod 755 {} +' in plan[
+        "remoteScript"
+    ]
+    assert 'find "$BUILD_ROOT/bundle" -type f -perm /111 -exec chmod 755 {} +' in (
+        plan["remoteScript"]
+    )
+    assert 'find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {} +' in (
+        plan["remoteScript"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("version", "platform"),
+    [("../invalid", "linux-64"), ("protocol-test", "win-64")],
+)
+def test_remote_build_script_rejects_invalid_bootstrap_identity(
+    version: str,
+    platform: str,
+) -> None:
+    with pytest.raises(ValueError):
+        builder.build_bootstrap_manifest(version=version, platform=platform)
 
 
 def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes() -> None:
