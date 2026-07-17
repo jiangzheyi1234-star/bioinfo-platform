@@ -353,6 +353,7 @@ def build_remote_script(
     manifest = build_bootstrap_manifest(version=version, platform=platform)
     return f"""
 set -euo pipefail
+umask 077
 cd "$BUILD_ROOT"
 {build_runtime_script(platform=platform, runtime_source=runtime_source)}
 {runtime_validation}
@@ -447,7 +448,7 @@ find "$BUILD_ROOT/bundle" -type f -perm /111 -exec chmod 755 {{}} +
 find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {{}} +
 chmod 755 "$BUILD_ROOT/bundle"/*.sh
 test -x "$BUILD_ROOT/bundle/runtime/bin/python"
-tar -czf {shlex.quote(artifact_name)} -C "$BUILD_ROOT/bundle" .
+tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C "$BUILD_ROOT/bundle" . | gzip -n > {shlex.quote(artifact_name)}
 printf "%s\\n" "$BUILD_ROOT/{artifact_name}"
 """
 

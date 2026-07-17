@@ -358,6 +358,30 @@ sparse、device、xattr/ACL/capability 等不能由调用方在 normalized recor
 held archive fd 拒绝任何非政策 raw metadata，再构造该 record。自洽 record 仍不是 archive observation、tree
 authority 或 `prepared`。
 
+Extraction policy v1 的 raw envelope 现固定为 POSIX.1-1988 USTAR，header 必须使用 exact USTAR magic/version；
+UID、GID 与 tar mtime 必须为零，uname/gname 必须为空，devmajor/devminor 必须为零。允许的 semantic member
+仍只有 regular file、directory、symlink 与 hardlink；GNU `L`/`K` long-name/long-link、PAX local/global header、
+GNU sparse、device、FIFO 及任何 special/unknown type 全部拒绝。USTAR 表达不了的 path 或 numeric field 必须让
+builder 失败，不能退回 GNU/PAX extension。Raw name normalization 只允许 directory member 精确移除一个末尾
+`/`，再应用既有的单个 root header 与单次前导 `./` 规则；重复 slash 或二次清理仍是 hard failure。
+mode、UID、GID、size 与 mtime 必须使用固定宽度、前导零 octal digit 与末尾 NUL；inactive
+devmajor/devminor 必须全 NUL。Checksum 必须精确使用六位 octal、NUL、space，regular typeflag 必须精确为
+`0`，不接受数值等价的空格编码或 legacy NUL typeflag。
+
+Gzip envelope 同样封闭：只接受一个 member、zero MTIME 且 `FLG == 0`；FEXTRA、FNAME、FCOMMENT、FHCRC、
+reserved FLG、第二个 concatenated member 以及 gzip member 后任意 trailing bytes 全部拒绝。Inspector 必须读到
+compressed EOF 并验证 CRC/ISIZE，不能把 gzip parser 停止位置当作 archive EOF。
+
+成功 inspection 返回的 held-FD capability 是 single-owner、不可 copy/deepcopy/pickle 的进程内对象；所有状态转换
+由同一把锁串行化。`F_DUPFD_CLOEXEC` 返回后，主线程只在“duplicate → owner”交接期临时延迟 SIGINT，并立即把
+descriptor 交给 CPython 3.12+ 原生 `_io.FileIO(closefd=True)`；非主线程不会执行 Python signal handler。
+Capability、外层失败清理与 `_io.FileIO` deallocator 共享同一个 owner。CPython 的 C 实现在释放 GIL 调用
+`close(2)` 前先把 owner 内部 fd 设为 `-1`，因此关闭异常或 `KeyboardInterrupt` 不会留下可再次关闭的旧 fd 编号；
+不再用 Python close-state 或 per-thread `pthread_sigmask` 冒充原子所有权。
+它不向后续阶段泄露 owned FD，只提供在锁内前后重证的 positional read。Descriptor 一旦被采纳，任何失败在分类前都必须再次重证；storage drift/不可用
+强于 archive rejection，而 cleanup failure 绝不能把 with-body 的 `outcome_unknown` 降级。公开固定错误同时清空
+exception cause/context，不能从异常对象取回 errno、path 或 raw policy detail。
+
 旧 0.1.1 bundle 的只读采样含 1,175 个 symlink 与 3 个 hardlink，因此简单拒绝全部 link 会破坏真实 conda
 环境；安全策略改为完整内部图解析。Raw archive hardlink 可指向任意 regular primary；进入 installed-tree 合同前，
 每个 inode-alias group 都重写为 lexicographically first path 是唯一 canonical file，其余路径 hardlink 到它，从而
@@ -365,9 +389,12 @@ authority 或 `prepared`。
 `.h2ometa-conda-unpacked`，只能作为 link-topology 样本。当前声明的 0.1.5 包也尚未通过：conda-pack 0.9.1
 生成的 `runtime/bin/conda_unpack_progress.py` 是 `0600`；bootstrap JSON 还含 legacy `build` object，缺少 required
 `runnerProtocol`/`runnerProtocolFingerprint`。仓库内的 artifact builder 现已在打包前把 non-executable file
-确定性规范化为 `0644`、executable file 与 directory 规范化为 `0755`，并输出 exact current bootstrap contract；
-已发布的 0.1.5 仍须由该 builder 重建后才能作为验收候选。Raw-name 兼容只允许忽略一个 root `.`/`./` header，并从 member
-name/hardlink target 精确移除一次前导 `./`；禁止 `strip("./")`、重复 prefix 清除或改写 symlink target。
+确定性规范化为 `0644`、executable file 与 directory 规范化为 `0755`，并输出 exact current bootstrap contract。
+它还以 `umask 077` 构建，使用固定 USTAR、name sort、zero owner/group/mtime 和 `gzip -n` 的单 member pipeline；
+`set -o pipefail` 保证 USTAR path 超限或 tar 失败不会产出成功结果。0.1.5 以及所有在该 envelope policy 前生成的
+已发布 archive 都必须由当前 builder 重建，不能 grandfather 为验收候选。Raw-name 兼容只允许忽略一个 root
+`.`/`./` header，并从 member name/hardlink target 精确移除一次前导 `./`；directory name 另可精确移除一个
+末尾 `/`。禁止 `strip("./")`、重复 prefix/slash 清除或改写 symlink target。
 
 Materializer 仍必须先 reserve 永不复用的 real final path，在该 path 内逐 member fd-relative 创建，最后创建
 link，原地完成 conda relocation，然后 seal/fsync/fresh-walk/marker-last。本轮仍不接 bootstrap 或 generation。
@@ -535,6 +562,8 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [Linux fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html)
 - [Linux write(2)：partial write 与延迟错误](https://man7.org/linux/man-pages/man2/write.2.html)
 - [Linux close(2)：close 非 durability proof 且不可盲目 retry](https://man7.org/linux/man-pages/man2/close.2.html)
+- [CPython 3.12 `_io.FileIO`：先失效内部 fd，再释放 GIL 执行 close](https://github.com/python/cpython/blob/v3.12.10/Modules/_io/fileio.c)
+- [Python signal：handler 只在主线程执行](https://docs.python.org/3/library/signal.html)
 - [Linux getrandom(2)：内核 CSPRNG 初始化与阻塞语义](https://man7.org/linux/man-pages/man2/getrandom.2.html)
 - [Linux statfs/fstatfs(2)：filesystem magic](https://man7.org/linux/man-pages/man2/statfs.2.html)
 - [Linux proc mountinfo(5)：mount ID、device 与 filesystem type](https://man7.org/linux/man-pages/man5/proc_pid_mountinfo.5.html)

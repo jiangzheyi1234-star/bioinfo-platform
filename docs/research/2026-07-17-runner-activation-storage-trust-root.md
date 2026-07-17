@@ -416,12 +416,50 @@ inspector must reject any non-policy raw metadata before constructing the
 record. It must also snapshot a held regular archive fd, prove fstat identity
 before and after, make two bounded passes, reject normalization collisions, and
 hash every regular payload. A self-consistent manifest still proves none of
-those observations. For current builder compatibility, the inspector may ignore
-one root `.`/`./` directory header and remove exactly one leading `./` from a
-non-root member name or hardlink target before validation. It must not use
-`strip("./")`, remove repeated prefixes, or rewrite symlink target text; any
-remaining absolute, dot-component, duplicate, or normalization collision is a
-hard failure.
+those observations.
+
+Extraction policy v1 now closes that raw envelope to POSIX.1-1988 USTAR with
+the exact USTAR magic/version. Tar UID, GID, and mtime are zero; uname/gname are
+empty; devmajor/devminor are zero. The only semantic types are regular file,
+directory, symlink, and hardlink. GNU `L`/`K` long-name/long-link records, local
+or global PAX headers, GNU sparse records, devices, FIFOs, and every other
+special or unknown type are rejected. A path or numeric field that USTAR cannot
+represent makes the builder fail; GNU/PAX extension fallback is forbidden. Raw
+name normalization may remove exactly one trailing `/` from a directory member,
+ignore one resulting root `.`/`./` directory header, and remove exactly one
+leading `./` from a non-root member name or hardlink target. It must not use
+`strip("./")`, remove repeated prefixes or slashes, or rewrite symlink target
+text; any remaining absolute, dot-component, duplicate, or normalization
+collision is a hard failure.
+
+Mode, UID, GID, size, and mtime use fixed-width, zero-padded octal digits
+followed by NUL; inactive devmajor/devminor fields are all NUL. The checksum is
+exactly six octal digits, NUL, and space. A regular member uses the exact `0`
+typeflag. Numerically equivalent space padding and the legacy NUL regular
+typeflag are rejected rather than treated as compatibility encodings.
+
+The gzip envelope is equally closed: exactly one member, zero MTIME, and
+`FLG == 0`. FEXTRA, FNAME, FCOMMENT, FHCRC, reserved FLG bits, a concatenated
+second member, and every byte after the sole member are rejected. The inspector
+must consume compressed EOF and verify CRC/ISIZE instead of treating a gzip
+parser stop position as archive EOF.
+
+The successful held-FD result is a single-owner, non-copyable, non-pickleable
+process capability. One lock serializes reads, proofs, and close. On the main
+thread, SIGINT is deferred only across the short `F_DUPFD_CLOEXEC`-to-owner
+handoff; Python signal handlers do not execute on non-main threads. The duplicate
+is immediately owned by CPython 3.12+ native `_io.FileIO(closefd=True)`.
+Capability close, outer failure cleanup, and the `_io.FileIO` deallocator share
+that one owner. CPython invalidates the owner's internal fd in C before releasing
+the GIL and entering `close(2)`, so a close error or `KeyboardInterrupt` cannot
+leave a stale fd number available for a second close. A Python close-state and
+per-thread `pthread_sigmask` are not treated as atomic ownership. The capability
+never returns its owned FD and instead offers positional reads with identity proofs before and
+after each call. Once a descriptor is adopted, every failure is re-proved before
+classification: storage drift or unavailability outranks archive rejection,
+while cleanup can never downgrade a body `outcome_unknown`. Fresh fixed public
+errors have no cause or context from which errno, paths, or raw policy details
+could be recovered.
 
 The declared 0.1.5 control-plane archive (SHA-256
 `d9624da99cff5334a92b53a48a4176a421d1e9b27da23a339939aaa6eaf9b961`,
@@ -431,11 +469,16 @@ bootstrap JSON also has a legacy `build` object and lacks the required
 `runnerProtocol` and `runnerProtocolFingerprint`. Its three raw hardlinks are
 safe under the two-phase canonicalization above. The repository artifact builder
 now deterministically normalizes non-executable regular files to `0644`, executable
-files and directories to `0755`, and emits the exact current bootstrap contract.
-The published 0.1.5 archive still needs to be rebuilt by that builder before it can
-become an acceptance candidate. The older 0.1.1 sample is useful only for link
-topology; it has 242 non-policy modes and a legacy `.h2ometa-conda-unpacked`
-member, so it is explicitly rejected as an acceptance fixture.
+files and directories to `0755`, emits the exact current bootstrap contract, and
+builds under `umask 077`. Its archive pipeline uses USTAR, sorted names, zero
+owner/group/mtime, and one `gzip -n` member; shell `pipefail` makes a USTAR path
+limit or tar failure fail the build rather than silently selecting an extension.
+The published 0.1.5 archive and every artifact produced before this envelope
+policy must be rebuilt by that builder before becoming an acceptance candidate;
+none is grandfathered. The older 0.1.1 sample is useful only for link topology;
+it has 242 non-policy modes, GNU long-name records, and a legacy
+`.h2ometa-conda-unpacked` member, so it is explicitly rejected as an acceptance
+fixture.
 
 The later materializer reserves the opaque final directory first, extracts
 there through held directory fds, and performs conda relocation at that exact
@@ -540,6 +583,8 @@ significant.
 - [Linux rename/renameat2(2)](https://man7.org/linux/man-pages/man2/rename.2.html)
 - [Linux write(2)](https://man7.org/linux/man-pages/man2/write.2.html)
 - [Linux close(2)](https://man7.org/linux/man-pages/man2/close.2.html)
+- [CPython 3.12 `_io.FileIO` implementation](https://github.com/python/cpython/blob/v3.12.10/Modules/_io/fileio.c)
+- [Python signal handling](https://docs.python.org/3/library/signal.html)
 - [Linux stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)
 - [Linux openat2(2)](https://man7.org/linux/man-pages/man2/openat2.2.html)
 - [Linux getrandom(2)](https://man7.org/linux/man-pages/man2/getrandom.2.html)

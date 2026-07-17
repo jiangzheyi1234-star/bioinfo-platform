@@ -41,6 +41,13 @@ class ActivationStorageOutcomeUnknown(ActivationStorageError):
     public_message = "activation storage outcome is unknown"
 
 
+class ActivationReleaseArchiveRejected(ActivationStorageError):
+    """The held release archive violates the pinned inspection policy."""
+
+    reason_code = "ACTIVATION_RELEASE_ARCHIVE_REJECTED"
+    public_message = "activation release archive is rejected"
+
+
 class ActivationRegistrationAbsent(ActivationStorageError):
     """The requested immutable generation registration does not exist."""
 
@@ -57,6 +64,7 @@ class ActivationConfigIntegrityKeyMaterialAbsent(ActivationStorageError):
 
 __all__ = [
     "ActivationConfigIntegrityKeyMaterialAbsent",
+    "ActivationReleaseArchiveRejected",
     "ActivationRegistrationAbsent",
     "ActivationStorageConflict",
     "ActivationStorageError",

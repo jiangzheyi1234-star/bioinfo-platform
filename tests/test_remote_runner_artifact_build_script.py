@@ -126,6 +126,15 @@ def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_me
     assert 'find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {} +' in (
         plan["remoteScript"]
     )
+    script = plan["remoteScript"]
+    deterministic_archive_command = (
+        "tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner "
+        '--mtime=@0 -cf - -C "$BUILD_ROOT/bundle" . | gzip -n > '
+        f'{plan["artifactName"]}'
+    )
+    assert script.index("set -euo pipefail") < script.index("umask 077")
+    assert deterministic_archive_command in script
+    assert "tar -czf" not in script
 
 
 @pytest.mark.parametrize(
