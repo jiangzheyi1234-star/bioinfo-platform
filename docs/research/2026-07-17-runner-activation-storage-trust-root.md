@@ -461,6 +461,25 @@ while cleanup can never downgrade a body `outcome_unknown`. Fresh fixed public
 errors have no cause or context from which errno, paths, or raw policy details
 could be recovered.
 
+The archive graph now also yields one runtime-only pre-relocation
+materialization projection. It is derived only after complete archive-manifest
+revalidation and is ordered by canonical path. Exactly one canonical file
+consumes each raw USTAR regular payload through `payloadSourcePath`; directories,
+symlinks, and hardlinks have no payload route. If a hardlink alias sorts before
+the raw regular member, the alias becomes the canonical file and routes payload
+from that later raw path, while the raw path becomes a hardlink back to the
+alias. Removing `payloadSourcePath` yields the existing portable tree-content
+identity, but the route is deliberately outside that identity.
+
+This projection is not serialized as a plan and is not a filesystem
+observation, receipt, marker, or authority. Conda relocation at the exact final
+path may legitimately change regular-file bytes and sizes, so raw archive hashes
+cannot stand in for the final tree. Future portable relocation evidence must
+bind the archive inspection manifest, deterministic source projection, exact
+pre/post relocation observations, and the sealed fresh-walk final tree. Until
+that evidence and a receipt version that consumes it exist, no authority marker
+or `prepared` claim may be emitted and no production path may consume the slice.
+
 The declared 0.1.5 control-plane archive (SHA-256
 `d9624da99cff5334a92b53a48a4176a421d1e9b27da23a339939aaa6eaf9b961`,
 105,989,502 bytes) is not yet acceptance evidence for this policy. Conda-pack

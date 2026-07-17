@@ -17,6 +17,7 @@ from .runner_activation_release_archive_graph import (
     RUNNER_ACTIVATION_RELEASE_ARCHIVE_MAX_MEMBER_METADATA_BYTES,
     RUNNER_ACTIVATION_RELEASE_ARCHIVE_MAX_MEMBERS,
     RUNNER_ACTIVATION_RELEASE_ARCHIVE_MAX_TOTAL_BYTES,
+    _project_runner_activation_release_archive_materialization_entries,
     require_runner_activation_release_archive_members,
 )
 from .runner_activation_release_bootstrap_manifest import (
@@ -29,6 +30,10 @@ from .runner_activation_release_bootstrap_manifest import (
     require_runner_activation_release_bootstrap_manifest_bytes,
     runner_activation_release_bootstrap_manifest_content_sha256,
     runner_activation_release_bootstrap_manifest_fingerprint,
+)
+from .runner_activation_release_tree import (
+    build_runner_activation_release_tree_manifest,
+    runner_activation_release_tree_content_fingerprint,
 )
 from .runner_activation_target import RUNNER_ACTIVATION_SERVICE
 from .runner_activation_validation import (
@@ -293,6 +298,61 @@ def runner_activation_release_archive_manifest_fingerprint(
     )
 
 
+def project_runner_activation_release_archive_materialization_entries(
+    payload: object,
+    *,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> list[dict[str, object]]:
+    """Derive the only runtime materialization projection for an archive.
+
+    The returned entries describe source topology before relocation.  They are
+    not a filesystem observation, publication receipt, or portable plan.  The
+    extra ``payloadSourcePath`` routes each canonical file to the one raw USTAR
+    regular member whose bytes it consumes; it is excluded from tree identity.
+    """
+
+    manifest = require_runner_activation_release_archive_manifest(
+        payload,
+        make_error=make_error,
+    )
+    return _project_runner_activation_release_archive_materialization_entries(
+        manifest["members"],
+        make_error=make_error,
+    )
+
+
+def runner_activation_release_archive_projected_tree_content_fingerprint(
+    payload: object,
+    *,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> str:
+    """Fingerprint the logical source tree without claiming it was installed."""
+
+    projected = project_runner_activation_release_archive_materialization_entries(
+        payload,
+        make_error=make_error,
+    )
+    tree_entries = [
+        {
+            "contentSha256": entry["contentSha256"],
+            "linkTarget": entry["linkTarget"],
+            "mode": entry["mode"],
+            "path": entry["path"],
+            "sizeBytes": entry["sizeBytes"],
+            "type": entry["type"],
+        }
+        for entry in projected
+    ]
+    manifest = build_runner_activation_release_tree_manifest(
+        tree_entries,
+        make_error=make_error,
+    )
+    return runner_activation_release_tree_content_fingerprint(
+        manifest,
+        make_error=make_error,
+    )
+
+
 def _normalized_manifest(
     *,
     artifact_archive_sha256: object,
@@ -463,9 +523,11 @@ __all__ = [
     "RUNNER_ACTIVATION_RELEASE_ARTIFACT_MANIFEST_PATH",
     "RUNNER_ACTIVATION_RELEASE_ARTIFACT_PLATFORMS",
     "build_runner_activation_release_archive_manifest",
+    "project_runner_activation_release_archive_materialization_entries",
     "require_runner_activation_release_archive_manifest",
     "require_runner_activation_release_artifact_platform",
     "require_runner_activation_release_artifact_version",
     "runner_activation_release_archive_manifest_canonical_json",
     "runner_activation_release_archive_manifest_fingerprint",
+    "runner_activation_release_archive_projected_tree_content_fingerprint",
 ]

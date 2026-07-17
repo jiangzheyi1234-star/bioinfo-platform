@@ -382,6 +382,19 @@ Capability、外层失败清理与 `_io.FileIO` deallocator 共享同一个 owne
 强于 archive rejection，而 cleanup failure 绝不能把 with-body 的 `outcome_unknown` 降级。公开固定错误同时清空
 exception cause/context，不能从异常对象取回 errno、path 或 raw policy detail。
 
+Archive graph 现在还导出唯一的 runtime-only pre-relocation materialization projection。它只能从完整重验的
+archive manifest 派生，按 canonical path 排序，并为每个 lexicographically first canonical file 增加
+`payloadSourcePath`；该字段精确指向保存 bytes 的 raw USTAR regular member。每个 raw regular payload 恰好被
+消费一次，directory、symlink 与 hardlink 的该字段为空。若 raw file `z-file` 的 hardlink alias 在排序上更早，
+alias 成为 canonical file、从 `z-file` 消费 payload，而 `z-file` 成为指回 alias 的 hardlink。投影去掉
+`payloadSourcePath` 后复用既有 tree-content fingerprint domain，但这只是逻辑 source-tree identity，不是文件系统
+observation、portable plan、receipt、marker 或 authority；`payloadSourcePath` 本身也不进入 tree identity。
+
+该区分对 conda relocation 是硬边界：final-path relocation 可以合法改变部分 regular file 的 bytes 与 size，
+因此 archive content hash 不能直接冒充 final-tree hash。未来 portable relocation evidence 必须同时绑定 archive
+inspection manifest、这份确定性 source projection、relocation 的精确 pre/post observation 与 seal 后 fresh-walk
+final tree。该 evidence 和 receipt vNext 未完成前，不得创建 authority marker、宣称 `prepared` 或接入 production。
+
 旧 0.1.1 bundle 的只读采样含 1,175 个 symlink 与 3 个 hardlink，因此简单拒绝全部 link 会破坏真实 conda
 环境；安全策略改为完整内部图解析。Raw archive hardlink 可指向任意 regular primary；进入 installed-tree 合同前，
 每个 inode-alias group 都重写为 lexicographically first path 是唯一 canonical file，其余路径 hardlink 到它，从而

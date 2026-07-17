@@ -189,6 +189,26 @@ def require_runner_activation_release_archive_members(
     return normalized, total_member_metadata_bytes
 
 
+def _project_runner_activation_release_archive_materialization_entries(
+    members: object,
+    *,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> list[dict[str, object]]:
+    """Project validated archive members into pre-relocation source entries.
+
+    This is a logical projection, not a filesystem observation.  A canonical
+    file consumes payload bytes stored under a different raw archive path when
+    a hardlink alias sorts before the raw regular member in its alias group.
+    """
+
+    normalized, _metadata_bytes = require_runner_activation_release_archive_members(
+        members,
+        make_error=make_error,
+    )
+    by_path = {str(member["path"]): member for member in normalized}
+    return _project_materialization_entries(normalized, by_path=by_path)
+
+
 def _require_hardlink_bindings(
     members: Sequence[dict[str, object]],
     *,
@@ -221,6 +241,24 @@ def _require_release_tree_graph(
     by_path: Mapping[str, dict[str, object]],
     make_error: Callable[[str], Exception],
 ) -> None:
+    projected = _project_materialization_entries(members, by_path=by_path)
+    entries = [_tree_entry_from_projected(entry) for entry in projected]
+    try:
+        require_runner_activation_release_tree_entries(
+            entries,
+            make_error=lambda message: _ArchiveGraphError(message),
+        )
+    except (_ArchiveGraphError, UnicodeEncodeError):
+        raise make_error(
+            "runner activation installed release archive member graph is invalid"
+        ) from None
+
+
+def _project_materialization_entries(
+    members: Sequence[dict[str, object]],
+    *,
+    by_path: Mapping[str, dict[str, object]],
+) -> list[dict[str, object]]:
     canonical_primary_by_raw_primary: dict[str, str] = {}
     for member in members:
         if member["type"] != "hardlink":
@@ -232,23 +270,25 @@ def _require_release_tree_graph(
             str(member["path"]),
         )
 
-    entries: list[dict[str, object]] = []
+    projected: list[dict[str, object]] = []
     for member in members:
         member_type = str(member["type"])
         if member_type == "directory":
-            entry_type, mode, size_bytes, content_sha256, link_target = (
+            entry_type, mode, size_bytes, content_sha256, link_target, source = (
                 "directory",
                 "0555",
                 0,
                 "",
                 "",
+                "",
             )
         elif member_type == "symlink":
             link_target = str(member["linkTarget"])
-            entry_type, mode, size_bytes, content_sha256 = (
+            entry_type, mode, size_bytes, content_sha256, source = (
                 "symlink",
                 "0777",
                 len(link_target.encode("ascii", errors="strict")),
+                "",
                 "",
             )
         else:
@@ -265,25 +305,30 @@ def _require_release_tree_graph(
             size_bytes = int(primary["sizeBytes"])
             content_sha256 = str(primary["contentSha256"])
             link_target = "" if entry_type == "file" else canonical_primary
-        entries.append(
+            source = raw_primary if entry_type == "file" else ""
+        projected.append(
             {
                 "contentSha256": content_sha256,
                 "linkTarget": link_target,
                 "mode": mode,
                 "path": member["path"],
+                "payloadSourcePath": source,
                 "sizeBytes": size_bytes,
                 "type": entry_type,
             }
         )
-    try:
-        require_runner_activation_release_tree_entries(
-            entries,
-            make_error=lambda message: _ArchiveGraphError(message),
-        )
-    except (_ArchiveGraphError, UnicodeEncodeError):
-        raise make_error(
-            "runner activation installed release archive member graph is invalid"
-        ) from None
+    return projected
+
+
+def _tree_entry_from_projected(entry: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "contentSha256": entry["contentSha256"],
+        "linkTarget": entry["linkTarget"],
+        "mode": entry["mode"],
+        "path": entry["path"],
+        "sizeBytes": entry["sizeBytes"],
+        "type": entry["type"],
+    }
 
 
 def _require_member_path(
