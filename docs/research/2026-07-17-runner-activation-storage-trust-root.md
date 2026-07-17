@@ -214,6 +214,30 @@ hardlinks, symlinks, and special files must be closed by schema. Only after the
 tree and manifest are durable and no-replace published may a generation bind
 the tree digest.
 
+The dormant v1 contract resolves its portable name policy to canonical
+printable-ASCII relative POSIX paths and keeps two domain-separated identities:
+one for the ordered tree content and one for the complete manifest. It models
+read-only directories/files, relative symlinks, and internal hardlinks
+explicitly; archive digest, installation/path, source, platform, provenance,
+and publication disposition remain separate future receipt evidence. This
+matches the separation in OCI descriptors and in-toto/SLSA subjects: those
+formats can bind a distributed object and its provenance, but they do not prove
+the bytes produced by local extraction. TUF can add signed target length/hash,
+version, and expiry policy, but likewise does not replace installed-tree
+verification. Nix and OSTree are useful content/parallel-tree precedents, not a
+reason to import their full store or OS-update machinery.
+
+The current bundled runtime is a publisher stop condition. First startup runs
+`conda-unpack` inside the release tree and creates `.h2ometa-conda-unpacked`;
+relocation can also write the absolute runtime prefix into installed files. A
+staging directory renamed to a digest-derived final path may therefore contain
+the wrong prefix, while post-publication relocation immediately invalidates the
+recorded tree. Publisher work must first prove a relocation-free, post-publish
+read-only runtime, or reserve a unique final path and finish relocation there
+before a durable no-replace final marker. In either design, startup-time
+`conda-unpack` and execution through mutable `current/runtime` must disappear
+before production activation is enabled.
+
 ### 6. Systemd credentials are an optional stronger backend
 
 `LoadCredentialEncrypted=` can decrypt and authenticate credentials at unit
@@ -257,13 +281,16 @@ significant.
    recover the exact fixed skeleton only for that identity, and atomically
    promote intent to final only after the complete child-capability and empty
    authority proof. Keep protocol v5 and production mutation paths unchanged.
-2. Define and publish canonical installed release-tree identities.
-3. Persist/reconcile immutable versioned config-integrity key material.
-4. Publish verified immutable generation directories only after tree and key
+2. Define canonical installed release-tree identities without treating a
+   self-consistent manifest as storage or publication proof.
+3. Remove the startup-time relocation/write boundary, then publish and reprove
+   canonical installed release trees under the global gate.
+4. Persist/reconcile immutable versioned config-integrity key material.
+5. Publish verified immutable generation directories only after tree and key
    dependencies are authoritative.
-5. Add transition and invocation journals.
-6. Introduce protocol v6 startup verification.
-7. Move bootstrap, rotation, rollback, prune, and uninstall behind the same
+6. Add transition and invocation journals.
+7. Introduce protocol v6 startup verification.
+8. Move bootstrap, rotation, rollback, prune, and uninstall behind the same
    global lifecycle gate; remove mutable legacy paths rather than adding silent
    compatibility fallbacks.
 
@@ -275,7 +302,6 @@ significant.
   an optional backend beside private-file storage?
 - What controller-side schema binds installation fingerprint, SSH host key,
   endpoint identity, and audited re-enrollment?
-- Which path-byte and Unicode policy should the installed-tree manifest adopt?
 - What retention policy preserves rollback reachability without claiming
   secure deletion on SSD/COW storage?
 
@@ -303,6 +329,12 @@ significant.
 - [TUF specification](https://theupdateframework.github.io/specification/latest/)
 - [in-toto Statement v1](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)
 - [OCI descriptor specification](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)
+- [OCI image index specification](https://github.com/opencontainers/image-spec/blob/main/image-index.md)
+- [SLSA v1.2 build provenance](https://slsa.dev/spec/v1.2/build-provenance)
+- [SLSA v1.2 artifact verification](https://slsa.dev/spec/v1.2/verifying-artifacts)
+- [Nix content addressing](https://nix.dev/manual/nix/2.33/store/file-system-object/content-address)
+- [OSTree repository model](https://ostreedev.github.io/ostree/repo/)
+- [OSTree atomic upgrades](https://ostreedev.github.io/ostree/atomic-upgrades/)
 - [Git tree object model](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)
 - [RFC 8785: JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785.html)
 - [ext4 administration guide](https://docs.kernel.org/admin-guide/ext4.html)

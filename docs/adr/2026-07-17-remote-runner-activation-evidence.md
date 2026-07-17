@@ -262,6 +262,21 @@ receipt，也不能被 transition 当成 `prepared`。当前 generation v1 只�
 release-tree manifest identity；在该缺口和 versioned key material 实际 owner/mode/nlink/bytes 证明补齐前，
 generation directory publisher 与 production wiring 都是 stop condition。
 
+下一最小切片只定义 dormant 的 `h2ometa.runner-installed-release-tree-manifest.v1` 纯合同，不改
+generation v1，也不实现解包、filesystem walk、publisher 或远端 mutation。合同用固定 materialization policy、
+只读 root/entry mode、严格递增的 canonical printable-ASCII relative POSIX path，以及显式
+directory/file/symlink/internal-hardlink 语义构造 tree content fingerprint；完整 manifest 再使用独立 domain
+产生 manifest fingerprint。Archive SHA、installation/path、source/platform、provenance 与 publication receipt
+继续是不同证据，不能被塞入 tree digest 后宣称本地安装已证明。自洽 manifest 只证明 record identity，
+不证明它来自实际 tree。
+
+当前 `runner_lifetime_launcher._prepare_bundled_runtime()` 会在首次启动时于 release tree 内运行
+`conda-unpack` 并写 `.h2ometa-conda-unpacked`；relocation 还可能把绝对 runtime prefix 写入实际文件。因此
+“在 staging fixup 后 rename 到 post-fixup digest path”可能固化 staging prefix，而“发布后再 fixup”会立即
+破坏 tree identity。Publisher 是明确 P0 stop condition：必须先证明 relocation-free、发布后零写入的 runtime，
+或先保留不可复用 final path、在该路径完成 relocation 后用 durable no-replace final marker 提交。两种方案
+都必须移除 startup-time `conda-unpack` 与对 mutable `current/runtime` 的执行依赖后，才可进入 production wiring。
+
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
 证明的 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV)`
@@ -280,8 +295,8 @@ registration fingerprint 与启动前 Invocation ledger fingerprint；三者都�
 
 HMAC 解决 evidence 泄露后的低熵 secret 离线猜测 oracle，不宣称抵抗同 UID 或 root compromise，也不
 防 rollback replay；后者仍由 append-only journal、ledger 与 activation gate 负责。Release archive 的
-raw digest 也不自动证明解包执行树；在 content-addressed/no-replace release 发布器落地时，必须增加严格
-tree manifest 或逐文件安装验证。
+raw digest 也不自动证明解包执行树；未来 release publisher 无论采用 relocation-free directory publication
+还是 final-path marker commit，都必须以严格 tree manifest 对实际文件逐项重证。
 
 `MainPID` 会复用，cgroup 路径会随 unit 名复用，`INVOCATION_ID` 也不是 secret；任何一个字段都不能
 单独授权 mutation。唯一 unit 实例使 stop 可以针对不会被新 activation 复用的对象调用 `StopUnit` 并
@@ -379,17 +394,19 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 2. 先持有永不移除的 `shared/global-activation.lock`，再以 intent no-replace CAS 选定 installation；相同
    identity 可从 intent-only 崩溃态幂等补齐精确空白 skeleton。完整 root/child capability proof 后将 intent
    inode 原子晋级为 final-only；final 后不重建缺失 child/gate。此阶段只提供 dormant authority primitive。
-3. 以两个可并行交付的依赖分别实现：a) pinned extraction policy + installed release-tree manifest/publisher；
-   b) versioned config-integrity key material store。二者都未完成前不得发布 generation。
-4. 只有 tree identity、key material、registration history 与 generation 实际 bytes 全部可重证后，才实现
+3. 先定义 pinned materialization policy 与 installed release-tree 纯 identity contract；它不构成 storage
+   observation、publisher receipt 或 `prepared` evidence。
+4. 消除 startup-time relocation/write 后，再以独立切片实现 installed release-tree publisher；versioned
+   config-integrity key material store 可并行推进。二者都未完成前不得发布 generation。
+5. 只有 tree identity、key material、registration history 与 generation 实际 bytes 全部可重证后，才实现
    verified immutable generation publisher 和 durable `prepared` receipt。
-5. 再实现 transition 与 Invocation reservation journals、unique unit start/stop、systemd 权威核验和完整
+6. 再实现 transition 与 Invocation reservation journals、unique unit start/stop、systemd 权威核验和完整
    crash-reconcile fault matrix。
-6. Runner 捕获 activation 与 systemd 自观察，owner/runtime state 加入 end-to-end binding；全部前置证据被
+7. Runner 捕获 activation 与 systemd 自观察，owner/runtime state 加入 end-to-end binding；全部前置证据被
    startup 消费后才整体升级 protocol v6，并为 unit 加入对应 restart-preventing exit status。
-7. 最后把 bootstrap、token rotation、rollback、stop、prune、uninstall 全部接到同一 lifecycle gate，删除
+8. 最后把 bootstrap、token rotation、rollback、stop、prune、uninstall 全部接到同一 lifecycle gate，删除
    广泛 `pkill`、in-place config mutation 和其他 legacy branch 后才可重新启用 staging deploy。
-8. Linux CI 证明真实 user-systemd；存在 cgroup v2 时额外核验 `cgroup.events populated=0`，存在 pidfd 时
+9. Linux CI 证明真实 user-systemd；存在 cgroup v2 时额外核验 `cgroup.events populated=0`，存在 pidfd 时
    增强 exact liveness，但二者均不是最低兼容依赖。
 
 ## 非目标

@@ -182,6 +182,12 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (
         bundle.bundle_dir / "core" / "contracts" / "runner_process_owner.py"
     ).exists()
+    assert (
+        bundle.bundle_dir
+        / "core"
+        / "contracts"
+        / "runner_activation_release_tree.py"
+    ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()
