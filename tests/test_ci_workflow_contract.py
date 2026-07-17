@@ -73,6 +73,15 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     assert "if" not in activation_job
     assert 'findmnt -T "$RUNNER_TEMP" -o TARGET,FSTYPE,OPTIONS' in activation_script
     assert "H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1" in activation_script
+    assert "H2OMETA_REQUIRE_LINUX_RELEASE_PUBLICATION_TESTS=1" in activation_script
+    assert 'sudo mount --bind "$BIND_PROOF_ROOT/source"' in activation_script
+    assert 'sudo umount "$BIND_PROOF_ROOT/parent/child"' in activation_script
+    assert "H2OMETA_RELEASE_PUBLICATION_BIND_PARENT" in activation_script
+    assert 'mountpoint -q "$BIND_PROOF_ROOT/parent/child"' in activation_script
+    assert (
+        'findmnt -T "$BIND_PROOF_ROOT/parent/child" -o TARGET,SOURCE,FSTYPE,OPTIONS'
+        in activation_script
+    )
     assert '--basetemp "$RUNNER_TEMP/activation-storage-pytest"' in activation_script
     assert (
         "tests/test_remote_runner_activation_installation_storage_contract.py"
@@ -96,6 +105,18 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     )
     assert (
         "tests/test_remote_runner_activation_config_integrity_key_storage_linux.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_runner_activation_release_publication_contract.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_release_publication_layout_contract.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_release_publication_layout_linux.py"
         in activation_script
     )
     assert "activation_storage_linux" in ci_green["needs"]

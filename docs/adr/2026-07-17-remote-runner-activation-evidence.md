@@ -302,6 +302,38 @@ Publisher 仍是明确 P0 stop condition；实现可以与 versioned key store �
 二者都完成。无论最终选该方向还是 relocation-free artifact，都必须移除 startup-time `conda-unpack` 与对
 mutable `current/runtime` 的执行依赖后，才可进入 production wiring。
 
+2026-07-18 的发布路径复核发现，启动期写入不只来自 relocation。`process_pid_file.py` 仍把
+`runner.pid` 放在 installed release root，`run.py`、`check_service.sh` 与 `stop_service.sh` 会创建或删除它；systemd
+unit 和后台启动脚本仍通过可变的 `current` 选择 executable path。因此“删除 `conda-unpack` 调用”本身不能证明
+tree immutable 或 startup zero-write。PID、owner、socket、日志和 runtime state 必须全部进入
+`shared/runtime` 等 dynamic namespace，unit 最终必须直接绑定已经权威验证的 exact real release path；
+`current` 只能作为 committed 后的诊断投影，不能授权执行。
+
+本轮 architecture-track 的下一实现切片是 dormant publication foundation，而不是修补 legacy shell deploy：
+
+- 每次发布使用 128-bit lowercase hex `publicationId`，唯一派生
+  `release-objects/<publicationId>`；调用方不能提供 descendant path，已用 ID 永不重用；
+- tree 外的 exact intent 绑定 installation fingerprint、artifact version/platform、archive SHA/size、artifact
+  manifest/provenance fingerprint，以及固定 materialization/extraction/relocation policy；
+- external manifest 与最终 receipt 分别 durable no-replace 保存；receipt 冗余校验 intent fingerprint，并绑定
+  actual tree content/manifest fingerprint 与本地 root dev/inode。Intent、manifest 或自洽 receipt 单独存在都
+  不是 `prepared`，marker/receipt 后仍需完整 tree reproof；
+- 固定 namespace 为 runner root 下 `release-objects` 与
+  `shared/activation/release-publications/{.staging,intents,manifests,markers}`，全部由已持有 global gate 的
+  activation session 锚定；dynamic tree entry 只允许使用固定 `openat2` resolve policy 打开；
+- `openat2` 必须同时使用 `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS |
+  RESOLVE_NO_XDEV`。后者明确覆盖 bind mount；`ENOSYS`、不支持的 ABI/flag 或 `EXDEV` 都 fail closed，不得退回
+  path check + `openat`。Required Ubuntu CI 会创建真实 bind mount，并要求该 child open 精确返回 `EXDEV`；
+- 每个 unique file、每层 directory 与两个 external record parent 都要按顺序 `fsync`。Linux 的文件 `fsync`
+  不保证 containing directory entry 已持久化，所以任何省略父目录 `fsync` 的 marker 都不能成为 authority。
+
+该 foundation 不解包 archive、不执行 artifact 内代码、不运行 relocation、不创建 marker，也不修改 protocol v5、
+bootstrap、generation 或 systemd。安全 extractor 仍必须预扫并拒绝 duplicate/prefix collision、special file、
+symlink/hardlink escape、容量炸弹与未政策化 metadata；relocation 必须在 final path 完成且证明没有存活后代或
+遗留 writable fd。Fresh session 绝不能领养 markerless partial tree：它只能被标为 abandoned 并由新的
+publication ID 重试。Marker rename 后结果未知则只能通过 external records 与完整实际 tree 的 exact reproof
+化解。
+
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
 证明的 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV)`
@@ -480,6 +512,8 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [conda-pack：目标端 `conda-unpack` 与执行后不可再次搬迁](https://conda.github.io/conda-pack/)
 - [conda-pack CLI：`--dest-prefix` 精确路径绑定且不生成 `conda-unpack`](https://conda.github.io/conda-pack/cli.html)
 - [Python tarfile：extraction filter 与 installed-tree 差异](https://docs.python.org/3/library/tarfile.html)
+- [Linux `openat2`：beneath、nofollow、no-magiclink 与 no-xdev resolve policy](https://man7.org/linux/man-pages/man2/openat2.2.html)
+- [Linux `fsync`：文件与 containing directory 的独立持久化边界](https://man7.org/linux/man-pages/man2/fsync.2.html)
 - [systemd credentials：unit-scoped credential custody](https://systemd.io/CREDENTIALS/)
 - [Python keyring：get/set/delete 公共 API 与错误语义](https://keyring.readthedocs.io/en/latest/)
 - [Windows CredWrite：同名 credential 的替换语义](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credwritew)

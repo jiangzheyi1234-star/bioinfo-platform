@@ -182,6 +182,14 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         / "activation_config_integrity_key_storage.py"
     ).exists()
     assert (
+        bundle.bundle_dir / "remote_runner" / "activation_openat2.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
+        / "activation_release_publication_layout.py"
+    ).exists()
+    assert (
         bundle.bundle_dir
         / "remote_runner"
         / "activation_generation_registry_storage.py"
@@ -205,6 +213,12 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         / "core"
         / "contracts"
         / "runner_activation_release_tree.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "core"
+        / "contracts"
+        / "runner_activation_release_publication.py"
     ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()

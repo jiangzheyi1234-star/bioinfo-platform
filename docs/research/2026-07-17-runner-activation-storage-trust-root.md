@@ -300,6 +300,50 @@ through mutable `current/runtime`. Key-store work may proceed in parallel with
 this stop condition; generation publication must wait for both authoritative
 dependencies.
 
+The 2026-07-18 code-path audit found two additional startup writes and authority
+leaks. The PID helper derives `runner.pid` from the installed release root, and
+the Python and shell stop/check paths create or remove that file. The systemd
+unit and background launcher also still execute through mutable `current`.
+Consequently, deleting the `conda-unpack` call alone cannot establish immutable
+startup. PID, owner, socket, log and runtime state must move to the shared
+mutable namespace, while the unit eventually executes an already verified exact
+real release path. `current` can remain only as a post-commit diagnostic view.
+
+The next architecture-track slice is a dormant publication foundation. A
+128-bit lowercase hexadecimal publication ID uniquely derives
+`release-objects/<publicationId>`; callers never provide a descendant path and
+IDs are never reused. An external exact intent binds installation, artifact
+version/platform, archive digest/size, artifact-manifest and provenance
+fingerprints, and pinned materialization/extraction/relocation policies. The
+external manifest and final receipt remain separate no-replace records. The
+receipt binds the normalized intent fingerprint, actual tree-content and
+manifest fingerprints, and local root device/inode. None of these records alone
+constitutes `prepared`; authoritative replay still requires a complete exact
+tree reproof.
+
+The fixed capability namespace is `release-objects` below the anchored runner
+root and `shared/activation/release-publications/{.staging,intents,manifests,
+markers}` below the already gated activation directory. Dynamic entries require
+`openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS |
+RESOLVE_NO_XDEV)`. The upstream Linux interface explicitly states that
+`RESOLVE_NO_XDEV` rejects mount-point traversal including bind mounts. Missing
+kernel/ABI/flag support and `EXDEV` are hard failures; there is no pathname-check
+fallback. Required Ubuntu CI provisions a real bind mount and requires the child
+open to fail with exactly `EXDEV`. The Linux `fsync` interface also states that
+syncing a file does not necessarily persist its containing directory entry, so
+the publisher must sync each unique file and directory plus every external-record
+parent in order.
+
+This foundation does not extract archives, execute artifact code, relocate an
+environment, create an authority marker, or change protocol v5/bootstrap. A
+later extractor must reject duplicate and prefix-colliding members, special
+files, link escapes, resource bombs and ungoverned metadata. Relocation must
+happen at the exact final path and prove that no descendant process or writable
+descriptor survives. A fresh session must never adopt or continue a markerless
+partial tree: it is abandoned and a new publication ID is required. Only a
+possibly committed marker can be reconciled, through exact external-record and
+full-tree proof.
+
 ### 6. Systemd credentials are an optional stronger backend
 
 `LoadCredentialEncrypted=` can decrypt and authenticate credentials at unit
