@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -246,6 +247,16 @@ def test_explicit_startup_initialization_uses_one_snapshot_and_migrates_layout(
         return original_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", tracked_read_text)
+    lock_events: list[str] = []
+
+    class FakeLifetimeLock:
+        def release(self) -> None:
+            lock_events.append("release")
+
+    monkeypatch.setattr(
+        "apps.remote_runner.process_lifetime_lock.acquire_runner_process_lifetime_lock",
+        lambda _cfg: lock_events.append("acquire") or FakeLifetimeLock(),
+    )
 
     initialize_runtime_layout_from_explicit_config(
         config_path=config_path,
@@ -253,10 +264,46 @@ def test_explicit_startup_initialization_uses_one_snapshot_and_migrates_layout(
     )
 
     assert config_reads == 1
+    assert lock_events == ["acquire", "release"]
     assert (data_root / "uploads").is_dir()
     db_path = data_root / "data" / "runner.db"
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+
+
+def test_explicit_startup_initialization_releases_lock_when_layout_fails(
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import runner_protocol_startup as startup
+
+    cfg = SimpleNamespace(runtime_state_path="/shared/runtime/runner-state.json")
+    events: list[str] = []
+
+    class FakeLifetimeLock:
+        def release(self) -> None:
+            events.append("release")
+
+    monkeypatch.setattr(
+        startup,
+        "load_remote_runner_config_from_startup_preflight",
+        lambda **_kwargs: cfg,
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.process_lifetime_lock.acquire_runner_process_lifetime_lock",
+        lambda _cfg: events.append("acquire") or FakeLifetimeLock(),
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config.ensure_runtime_layout",
+        lambda _cfg: (
+            events.append("ensure")
+            or (_ for _ in ()).throw(RuntimeError("layout failed"))
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="layout failed"):
+        startup.initialize_runtime_layout_from_explicit_config()
+
+    assert events == ["acquire", "ensure", "release"]
 
 
 def test_explicit_startup_initialization_rejects_manifest_drift_before_layout_write(
@@ -366,6 +413,9 @@ def test_entrypoints_run_read_only_preflight_before_runtime_imports() -> None:
     ).read_text(encoding="utf-8")
 
     assert run_source.index("load_remote_runner_config_from_startup_preflight()") < run_source.index(
+        "lifetime_lock = adopt_runner_process_lifetime_lock(cfg)"
+    )
+    assert run_source.index("lifetime_lock = adopt_runner_process_lifetime_lock(cfg)") < run_source.index(
         "from .config import ("
     )
     assert run_source.index("load_remote_runner_config_from_startup_preflight()") < run_source.index(

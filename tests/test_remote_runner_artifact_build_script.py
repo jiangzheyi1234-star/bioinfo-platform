@@ -87,7 +87,7 @@ def test_remote_build_script_embeds_exact_runner_protocol_descriptor() -> None:
     assert str(fields["runnerProtocolFingerprint"]) in plan["remoteScript"]
 
 
-def test_remote_build_script_starts_protocol_preflight_without_bytecode_writes() -> None:
+def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes() -> None:
     plan = builder.build_remote_script_plan(
         version="protocol-test",
         platform="linux-64",
@@ -95,11 +95,27 @@ def test_remote_build_script_starts_protocol_preflight_without_bytecode_writes()
     )
 
     script = plan["remoteScript"]
-    assert 'exec "$RUNNER_PYTHON" -B -m remote_runner.run' in script
-    assert script.index("require_runner_protocol_startup_preflight") < script.rindex(
-        "conda-unpack"
+    assert (
+        'exec "$RUNNER_PYTHON" -B -m remote_runner.runner_lifetime_launcher'
+        in script
     )
     assert script.index("require_runner_protocol_startup_preflight") < script.index(
         "nohup"
     )
+    launch_script = script.split(
+        "cat > \"$BUILD_ROOT/bundle/launch_remote_runner.sh\" <<'SH'", maxsplit=1
+    )[1].split("\nSH\n", maxsplit=1)[0]
+    start_script = script.split(
+        "cat > \"$BUILD_ROOT/bundle/start_service.sh\" <<'SH'", maxsplit=1
+    )[1].split("\nSH\n", maxsplit=1)[0]
+    assert (
+        'exec "$RUNNER_PYTHON" -B -m remote_runner.run'
+        not in launch_script.splitlines()
+    )
+    assert "conda-unpack" not in launch_script
+    assert "require_runner_protocol_startup_preflight" not in launch_script
+    assert 'echo $! > "$RUN_DIR/runner.pid"' not in start_script
+    assert "Type=simple" in script
+    assert "Restart=on-failure" in script
+    assert "RestartPreventExitStatus=73 74" in script
     assert "H2OMETA_REMOTE_RUNNER_PYTHON" not in script

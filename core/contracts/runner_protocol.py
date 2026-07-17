@@ -1,7 +1,8 @@
 """Strict descriptor for the current remote-runner protocol.
 
-The descriptor records exact writer coverage and point-in-time procfs evidence.
-It does not establish liveness, listener ownership, exclusivity, or process death.
+The descriptor records exact writer coverage, point-in-time procfs evidence,
+and a cooperating-process lifetime fence. The fence is not global exclusivity:
+it does not prove listener ownership, process-tree ownership, liveness, or death.
 """
 
 from __future__ import annotations
@@ -12,9 +13,10 @@ import json
 from typing import Any
 
 from .linux_process_incarnation import LINUX_PROCESS_INCARNATION_SCHEMA
+from .runner_process_lifetime import RUNNER_PROCESS_LIFETIME_LOCK_PROFILE
 
-RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v3"
-RUNNER_PROTOCOL_VERSION = "runner-protocol.v3"
+RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v4"
+RUNNER_PROTOCOL_VERSION = "runner-protocol.v4"
 RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 18
 RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA = (
     "h2ometa.runner-protocol-runtime-self-attestation.v1"
@@ -30,6 +32,9 @@ RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA = (
     LINUX_PROCESS_INCARNATION_SCHEMA
 )
 RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES = ("runtime-state",)
+RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE = (
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE
+)
 RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
     "h2ometa.tool-prepare-process-marker.v1"
 )
@@ -37,6 +42,7 @@ RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
 RUNNER_PROTOCOL_CAPABILITIES = (
     "artifact-exact-protocol-descriptor-v1",
     "execution-lifecycle-guard-v1",
+    "process-lifetime-flock-fence-v1",
     "runtime-process-incarnation-evidence-v1",
     "runtime-self-attestation-v1",
     "tool-prepare-process-evidence-fencing-v1",
@@ -65,6 +71,7 @@ _COVERAGE_FIELDS = frozenset(
         "automaticRecoveryEnabled",
         "coverageComplete",
         "coveredWriterScopes",
+        "processLifetimeLockProfile",
         "runtimeProcessIncarnationSchema",
         "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
@@ -72,7 +79,7 @@ _COVERAGE_FIELDS = frozenset(
         "toolPrepareProcessMarkerSchema",
     }
 )
-_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v3"
+_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v4"
 
 
 def build_runner_protocol_descriptor() -> dict[str, object]:
@@ -84,6 +91,9 @@ def build_runner_protocol_descriptor() -> dict[str, object]:
             "automaticRecoveryEnabled": False,
             "coverageComplete": False,
             "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
+            "processLifetimeLockProfile": (
+                RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
+            ),
             "runtimeProcessIncarnationSchema": (
                 RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
             ),
@@ -178,6 +188,12 @@ def require_runner_protocol_descriptor(
         coverage.get("coveredWriterScopes"),
         expected=RUNNER_PROTOCOL_COVERED_WRITER_SCOPES,
         field="coverage.coveredWriterScopes",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("processLifetimeLockProfile"),
+        expected=RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE,
+        field="coverage.processLifetimeLockProfile",
         make_error=make_error,
     )
     _require_exact_string(

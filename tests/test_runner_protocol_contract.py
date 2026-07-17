@@ -15,6 +15,7 @@ from core.contracts.runner_protocol import (
     RUNNER_PROTOCOL_COVERED_WRITER_SCOPES,
     RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION,
     RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA,
+    RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE,
     RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA,
     RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES,
     RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA,
@@ -26,6 +27,9 @@ from core.contracts.runner_protocol import (
     require_runner_protocol_descriptor,
     runner_protocol_descriptor_canonical_json,
     runner_protocol_descriptor_fingerprint,
+)
+from core.contracts.runner_process_lifetime import (
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
 )
 
 
@@ -40,6 +44,14 @@ def test_runner_protocol_process_marker_schema_tracks_tool_prepare_contract() ->
     )
 
 
+def test_runner_protocol_lifetime_lock_profile_tracks_fence_contract() -> None:
+    assert (
+        RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
+        == RUNNER_PROCESS_LIFETIME_LOCK_PROFILE
+        == "linux-flock-cooperating-single-instance-v1"
+    )
+
+
 def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> None:
     descriptor = build_runner_protocol_descriptor()
 
@@ -47,6 +59,7 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "capabilities": [
             "artifact-exact-protocol-descriptor-v1",
             "execution-lifecycle-guard-v1",
+            "process-lifetime-flock-fence-v1",
             "runtime-process-incarnation-evidence-v1",
             "runtime-self-attestation-v1",
             "tool-prepare-process-evidence-fencing-v1",
@@ -55,6 +68,9 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             "automaticRecoveryEnabled": False,
             "coverageComplete": False,
             "coveredWriterScopes": ["tool-prepare-worker"],
+            "processLifetimeLockProfile": (
+                "linux-flock-cooperating-single-instance-v1"
+            ),
             "runtimeProcessIncarnationSchema": (
                 "h2ometa.linux-process-incarnation.v1"
             ),
@@ -74,8 +90,8 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             ),
         },
         "databaseSchemaVersion": 18,
-        "protocolVersion": "runner-protocol.v3",
-        "schemaVersion": "h2ometa.runner-protocol-descriptor.v3",
+        "protocolVersion": "runner-protocol.v4",
+        "schemaVersion": "h2ometa.runner-protocol-descriptor.v4",
         "writerScopes": [
             "artifact-lifecycle-controller",
             "run-worker",
@@ -90,6 +106,9 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "automaticRecoveryEnabled": False,
         "coverageComplete": False,
         "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
+        "processLifetimeLockProfile": (
+            RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
+        ),
         "runtimeProcessIncarnationSchema": (
             RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
         ),
@@ -164,8 +183,8 @@ def test_require_runner_protocol_descriptor_rejects_unknown_fields() -> None:
 @pytest.mark.parametrize(
     ("field", "replacement"),
     [
-        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v2"),
-        ("protocolVersion", "runner-protocol.v2"),
+        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v3"),
+        ("protocolVersion", "runner-protocol.v3"),
         ("databaseSchemaVersion", 17),
         ("databaseSchemaVersion", True),
     ],
@@ -229,6 +248,7 @@ def test_require_runner_protocol_descriptor_rejects_invalid_coverage_shape() -> 
         "automaticRecoveryEnabled",
         "coverageComplete",
         "coveredWriterScopes",
+        "processLifetimeLockProfile",
         "runtimeProcessIncarnationSchema",
         "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
@@ -255,6 +275,7 @@ def test_require_runner_protocol_descriptor_rejects_missing_coverage_fields(
         ("coverageComplete", True),
         ("coveredWriterScopes", []),
         ("coveredWriterScopes", ["tool-prepare"]),
+        ("processLifetimeLockProfile", "unsupported"),
         ("runtimeProcessIncarnationSchema", "old"),
         ("runtimeProcessIncarnationSurfaces", []),
         ("runtimeSelfAttestationSchema", "old"),
@@ -317,7 +338,7 @@ def test_runner_protocol_descriptor_fingerprint_is_domain_separated_and_stable()
     descriptor = build_runner_protocol_descriptor()
     canonical = runner_protocol_descriptor_canonical_json(descriptor)
     expected = hashlib.sha256(
-        b"h2ometa.runner-protocol-descriptor.v3\x00" + canonical.encode("utf-8")
+        b"h2ometa.runner-protocol-descriptor.v4\x00" + canonical.encode("utf-8")
     ).hexdigest()
 
     assert runner_protocol_descriptor_fingerprint(descriptor) == f"sha256:{expected}"

@@ -102,6 +102,11 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
 
     assert (bundle.bundle_dir / "remote_runner" / "main.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_incarnation.py").exists()
+    assert (
+        bundle.bundle_dir / "remote_runner" / "runner_lifetime_launcher.py"
+    ).exists()
+    assert (bundle.bundle_dir / "remote_runner" / "process_lifetime_lock.py").exists()
+    assert (bundle.bundle_dir / "remote_runner" / "process_pid_file.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
     assert (bundle.bundle_dir / "core" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "logging_config.py").exists()
@@ -109,6 +114,9 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "core" / "contracts" / "runner_protocol.py").exists()
     assert (
         bundle.bundle_dir / "core" / "contracts" / "linux_process_incarnation.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "core" / "contracts" / "runner_process_lifetime.py"
     ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
@@ -136,16 +144,28 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     launch_script_path = bundle.bundle_dir / "launch_remote_runner.sh"
     launch_script = launch_script_path.read_text(encoding="utf-8")
     start_script = (bundle.bundle_dir / "start_service.sh").read_text(encoding="utf-8")
+    service_unit = (bundle.bundle_dir / "h2ometa-remote.service").read_text(
+        encoding="utf-8"
+    )
     assert "RUNNER_PYTHON" in launch_script
     assert 'runtime/bin/python' in launch_script
-    assert 'exec "$RUNNER_PYTHON" -B -m remote_runner.run' in launch_script
-    assert "conda-unpack" in launch_script
-    assert launch_script.index("require_runner_protocol_startup_preflight") < launch_script.index(
-        "conda-unpack"
+    assert (
+        'exec "$RUNNER_PYTHON" -B -m remote_runner.runner_lifetime_launcher'
+        in launch_script
     )
+    assert (
+        'exec "$RUNNER_PYTHON" -B -m remote_runner.run'
+        not in launch_script.splitlines()
+    )
+    assert "conda-unpack" not in launch_script
+    assert "require_runner_protocol_startup_preflight" not in launch_script
     assert start_script.index("require_runner_protocol_startup_preflight") < start_script.index(
         "nohup"
     )
+    assert 'echo $! > "$RUN_DIR/runner.pid"' not in start_script
+    assert "Type=simple" in service_unit
+    assert "Restart=on-failure" in service_unit
+    assert "RestartPreventExitStatus=73 74" in service_unit
     assert "H2OMETA_REMOTE_RUNNER_PYTHON" not in launch_script
     assert 'cd "$RUN_DIR"' in launch_script
     assert b"\r\n" not in launch_script_path.read_bytes()

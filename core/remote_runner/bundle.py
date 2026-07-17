@@ -7,6 +7,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.contracts.runner_process_lifetime import (
+    RUNNER_PROCESS_LIFETIME_LAUNCHER_MODULE,
+    RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
+    RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
+)
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
@@ -87,8 +92,7 @@ class RemoteRunnerBundleBuilder:
             'cd "$RUN_DIR"\n'
             'export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"\n'
             '"$RUN_DIR/runtime/bin/python" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"\n'
-            'nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &\n'
-            'echo $! > "$RUN_DIR/runner.pid"\n',
+            'nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &\n',
         )
         self._write_text_lf(
             bundle_dir / "launch_remote_runner.sh",
@@ -97,19 +101,7 @@ class RemoteRunnerBundleBuilder:
             'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             'cd "$RUN_DIR"\n'
             'RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"\n'
-            '"$RUNNER_PYTHON" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"\n'
-            'if [ -n "${H2OMETA_REMOTE_CONFIG:-}" ]; then\n'
-            '  SHARED_ROOT="$(cd "$(dirname "$H2OMETA_REMOTE_CONFIG")/.." && pwd)"\n'
-            '  TOOLS_BIN="$SHARED_ROOT/tools/bin"\n'
-            '  if [ -d "$TOOLS_BIN" ]; then\n'
-            '    export PATH="$TOOLS_BIN:$PATH"\n'
-            "  fi\n"
-            "fi\n"
-            'if [ -x "$RUN_DIR/runtime/bin/conda-unpack" ] && [ ! -f "$RUN_DIR/runtime/.h2ometa-conda-unpacked" ]; then\n'
-            '  "$RUN_DIR/runtime/bin/python" "$RUN_DIR/runtime/bin/conda-unpack"\n'
-            '  touch "$RUN_DIR/runtime/.h2ometa-conda-unpacked"\n'
-            "fi\n"
-            'exec "$RUNNER_PYTHON" -B -m remote_runner.run\n',
+            f'exec "$RUNNER_PYTHON" -B -m {RUNNER_PROCESS_LIFETIME_LAUNCHER_MODULE}\n',
         )
         self._write_text_lf(
             bundle_dir / "check_service.sh",
@@ -168,6 +160,9 @@ class RemoteRunnerBundleBuilder:
             f"Environment=H2OMETA_REMOTE_CONFIG=%h/{REMOTE_RUNNER_RELATIVE_ROOT}/shared/config/runner.json\n"
             f"ExecStart=%h/{REMOTE_RUNNER_RELATIVE_ROOT}/current/launch_remote_runner.sh\n"
             "Restart=on-failure\n"
+            "RestartPreventExitStatus="
+            f"{RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS} "
+            f"{RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS}\n"
             "RestartSec=2\n\n"
             "[Install]\n"
             "WantedBy=default.target\n",

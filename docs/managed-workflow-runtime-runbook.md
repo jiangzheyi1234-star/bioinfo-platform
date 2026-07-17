@@ -321,7 +321,7 @@ Use read-only inspection first:
 uv run python scripts\inspect_remote_runner_service.py
 ```
 
-Routine diagnostics must not foreground-run `launch_remote_runner.sh`; that can start a second runner and overwrite `runner-state.json`.
+Routine diagnostics must not foreground-run `launch_remote_runner.sh`. Current cooperating releases reject a second launcher through the lifetime fence, but older or noncooperating releases can still start another runner and overwrite `runner-state.json`.
 
 The workflow UI readiness panel must show SSH, runner live, workflow runtime, Snakemake version, profile, pipeline registry, and the most recent bootstrap canary separately. A missing canary record is not proof of readiness.
 

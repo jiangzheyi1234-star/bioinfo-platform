@@ -34,14 +34,19 @@ def test_remote_runner_startup_runs_explicit_schema_migration_before_listening()
     assert "load_remote_runner_config_from_startup_preflight()" in run_source
     assert "bind_remote_runner_config_snapshot," in run_source
     assert "ensure_runtime_layout," in run_source
+    assert "adopt_runner_process_lifetime_lock(cfg)" in run_source
     assert "ensure_runtime_layout(cfg)" in run_source
     assert run_source.index("load_remote_runner_config_from_startup_preflight()") < run_source.index(
+        "lifetime_lock = adopt_runner_process_lifetime_lock(cfg)"
+    )
+    assert run_source.index("lifetime_lock = adopt_runner_process_lifetime_lock(cfg)") < run_source.index(
         "bind_remote_runner_config_snapshot(cfg)"
     )
     assert run_source.index("bind_remote_runner_config_snapshot(cfg)") < run_source.index(
         "ensure_runtime_layout(cfg)"
     )
     assert run_source.index("ensure_runtime_layout(cfg)") < run_source.index("socket.socket(")
+    assert run_source.index("sock.close()") < run_source.index("lifetime_lock.release()")
 
 
 def test_tool_storage_lives_outside_general_storage_module() -> None:

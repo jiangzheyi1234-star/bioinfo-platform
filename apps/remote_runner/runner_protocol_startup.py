@@ -162,8 +162,13 @@ def initialize_runtime_layout_from_explicit_config(
         package_dir=package_dir,
     )
     from .config import ensure_runtime_layout
+    from .process_lifetime_lock import acquire_runner_process_lifetime_lock
 
-    ensure_runtime_layout(cfg)
+    lifetime_lock = acquire_runner_process_lifetime_lock(cfg)
+    try:
+        ensure_runtime_layout(cfg)
+    finally:
+        lifetime_lock.release()
 
 
 def _explicit_config_path() -> Path:

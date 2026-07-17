@@ -106,6 +106,11 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     from apps.remote_runner import run as remote_run
 
     captured: dict[str, Any] = {}
+    events: list[str] = []
+
+    class FakeLease:
+        def release(self):
+            events.append("release")
 
     class FakeSocket:
         def setsockopt(self, *_args):
@@ -123,12 +128,16 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
         def fileno(self):
             return 123
 
+        def close(self):
+            events.append("socket_close")
+
     class FakeServer:
         def __init__(self, config):
             captured["server_config"] = config
 
         def run(self, *, sockets):
             captured["server_sockets"] = sockets
+            events.append("serve")
 
     def fake_config(*args, **kwargs):
         captured["config_args"] = args
@@ -136,20 +145,45 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
         return SimpleNamespace(kwargs=kwargs)
 
     fake_socket = FakeSocket()
-    cfg = SimpleNamespace(bind_host="127.0.0.1", bind_port=0)
-    monkeypatch.setattr(remote_run, "_set_process_name", lambda: None)
+    cfg = SimpleNamespace(
+        bind_host="127.0.0.1",
+        bind_port=0,
+        release_dir="/release/remote_runner",
+        runtime_state_path="/shared/runtime/runner-state.json",
+    )
+    monkeypatch.setattr(remote_run, "_set_process_name", lambda: events.append("process_name"))
     monkeypatch.setattr(
         remote_run,
         "load_remote_runner_config_from_startup_preflight",
-        lambda: cfg,
+        lambda: events.append("preflight") or cfg,
+    )
+    monkeypatch.setattr(
+        remote_run,
+        "adopt_runner_process_lifetime_lock",
+        lambda _cfg: events.append("adopt") or FakeLease(),
+    )
+    monkeypatch.setattr(
+        remote_run,
+        "remove_runner_pid_file_if_owned",
+        lambda _cfg: events.append("pid_cleanup"),
     )
     monkeypatch.setattr(
         "apps.remote_runner.config.bind_remote_runner_config_snapshot",
-        lambda _cfg: None,
+        lambda _cfg: events.append("bind_snapshot"),
     )
-    monkeypatch.setattr("apps.remote_runner.config.ensure_runtime_layout", lambda _cfg: None)
-    monkeypatch.setattr("apps.remote_runner.config.write_runtime_state", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(remote_run.socket, "socket", lambda *_args, **_kwargs: fake_socket)
+    monkeypatch.setattr(
+        "apps.remote_runner.config.ensure_runtime_layout", lambda _cfg: events.append("ensure_layout")
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config.write_runtime_state",
+        lambda *_args, **_kwargs: events.append("runtime_state"),
+    )
+
+    def fake_socket_factory(*_args, **_kwargs):
+        events.append("socket_create")
+        return fake_socket
+
+    monkeypatch.setattr(remote_run.socket, "socket", fake_socket_factory)
     monkeypatch.setattr("uvicorn.Config", fake_config)
     monkeypatch.setattr("uvicorn.Server", FakeServer)
 
@@ -162,6 +196,19 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     assert captured["config_kwargs"]["log_config"] is None
     assert captured["config_kwargs"]["fd"] == 123
     assert captured["server_sockets"] == [fake_socket]
+    assert events == [
+        "preflight",
+        "adopt",
+        "bind_snapshot",
+        "process_name",
+        "ensure_layout",
+        "socket_create",
+        "runtime_state",
+        "serve",
+        "socket_close",
+        "pid_cleanup",
+        "release",
+    ]
 
 
 def test_set_and_clear_log_context():

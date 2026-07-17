@@ -17,6 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from core.contracts.runner_process_lifetime import (  # noqa: E402
+    RUNNER_PROCESS_LIFETIME_LAUNCHER_MODULE,
+    RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
+    RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
+)
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
 
@@ -363,7 +368,6 @@ cd "$RUN_DIR"
 export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"
 "$RUN_DIR/runtime/bin/python" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"
 nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &
-echo $! > "$RUN_DIR/runner.pid"
 SH
 cat > "$BUILD_ROOT/bundle/launch_remote_runner.sh" <<'SH'
 #!/usr/bin/env bash
@@ -371,19 +375,7 @@ set -euo pipefail
 RUN_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$RUN_DIR"
 RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"
-"$RUNNER_PYTHON" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"
-if [ -n "${{H2OMETA_REMOTE_CONFIG:-}}" ]; then
-  SHARED_ROOT="$(cd "$(dirname "$H2OMETA_REMOTE_CONFIG")/.." && pwd)"
-  TOOLS_BIN="$SHARED_ROOT/tools/bin"
-  if [ -d "$TOOLS_BIN" ]; then
-    export PATH="$TOOLS_BIN:$PATH"
-  fi
-fi
-if [ -x "$RUN_DIR/runtime/bin/conda-unpack" ] && [ ! -f "$RUN_DIR/runtime/.h2ometa-conda-unpacked" ]; then
-  "$RUN_DIR/runtime/bin/python" "$RUN_DIR/runtime/bin/conda-unpack"
-  touch "$RUN_DIR/runtime/.h2ometa-conda-unpacked"
-fi
-exec "$RUNNER_PYTHON" -B -m remote_runner.run
+exec "$RUNNER_PYTHON" -B -m {RUNNER_PROCESS_LIFETIME_LAUNCHER_MODULE}
 SH
 cat > "$BUILD_ROOT/bundle/check_service.sh" <<'SH'
 #!/usr/bin/env bash
@@ -439,6 +431,7 @@ WorkingDirectory=%h/.h2ometa/runner/current
 Environment=H2OMETA_REMOTE_CONFIG=%h/.h2ometa/runner/shared/config/runner.json
 ExecStart=%h/.h2ometa/runner/current/launch_remote_runner.sh
 Restart=on-failure
+RestartPreventExitStatus={RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS} {RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS}
 RestartSec=2
 
 [Install]
