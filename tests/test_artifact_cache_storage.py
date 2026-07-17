@@ -19,9 +19,7 @@ from apps.remote_runner.artifact_cache_storage import (
 from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
 from apps.remote_runner.artifact_cache_pin_service import (
     ARTIFACT_CACHE_POLICY_PIN_RELEASE_CONFIRMATION,
-    list_artifact_cache_policy_pins,
     release_artifact_cache_policy_pin,
-    retain_artifact_cache_policy_pin,
 )
 from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations
 from apps.remote_runner.artifact_lifecycle_policy import artifact_lifecycle_policy_fingerprint
