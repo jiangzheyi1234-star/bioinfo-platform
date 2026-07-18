@@ -78,9 +78,21 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
         "H2OMETA_REQUIRE_LINUX_RELEASE_ARCHIVE_INSPECTION_TESTS=1"
         in activation_script
     )
+    assert (
+        "H2OMETA_REQUIRE_LINUX_RELEASE_MATERIALIZATION_IO_TESTS=1"
+        in activation_script
+    )
     assert 'sudo mount --bind "$BIND_PROOF_ROOT/source"' in activation_script
     assert 'sudo umount "$BIND_PROOF_ROOT/parent/child"' in activation_script
-    assert "H2OMETA_RELEASE_PUBLICATION_BIND_PARENT" in activation_script
+    assert (
+        'export H2OMETA_RELEASE_PUBLICATION_BIND_PARENT="$BIND_PROOF_ROOT/parent"'
+        in activation_script
+    )
+    assert (
+        'export H2OMETA_RELEASE_MATERIALIZATION_BIND_PARENT="$BIND_PROOF_ROOT/parent"'
+        in activation_script
+    )
+    assert activation_script.count("sudo mount --bind") == 1
     assert 'mountpoint -q "$BIND_PROOF_ROOT/parent/child"' in activation_script
     assert (
         'findmnt -T "$BIND_PROOF_ROOT/parent/child" -o TARGET,SOURCE,FSTYPE,OPTIONS'
@@ -129,6 +141,14 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     )
     assert (
         "tests/test_remote_runner_activation_release_archive_inspection_linux.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_release_materialization_io_contract.py"
+        in activation_script
+    )
+    assert (
+        "tests/test_remote_runner_activation_release_materialization_io_linux.py"
         in activation_script
     )
     assert (

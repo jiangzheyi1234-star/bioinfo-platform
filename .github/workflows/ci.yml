@@ -237,6 +237,7 @@ jobs:
           export H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1
           export H2OMETA_REQUIRE_LINUX_RELEASE_PUBLICATION_TESTS=1
           export H2OMETA_REQUIRE_LINUX_RELEASE_ARCHIVE_INSPECTION_TESTS=1
+          export H2OMETA_REQUIRE_LINUX_RELEASE_MATERIALIZATION_IO_TESTS=1
           BIND_PROOF_ROOT="$RUNNER_TEMP/release-publication-bind-proof"
           mkdir -p "$BIND_PROOF_ROOT/parent/child" "$BIND_PROOF_ROOT/source"
           sudo mount --bind "$BIND_PROOF_ROOT/source" "$BIND_PROOF_ROOT/parent/child"
@@ -245,6 +246,7 @@ jobs:
           }
           trap cleanup_bind_proof EXIT
           export H2OMETA_RELEASE_PUBLICATION_BIND_PARENT="$BIND_PROOF_ROOT/parent"
+          export H2OMETA_RELEASE_MATERIALIZATION_BIND_PARENT="$BIND_PROOF_ROOT/parent"
           mountpoint -q "$BIND_PROOF_ROOT/parent/child"
           findmnt -T "$BIND_PROOF_ROOT/parent/child" -o TARGET,SOURCE,FSTYPE,OPTIONS
           unset UV_PYTHON
@@ -264,6 +266,8 @@ jobs:
             tests/test_remote_runner_activation_release_tar_inspection.py \
             tests/test_remote_runner_activation_release_archive_inspection_contract.py \
             tests/test_remote_runner_activation_release_archive_inspection_linux.py \
+            tests/test_remote_runner_activation_release_materialization_io_contract.py \
+            tests/test_remote_runner_activation_release_materialization_io_linux.py \
             tests/test_runner_activation_release_publication_contract.py \
             tests/test_remote_runner_activation_release_publication_layout_contract.py \
             tests/test_remote_runner_activation_release_publication_layout_linux.py

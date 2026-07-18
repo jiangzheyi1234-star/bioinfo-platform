@@ -518,11 +518,12 @@ retried, for at most three identical calls; unsupported ABI, invalid `open_how`,
 cross-mount, symlink, and interrupted calls fail immediately without a path or
 `openat` fallback.
 
-This slice proves the validation, call shape, retry budget, post-open checks,
-and no-fallback behavior against an injected syscall boundary. It does not yet
-claim a real-kernel proof for the dynamic opener. A real Linux child-directory,
-symlink rejection, and bind-mount `EXDEV` suite must still be added to the
-required Ubuntu activation-storage job before leaf primitives may rely on it.
+The contract suite proves the validation, call shape, retry budget, post-open
+checks, and no-fallback behavior against an injected syscall boundary. The
+required Ubuntu activation-storage job now separately proves a real dynamic
+child identity and non-inheritance, final-symlink `ELOOP`, and bind-mount
+`EXDEV`. This is kernel evidence on the required CI platform, not proof for an
+untested architecture, kernel, mount, or production runner host.
 
 That Python boundary intentionally says `raw_fd` and is not a production
 capability. `O_CLOEXEC` prevents inheritance across `execve`, but does not close

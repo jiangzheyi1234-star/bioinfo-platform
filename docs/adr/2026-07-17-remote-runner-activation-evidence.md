@@ -418,9 +418,10 @@ link，原地完成 conda relocation，然后 seal/fsync/fresh-walk/marker-last�
 允许最多三次完全相同的调用，`ENOSYS`、`EINVAL`、`E2BIG`、`EOPNOTSUPP`、`EXDEV`、`ELOOP` 与
 `EINTR` 均立即失败，绝不回退到 path check、`open` 或 `openat`。
 
-本切片只通过 injected syscall boundary 证明 validation、call shape、retry budget、post-open check 与
-no-fallback；尚不宣称 dynamic opener 已有真实 kernel proof。真实 Linux child-directory、symlink reject 与
-bind-mount `EXDEV` 测试仍必须接入 required Ubuntu activation-storage job，叶子原语才能依赖该边界。
+Contract suite 通过 injected syscall boundary 证明 validation、call shape、retry budget、post-open check 与
+no-fallback；required Ubuntu activation-storage job 另以真实 syscall 证明 dynamic child identity、
+non-inheritance、final-symlink `ELOOP` 与 bind-mount `EXDEV`。这只构成 required CI platform 的 kernel
+evidence，不外推到未经测试的 architecture、kernel、mount 或 production runner host。
 
 该 Python 入口刻意命名为 `raw_fd`，不构成 production capability。`O_CLOEXEC` 只防 `execve` 继承，
 不能回收当前进程内在 syscall/return handoff 被异步异常遗弃的 descriptor；CPython `_io.FileIO` 又会拒绝
