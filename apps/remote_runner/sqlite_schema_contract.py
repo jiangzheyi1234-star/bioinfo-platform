@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import sqlite3
+
+
 REQUIRED_TABLES = {
     "agent_events",
     "agent_approvals",
     "agent_plan_revisions",
+    "agent_run_authorizations",
+    "agent_session_effect_budgets",
     "agent_sessions",
     "artifact_blobs",
     "artifact_cache_entries",
@@ -61,6 +66,10 @@ REQUIRED_INDEXES = {
     "idx_agent_approvals_session_plan",
     "idx_agent_plan_revisions_hash",
     "idx_agent_plan_revisions_session_generation",
+    "idx_agent_run_authorizations_run",
+    "idx_agent_run_authorizations_session",
+    "idx_agent_run_authorizations_session_idempotency",
+    "idx_agent_session_effect_budgets_session_idempotency",
     "idx_agent_sessions_project_updated",
     "idx_agent_sessions_status_updated",
     "idx_artifact_materializations_lifecycle",
@@ -118,11 +127,65 @@ REQUIRED_INDEXES = {
 }
 
 REQUIRED_TRIGGERS = {
+    "agent_bound_runs_no_delete",
     "agent_events_no_delete",
     "agent_events_no_update",
     "agent_approvals_no_delete",
     "agent_approvals_no_update",
     "agent_plan_revisions_no_delete",
     "agent_plan_revisions_no_update",
+    "agent_run_authorizations_no_delete",
+    "agent_run_authorizations_no_update",
+    "agent_session_effect_budgets_no_delete",
+    "agent_session_effect_budgets_no_update",
     "workflow_revisions_no_update",
 }
+
+REQUIRED_FOREIGN_KEYS = {
+    ("agent_run_authorizations", "plan_revision_id", "agent_plan_revisions", "plan_revision_id", "RESTRICT"),
+    ("agent_run_authorizations", "run_id", "runs", "run_id", "RESTRICT"),
+    ("agent_run_authorizations", "session_id", "agent_sessions", "session_id", "RESTRICT"),
+    (
+        "agent_run_authorizations",
+        "workflow_revision_id",
+        "workflow_revisions",
+        "workflow_revision_id",
+        "RESTRICT",
+    ),
+    ("agent_session_effect_budgets", "session_id", "agent_sessions", "session_id", "RESTRICT"),
+}
+
+
+def missing_required_schema_objects(connection: sqlite3.Connection) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT type, name
+        FROM sqlite_master
+        WHERE type IN ('table', 'index', 'trigger')
+        """
+    ).fetchall()
+    existing = {(str(row[0]), str(row[1])) for row in rows}
+    missing: list[str] = []
+    missing.extend(f"table:{name}" for name in sorted(REQUIRED_TABLES) if ("table", name) not in existing)
+    missing.extend(f"index:{name}" for name in sorted(REQUIRED_INDEXES) if ("index", name) not in existing)
+    missing.extend(f"trigger:{name}" for name in sorted(REQUIRED_TRIGGERS) if ("trigger", name) not in existing)
+
+    foreign_keys_by_table = {
+        table_name: {
+            (
+                str(row[3]),
+                str(row[2]),
+                str(row[4]),
+                str(row[6]).upper(),
+            )
+            for row in connection.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
+        }
+        for table_name in {item[0] for item in REQUIRED_FOREIGN_KEYS}
+    }
+    for table_name, column, parent_table, parent_column, on_delete in sorted(REQUIRED_FOREIGN_KEYS):
+        expected = (column, parent_table, parent_column, on_delete)
+        if expected not in foreign_keys_by_table[table_name]:
+            missing.append(
+                f"foreign-key:{table_name}.{column}->{parent_table}.{parent_column}:{on_delete}"
+            )
+    return missing

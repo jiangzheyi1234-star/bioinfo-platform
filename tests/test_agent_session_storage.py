@@ -17,11 +17,15 @@ from apps.remote_runner.agent_session_storage import (
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.sqlite_migrations import (
     AGENT_SESSION_MIGRATION_NAME,
-    CURRENT_SCHEMA_VERSION,
     initialize_or_migrate_runtime_db,
 )
 from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_remote_runner_config
+
+
+AGENT_SESSION_V18_TABLES = frozenset(
+    {"agent_approvals", "agent_events", "agent_plan_revisions", "agent_sessions"}
+)
 
 
 def _configured_runner(tmp_path: Path):
@@ -270,18 +274,14 @@ def test_runtime_schema_migrates_v17_agent_session_tables(tmp_path: Path) -> Non
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_%'"
             ).fetchall()
+            if row[0] in AGENT_SESSION_V18_TABLES
         }
         migration = connection.execute(
             "SELECT name FROM schema_migrations WHERE version = ?",
-            (CURRENT_SCHEMA_VERSION,),
+            (18,),
         ).fetchone()
 
-    assert names == {
-        "agent_approvals",
-        "agent_events",
-        "agent_plan_revisions",
-        "agent_sessions",
-    }
+    assert names == AGENT_SESSION_V18_TABLES
     assert migrated_schema == fresh_schema
     assert migration["name"] == AGENT_SESSION_MIGRATION_NAME
 
@@ -303,4 +303,6 @@ def _agent_schema_snapshot(connection: sqlite3.Connection) -> list[tuple[str, st
             ORDER BY type, name
             """
         ).fetchall()
+        if str(row[1]) in AGENT_SESSION_V18_TABLES
+        or str(row[2]) in AGENT_SESSION_V18_TABLES
     ]

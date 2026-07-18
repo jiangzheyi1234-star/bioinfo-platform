@@ -5,6 +5,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from .agent_run_authorization_schema import migrate_agent_run_authorization_schema
 from .agent_session_schema import migrate_agent_session_schema
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .sqlite_artifact_migrations import (
@@ -32,7 +33,7 @@ from .sqlite_artifact_lifecycle_policy_migrations import (
     ensure_artifact_lifecycle_policies,
     migrate_artifact_lifecycle_policy_schema,
 )
-from .sqlite_schema_contract import REQUIRED_INDEXES, REQUIRED_TABLES, REQUIRED_TRIGGERS
+from .sqlite_schema_contract import missing_required_schema_objects
 from .sqlite_trigger_readiness_watcher_migrations import (
     ensure_workflow_trigger_readiness_watcher,
     migrate_workflow_trigger_readiness_watcher_schema,
@@ -51,7 +52,7 @@ from .sqlite_tool_prepare_migrations import (
 )
 from .storage_schema import SCHEMA_SQL
 
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 19
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
@@ -70,7 +71,8 @@ ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME = "015_artifact_ledger_invalidation"
 RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME = "016_result_package_retired_at"
 ARTIFACT_LIFECYCLE_POLICY_MIGRATION_NAME = "017_artifact_lifecycle_policy"
 AGENT_SESSION_MIGRATION_NAME = "018_agent_session_control_plane"
-CURRENT_SCHEMA_MIGRATION_NAME = AGENT_SESSION_MIGRATION_NAME
+AGENT_RUN_AUTHORIZATION_MIGRATION_NAME = "019_agent_run_authorization_execution_binding"
+CURRENT_SCHEMA_MIGRATION_NAME = AGENT_RUN_AUTHORIZATION_MIGRATION_NAME
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -93,6 +95,7 @@ def initialize_or_migrate_runtime_db(db_path: str | Path) -> None:
 def configure_runtime_connection(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
     version = read_schema_version(connection)
@@ -217,6 +220,14 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
             version=18,
             name=AGENT_SESSION_MIGRATION_NAME,
         )
+        version = read_schema_version(connection)
+    if version == 18:
+        migrate_agent_run_authorization_schema(
+            connection,
+            record_migration=_record_migration,
+            version=19,
+            name=AGENT_RUN_AUTHORIZATION_MIGRATION_NAME,
+        )
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -228,6 +239,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         _record_migration(connection, 15, ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME)
         _record_migration(connection, 16, RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME)
         _record_migration(connection, 17, ARTIFACT_LIFECYCLE_POLICY_MIGRATION_NAME)
+        _record_migration(connection, 18, AGENT_SESSION_MIGRATION_NAME)
         _record_migration(connection, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
@@ -282,7 +294,7 @@ def _assert_current_schema_contract(connection: sqlite3.Connection) -> None:
         raise RemoteRunnerSQLiteSchemaError(SCHEMA_LEDGER_MISSING_ERROR)
     if str(migration["checksum"] if isinstance(migration, sqlite3.Row) else migration[0]) != _baseline_checksum():
         raise RemoteRunnerSQLiteSchemaError(SCHEMA_LEDGER_CHECKSUM_ERROR)
-    missing = _missing_required_schema_objects(connection)
+    missing = missing_required_schema_objects(connection)
     if missing:
         raise RemoteRunnerSQLiteSchemaError(f"{SCHEMA_OBJECT_MISSING_ERROR}: {missing[0]}")
 
@@ -301,21 +313,6 @@ def _baseline_checksum() -> str:
         f"{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     )
     return hashlib.sha256(payload.encode()).hexdigest()
-
-def _missing_required_schema_objects(connection: sqlite3.Connection) -> list[str]:
-    rows = connection.execute(
-        """
-        SELECT type, name
-        FROM sqlite_master
-        WHERE type IN ('table', 'index', 'trigger')
-        """
-    ).fetchall()
-    existing = {(str(row["type"]), str(row["name"])) for row in rows}
-    missing: list[str] = []
-    missing.extend(f"table:{name}" for name in sorted(REQUIRED_TABLES) if ("table", name) not in existing)
-    missing.extend(f"index:{name}" for name in sorted(REQUIRED_INDEXES) if ("index", name) not in existing)
-    missing.extend(f"trigger:{name}" for name in sorted(REQUIRED_TRIGGERS) if ("trigger", name) not in existing)
-    return missing
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

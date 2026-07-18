@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
+from .agent_run_authorization_schema import AGENT_RUN_AUTHORIZATION_SCHEMA_SQL
+
 
 AGENT_SESSION_STATUSES = frozenset(
     {
@@ -187,7 +189,12 @@ AGENT_SESSION_SCHEMA_STATEMENTS = (
     """,
 )
 
-AGENT_SESSION_SCHEMA_SQL = "\n".join(f"{statement.strip()};" for statement in AGENT_SESSION_SCHEMA_STATEMENTS)
+AGENT_SESSION_V18_SCHEMA_SQL = "\n".join(
+    f"{statement.strip()};" for statement in AGENT_SESSION_SCHEMA_STATEMENTS
+)
+AGENT_SESSION_SCHEMA_SQL = (
+    AGENT_SESSION_V18_SCHEMA_SQL + "\n" + AGENT_RUN_AUTHORIZATION_SCHEMA_SQL
+)
 
 RecordMigration = Callable[[sqlite3.Connection, int, str], None]
 
