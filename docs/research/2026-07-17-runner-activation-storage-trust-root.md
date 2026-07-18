@@ -528,6 +528,14 @@ check; neither result opens the target. This is kernel evidence on the required
 CI platform, not proof for an untested architecture, kernel, mount, or
 production runner host.
 
+Required-platform acceptance is recorded by GitHub Actions
+[run 29624601618](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29624601618),
+job `python / activation-storage-linux`, at source
+`21034548deac586e5935cf8a46fbc5c7fe295ed4`: 574 passed and 6 skipped on
+Ubuntu 24.04 / Linux 6.17 x86_64. The run also exposed and then drove separate
+partial key-layout cleanup and archive ancestor-replacement fixture fixes; the
+recorded successful job includes both corrections.
+
 That Python boundary intentionally says `raw_fd` and is not a production
 capability. `O_CLOEXEC` prevents inheritance across `execve`, but does not close
 an abandoned descriptor in the current process. CPython `_io.FileIO` cannot

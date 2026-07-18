@@ -425,6 +425,13 @@ non-inheritance、final-symlink fail-closed refusal 与 bind-mount `EXDEV`。受
 两者均未打开 target。这只构成 required CI platform 的 kernel evidence，不外推到未经测试的
 architecture、kernel、mount 或 production runner host。
 
+Required-platform 验收证据为 GitHub Actions
+[run 29624601618](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29624601618) 的
+`python / activation-storage-linux` job，source 为
+`21034548deac586e5935cf8a46fbc5c7fe295ed4`：Ubuntu 24.04 / Linux 6.17 x86_64 上 574 passed、
+6 skipped。首次 run 还暴露并推动了 partial key-layout cleanup 与 archive ancestor-replacement fixture
+的独立修复；上述成功 job 已包含两项修正。
+
 该 Python 入口刻意命名为 `raw_fd`，不构成 production capability。`O_CLOEXEC` 只防 `execve` 继承，
 不能回收当前进程内在 syscall/return handoff 被异步异常遗弃的 descriptor；CPython `_io.FileIO` 又会拒绝
 directory fd，因此 archive regular-file 的 native-owner/SIGINT 证明不能套用。Materializer 若要 retained
