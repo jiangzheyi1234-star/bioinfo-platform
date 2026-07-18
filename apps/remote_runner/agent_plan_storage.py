@@ -8,6 +8,8 @@ import sqlite3
 import uuid
 from typing import Any
 
+from pydantic import ValidationError
+
 from core.contracts.agent_plan import (
     AGENT_APPROVAL_CONTRACT_VERSION,
     AGENT_PLAN_REVISION_CONTRACT_VERSION,
@@ -17,6 +19,7 @@ from core.contracts.agent_plan import (
 from core.contracts.agent_session import (
     AgentPlanProposal,
     AgentSessionBudget,
+    AgentSessionRecord,
     assert_agent_session_json_safe,
 )
 from core.contracts.workflow_design import normalize_workflow_design_draft
@@ -162,6 +165,54 @@ def fetch_agent_plan_revision(
             (normalized_id,),
         ).fetchone()
     return agent_plan_row_to_dict(row) if row is not None else None
+
+
+def require_active_agent_plan_for_connection(
+    connection: sqlite3.Connection,
+    session: dict[str, Any],
+) -> dict[str, Any]:
+    """Load the exact active plan from the caller's authoritative read snapshot."""
+
+    try:
+        normalized_session = AgentSessionRecord.model_validate(session)
+    except ValidationError as exc:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_SESSION_INVALID") from exc
+    if normalized_session.status != "ready_to_run":
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_SESSION_NOT_READY")
+    if not normalized_session.workflowRevisionId:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_WORKFLOW_REVISION_REQUIRED")
+    if (
+        not normalized_session.activeDraftId
+        or normalized_session.activeDraftRevision is None
+        or not normalized_session.activePlanHash
+    ):
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_REFERENCES_REQUIRED")
+
+    row = connection.execute(
+        """
+        SELECT * FROM agent_plan_revisions
+        WHERE session_id = ? AND plan_generation = ?
+        """,
+        (normalized_session.sessionId, normalized_session.planGeneration),
+    ).fetchone()
+    if row is None:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_NOT_FOUND")
+    plan = agent_plan_row_to_dict(row)
+    if plan["sessionId"] != normalized_session.sessionId:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_SESSION_ID_MISMATCH")
+    if plan["planGeneration"] != normalized_session.planGeneration:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_GENERATION_MISMATCH")
+    if plan["planHash"] != normalized_session.activePlanHash:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_HASH_MISMATCH")
+    if plan["draftId"] != normalized_session.activeDraftId:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_DRAFT_ID_MISMATCH")
+    if plan["draftRevision"] != normalized_session.activeDraftRevision:
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_DRAFT_REVISION_MISMATCH")
+    if plan["budget"] != normalized_session.budget.runtime_payload():
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_BUDGET_MISMATCH")
+    if plan["proposal"]["planner"] != normalized_session.planner.runtime_payload():
+        raise AgentPlanStorageConflictError("AGENT_ACTIVE_PLAN_PLANNER_MISMATCH")
+    return plan
 
 
 def require_agent_plan_revision(cfg: RemoteRunnerConfig, plan_revision_id: str) -> dict[str, Any]:
@@ -489,21 +540,24 @@ def _validate_approval_target(
 
 
 def agent_plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    payload = {
-        "contractVersion": row["contract_version"],
-        "planRevisionId": row["plan_revision_id"],
-        "sessionId": row["session_id"],
-        "planGeneration": int(row["plan_generation"]),
-        "parentPlanRevisionId": row["parent_plan_revision_id"],
-        "draftId": row["draft_id"],
-        "draftRevision": int(row["draft_revision"]),
-        "planHash": row["plan_hash"],
-        "proposal": json.loads(row["proposal_json"]),
-        "validation": json.loads(row["validation_json"]),
-        "budget": json.loads(row["budget_json"]),
-        "createdBy": row["created_by"],
-        "createdAt": row["created_at"],
-    }
+    try:
+        payload = {
+            "contractVersion": row["contract_version"],
+            "planRevisionId": row["plan_revision_id"],
+            "sessionId": row["session_id"],
+            "planGeneration": int(row["plan_generation"]),
+            "parentPlanRevisionId": row["parent_plan_revision_id"],
+            "draftId": row["draft_id"],
+            "draftRevision": int(row["draft_revision"]),
+            "planHash": row["plan_hash"],
+            "proposal": _decode_stored_plan_object(row["proposal_json"]),
+            "validation": _decode_stored_plan_object(row["validation_json"]),
+            "budget": _decode_stored_plan_object(row["budget_json"]),
+            "createdBy": row["created_by"],
+            "createdAt": row["created_at"],
+        }
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise AgentPlanStorageConflictError("AGENT_PLAN_STORED_PAYLOAD_INVALID") from exc
     hash_payload = {
         "budget": payload["budget"],
         "contractVersion": payload["contractVersion"],
@@ -519,7 +573,10 @@ def agent_plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     if hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest() != payload["planHash"]:
         raise AgentPlanStorageConflictError("AGENT_PLAN_STORED_HASH_MISMATCH")
     payload["canonicalPayload"] = canonical_payload
-    AgentPlanRevisionRecord.model_validate(payload)
+    try:
+        AgentPlanRevisionRecord.model_validate(payload)
+    except ValidationError as exc:
+        raise AgentPlanStorageConflictError("AGENT_PLAN_STORED_PAYLOAD_INVALID") from exc
     return payload
 
 
@@ -561,6 +618,13 @@ def _safe_json_object(value: Any, code: str) -> dict[str, Any]:
         raise ValueError(code)
     assert_agent_session_json_safe(value, path="agent.plan")
     return json.loads(_stable_json(value))
+
+
+def _decode_stored_plan_object(value: Any) -> dict[str, Any]:
+    decoded = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise ValueError("AGENT_PLAN_STORED_OBJECT_REQUIRED")
+    return decoded
 
 
 def _hash_json(value: Any) -> str:

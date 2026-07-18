@@ -8,6 +8,8 @@ import sqlite3
 import uuid
 from typing import Any
 
+from pydantic import ValidationError
+
 from core.contracts.agent_session import (
     AGENT_SESSION_CONTRACT_VERSION,
     AGENT_SESSION_EVENT_CONTRACT_VERSION,
@@ -53,14 +55,14 @@ def create_agent_session(
     normalized_goal = AgentSessionGoal.model_validate(goal).runtime_payload()
     normalized_constraints = AgentSessionConstraints.model_validate(constraints or {}).runtime_payload()
     normalized_budget = AgentSessionBudget.model_validate(budget).runtime_payload()
-    request_payload = {
-        "budget": normalized_budget,
-        "contractVersion": AGENT_SESSION_CONTRACT_VERSION,
-        "constraints": normalized_constraints,
-        "createdBy": normalized_created_by,
-        "goal": normalized_goal,
-        "projectId": normalized_project_id,
-    }
+    request_payload = _creation_request_payload(
+        budget=normalized_budget,
+        contract_version=AGENT_SESSION_CONTRACT_VERSION,
+        constraints=normalized_constraints,
+        created_by=normalized_created_by,
+        goal=normalized_goal,
+        project_id=normalized_project_id,
+    )
     creation_hash = _hash_json(request_payload)
     normalized_session_id = _optional_text(session_id) or f"ags_{uuid.uuid4().hex[:16]}"
     created_at = now_iso()
@@ -123,17 +125,32 @@ def create_agent_session(
 
 
 def fetch_agent_session(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, Any] | None:
-    normalized_session_id = _required_text(session_id, "AGENT_SESSION_ID_REQUIRED")
     with get_connection(cfg) as connection:
-        row = connection.execute(
-            "SELECT * FROM agent_sessions WHERE session_id = ?",
-            (normalized_session_id,),
-        ).fetchone()
+        return fetch_agent_session_for_connection(connection, session_id)
+
+
+def fetch_agent_session_for_connection(
+    connection: sqlite3.Connection,
+    session_id: str,
+) -> dict[str, Any] | None:
+    normalized_session_id = _required_text(session_id, "AGENT_SESSION_ID_REQUIRED")
+    row = connection.execute(
+        "SELECT * FROM agent_sessions WHERE session_id = ?",
+        (normalized_session_id,),
+    ).fetchone()
     return agent_session_row_to_dict(row) if row is not None else None
 
 
 def require_agent_session(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, Any]:
-    session = fetch_agent_session(cfg, session_id)
+    with get_connection(cfg) as connection:
+        return require_agent_session_for_connection(connection, session_id)
+
+
+def require_agent_session_for_connection(
+    connection: sqlite3.Connection,
+    session_id: str,
+) -> dict[str, Any]:
+    session = fetch_agent_session_for_connection(connection, session_id)
     if session is None:
         raise AgentSessionStorageNotFoundError("AGENT_SESSION_NOT_FOUND")
     return session
@@ -509,29 +526,69 @@ def _session_update_values(current: sqlite3.Row, patch: dict[str, Any]) -> dict[
 
 
 def agent_session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    payload = {
-        "sessionId": row["session_id"],
-        "contractVersion": row["contract_version"],
-        "projectId": row["project_id"],
-        "goal": json.loads(row["goal_json"]),
-        "constraints": json.loads(row["constraints_json"]),
-        "budget": json.loads(row["budget_json"]),
-        "status": row["status"],
-        "stateVersion": int(row["state_version"]),
-        "planGeneration": int(row["plan_generation"]),
-        "activeDraftId": row["active_draft_id"],
-        "activeDraftRevision": row["active_draft_revision"],
-        "activePlanHash": row["active_plan_hash"],
-        "workflowRevisionId": row["workflow_revision_id"],
-        "planner": json.loads(row["planner_json"]),
-        "lastErrorCode": row["last_error_code"],
-        "creationRequestId": row["creation_request_id"],
-        "createdBy": row["created_by"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-        "cancelledAt": row["cancelled_at"],
-    }
-    AgentSessionRecord.model_validate(payload)
+    goal = _decode_stored_object(
+        row["goal_json"],
+        "AGENT_SESSION_STORED_CREATION_PAYLOAD_INVALID",
+    )
+    constraints = _decode_stored_object(
+        row["constraints_json"],
+        "AGENT_SESSION_STORED_CREATION_PAYLOAD_INVALID",
+    )
+    budget = _decode_stored_object(
+        row["budget_json"],
+        "AGENT_SESSION_STORED_CREATION_PAYLOAD_INVALID",
+    )
+    creation_payload = _creation_request_payload(
+        budget=budget,
+        contract_version=row["contract_version"],
+        constraints=constraints,
+        created_by=row["created_by"],
+        goal=goal,
+        project_id=row["project_id"],
+    )
+    try:
+        creation_hash = _hash_json(creation_payload)
+    except (TypeError, ValueError) as exc:
+        raise AgentSessionStorageConflictError(
+            "AGENT_SESSION_STORED_CREATION_PAYLOAD_INVALID"
+        ) from exc
+    if creation_hash != str(row["creation_request_hash"] or ""):
+        raise AgentSessionStorageConflictError(
+            "AGENT_SESSION_STORED_CREATION_HASH_MISMATCH"
+        )
+    try:
+        payload = {
+            "sessionId": row["session_id"],
+            "contractVersion": row["contract_version"],
+            "projectId": row["project_id"],
+            "goal": goal,
+            "constraints": constraints,
+            "budget": budget,
+            "status": row["status"],
+            "stateVersion": int(row["state_version"]),
+            "planGeneration": int(row["plan_generation"]),
+            "activeDraftId": row["active_draft_id"],
+            "activeDraftRevision": row["active_draft_revision"],
+            "activePlanHash": row["active_plan_hash"],
+            "workflowRevisionId": row["workflow_revision_id"],
+            "planner": _decode_stored_object(
+                row["planner_json"],
+                "AGENT_SESSION_STORED_RECORD_INVALID",
+            ),
+            "lastErrorCode": row["last_error_code"],
+            "creationRequestId": row["creation_request_id"],
+            "createdBy": row["created_by"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "cancelledAt": row["cancelled_at"],
+        }
+        AgentSessionRecord.model_validate(payload)
+    except AgentSessionStorageConflictError:
+        raise
+    except (ValidationError, TypeError, ValueError, OverflowError) as exc:
+        raise AgentSessionStorageConflictError(
+            "AGENT_SESSION_STORED_RECORD_INVALID"
+        ) from exc
     return payload
 
 
@@ -569,6 +626,35 @@ def _safe_object(value: Any, code: str) -> dict[str, Any]:
         raise ValueError(code)
     _assert_safe_payload(value)
     return json.loads(_stable_json(value))
+
+
+def _decode_stored_object(value: Any, code: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise AgentSessionStorageConflictError(code) from exc
+    if not isinstance(decoded, dict):
+        raise AgentSessionStorageConflictError(code)
+    return decoded
+
+
+def _creation_request_payload(
+    *,
+    budget: Any,
+    contract_version: Any,
+    constraints: Any,
+    created_by: Any,
+    goal: Any,
+    project_id: Any,
+) -> dict[str, Any]:
+    return {
+        "budget": budget,
+        "contractVersion": contract_version,
+        "constraints": constraints,
+        "createdBy": created_by,
+        "goal": goal,
+        "projectId": project_id,
+    }
 
 
 def _assert_safe_payload(value: Any) -> None:
