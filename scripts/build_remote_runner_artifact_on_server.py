@@ -30,6 +30,9 @@ from core.contracts.runner_activation_release_bootstrap_manifest import (  # noq
 )
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
+from core.remote_runner.release_source_policy import (  # noqa: E402
+    require_approved_remote_runner_release_worktree_file,
+)
 
 CORE_RUNTIME_HELPER_FILES = (
     "async_boundary.py",
@@ -190,8 +193,15 @@ def git_tracked_release_files(local_dir: Path, *, include_untracked: bool = Fals
         if path in seen:
             continue
         seen.add(path)
-        if not path.is_file():
+        try:
+            path.lstat()
+        except FileNotFoundError:
             continue
+        require_approved_remote_runner_release_worktree_file(
+            path,
+            root=local_dir,
+            policy_path=path.relative_to(REPO_ROOT),
+        )
         rel_parts = path.relative_to(local_dir).parts
         if ".test" in rel_parts and rel_parts[-1] != "run-config.json":
             continue
@@ -215,6 +225,11 @@ def upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bo
 
 
 def upload_file(sftp, local_file: Path, remote_file: str) -> None:
+    require_approved_remote_runner_release_worktree_file(
+        local_file,
+        root=REPO_ROOT,
+        policy_path=local_file.relative_to(REPO_ROOT),
+    )
     mkdir_p_sftp(sftp, posixpath.dirname(remote_file))
     sftp.put(str(local_file), remote_file)
 

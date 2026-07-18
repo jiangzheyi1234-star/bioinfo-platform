@@ -18,6 +18,10 @@ from core.contracts.runner_process_owner import (
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
+from core.remote_runner.release_source_policy import (
+    require_approved_remote_runner_release_tree,
+    require_approved_remote_runner_release_worktree_file,
+)
 
 CORE_RUNTIME_HELPER_FILES = (
     "async_boundary.py",
@@ -56,15 +60,27 @@ class RemoteRunnerBundleBuilder:
         bundle_dir.mkdir(parents=True, exist_ok=True)
 
         source_pkg = Path(__file__).resolve().parents[2] / "apps" / "remote_runner"
+        require_approved_remote_runner_release_tree(source_pkg)
         shutil.copytree(
             source_pkg,
             bundle_dir / "remote_runner",
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
         source_core = Path(__file__).resolve().parents[2] / "core"
+        require_approved_remote_runner_release_tree(source_core / "contracts")
+        core_source_files = (
+            source_core / "__init__.py",
+            *(source_core / filename for filename in CORE_RUNTIME_HELPER_FILES),
+        )
+        for source_path in core_source_files:
+            require_approved_remote_runner_release_worktree_file(
+                source_path,
+                root=source_core,
+                policy_path=source_path.relative_to(source_core),
+            )
         core_bundle = bundle_dir / "core"
         core_bundle.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_core / "__init__.py", core_bundle / "__init__.py")
+        shutil.copy2(core_source_files[0], core_bundle / "__init__.py")
         for filename in CORE_RUNTIME_HELPER_FILES:
             shutil.copy2(source_core / filename, core_bundle / filename)
         shutil.copytree(

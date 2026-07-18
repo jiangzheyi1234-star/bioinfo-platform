@@ -32,6 +32,9 @@ from core.remote_runner.release_manifest import (  # noqa: E402
     WORKFLOW_RUNTIME_ARTIFACT,
     WORKFLOW_RUNTIME_VERSION,
 )
+from core.remote_runner.release_source_policy import (  # noqa: E402
+    require_approved_remote_runner_release_source,
+)
 from scripts import build_remote_runner_artifact_on_server as runner_builder  # noqa: E402
 from scripts import build_workflow_runtime_artifact_on_server as workflow_builder  # noqa: E402
 
@@ -126,19 +129,57 @@ def ensure_source_ref_checked_out(source_ref: str) -> str:
     return expected
 
 
-def copy_git_file(source_ref: str, repo_relative_path: str, destination: Path) -> None:
+def copy_git_file(
+    source_ref: str,
+    repo_relative_path: str,
+    destination: Path,
+    *,
+    tree_entry_validated: bool = False,
+) -> None:
+    if not tree_entry_validated:
+        result = run_git(
+            ["ls-tree", "-z", source_ref, "--", repo_relative_path]
+        )
+        entries = _validated_git_release_files(str(result))
+        if entries != [repo_relative_path]:
+            raise RuntimeError(
+                "remote runner release source exact git tree entry is invalid: "
+                f"{repo_relative_path}"
+            )
+    content = git_file_bytes(source_ref, repo_relative_path)
+    require_approved_remote_runner_release_source(
+        PurePosixPath(repo_relative_path),
+        content_prefix=content[:8],
+    )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(git_file_bytes(source_ref, repo_relative_path))
+    destination.write_bytes(content)
 
 
 def git_release_files_at_ref(local_dir: Path, source_ref: str) -> list[str]:
     release_root = local_dir.relative_to(REPO_ROOT).as_posix()
-    result = run_git(["ls-tree", "-r", "--name-only", source_ref, "--", release_root])
+    result = run_git(["ls-tree", "-r", "-z", source_ref, "--", release_root])
+    return _validated_git_release_files(str(result))
+
+
+def _validated_git_release_files(result: str) -> list[str]:
     files: list[str] = []
-    for raw in str(result).splitlines():
-        repo_relative_path = raw.strip()
-        if repo_relative_path:
-            files.append(repo_relative_path)
+    for raw in result.split("\0"):
+        if not raw:
+            continue
+        metadata, separator, repo_relative_path = raw.partition("\t")
+        fields = metadata.split()
+        if separator != "\t" or len(fields) != 3 or not repo_relative_path:
+            raise RuntimeError("remote runner release source tree is invalid")
+        mode, object_type, _object_id = fields
+        if object_type != "blob" or mode not in {"100644", "100755"}:
+            raise RuntimeError(
+                "remote runner release source contains an unapproved git tree entry: "
+                f"{repo_relative_path}"
+            )
+        require_approved_remote_runner_release_source(
+            PurePosixPath(repo_relative_path)
+        )
+        files.append(repo_relative_path)
     return files
 
 
@@ -152,7 +193,12 @@ def copy_git_tree(local_dir: Path, destination: Path, *, source_ref: str) -> Non
                 continue
         rel = PurePosixPath(repo_relative_path).relative_to(PurePosixPath(release_root))
         target = destination.joinpath(*rel.parts)
-        copy_git_file(source_ref, repo_relative_path, target)
+        copy_git_file(
+            source_ref,
+            repo_relative_path,
+            target,
+            tree_entry_validated=True,
+        )
 
 
 def copy_remote_runner_sources(build_root: Path, *, source_ref: str) -> None:

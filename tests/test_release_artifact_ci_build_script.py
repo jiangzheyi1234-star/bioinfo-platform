@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import build_release_artifacts_in_ci as ci_builder
 
 
@@ -28,9 +30,14 @@ def test_ci_builder_copies_release_sources_from_immutable_ref_without_test_fixtu
         return ["core/contracts/workflow_design.py"]
 
     def fake_run_git(args, *, binary: bool = False):
-        assert binary is True
-        file_writes.append((args[1], args[0]))
-        return b"# source\n"
+        if binary:
+            file_writes.append((args[1], args[0]))
+            return b"# source\n"
+        assert args[:2] == ["ls-tree", "-z"]
+        repo_relative_path = args[-1]
+        return (
+            f"100644 blob {'a' * 40}\t{repo_relative_path}\0"
+        )
 
     monkeypatch.setattr(ci_builder, "REPO_ROOT", repo_root)
     monkeypatch.setattr(ci_builder, "git_release_files_at_ref", fake_release_files)
@@ -57,6 +64,98 @@ def test_ci_builder_copies_release_sources_from_immutable_ref_without_test_fixtu
     assert ("abc123:apps/remote_runner/pipelines/demo/.test/run-config.json", "show") in file_writes
     assert ("abc123:apps/remote_runner/pipelines/demo/.test/fixtures/input.txt", "show") not in file_writes
     assert ("abc123:apps/remote_runner/pipelines/demo/.test/fixtures/run-config.json", "show") not in file_writes
+
+
+def test_ci_builder_rejects_native_payload_from_immutable_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path
+    local_dir = repo_root / "apps" / "remote_runner"
+    local_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(ci_builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        ci_builder,
+        "run_git",
+        lambda args, *, binary=False: (
+            f"100644 blob {'a' * 40}\t"
+            "apps/remote_runner/_unapproved.abi3.so\0"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved native payload"):
+        ci_builder.git_release_files_at_ref(local_dir, "a" * 40)
+
+
+def test_ci_builder_rejects_symbolic_link_from_immutable_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path
+    local_dir = repo_root / "apps" / "remote_runner"
+    local_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(ci_builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        ci_builder,
+        "run_git",
+        lambda args, *, binary=False: (
+            f"120000 blob {'a' * 40}\tapps/remote_runner/linked.py\0"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved git tree entry"):
+        ci_builder.git_release_files_at_ref(local_dir, "a" * 40)
+
+
+def test_ci_builder_rejects_native_magic_under_benign_name(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        ci_builder,
+        "git_file_bytes",
+        lambda source_ref, repo_relative_path: b"\x7fELFfake",
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved native payload"):
+        ci_builder.copy_git_file(
+            "a" * 40,
+            "apps/remote_runner/owner.py",
+            tmp_path / "owner.py",
+            tree_entry_validated=True,
+        )
+
+    assert not (tmp_path / "owner.py").exists()
+
+
+def test_ci_builder_rejects_symbolic_link_for_exact_core_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_relative_path = "core/logging_config.py"
+    monkeypatch.setattr(
+        ci_builder,
+        "run_git",
+        lambda args, *, binary=False: (
+            f"120000 blob {'a' * 40}\t{repo_relative_path}\0"
+        ),
+    )
+    monkeypatch.setattr(
+        ci_builder,
+        "git_file_bytes",
+        lambda source_ref, path: pytest.fail("symlink blob must not be copied"),
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved git tree entry"):
+        ci_builder.copy_git_file(
+            "a" * 40,
+            repo_relative_path,
+            tmp_path / "logging_config.py",
+        )
+
+    assert not (tmp_path / "logging_config.py").exists()
 
 
 def test_ci_builder_requires_immutable_source_ref_and_clean_checkout(monkeypatch) -> None:

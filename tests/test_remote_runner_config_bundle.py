@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+import core.remote_runner.bundle as bundle_module
+
 from apps.remote_runner.config import (
     dump_public_config,
     ensure_runtime_layout,
@@ -312,6 +314,32 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     runner_protocol = require_current_runner_protocol_manifest(manifest)
     assert runner_protocol["protocolVersion"] == RUNNER_PROTOCOL_VERSION
     assert runner_protocol["coverage"]["automaticRecoveryEnabled"] is False
+
+
+def test_remote_runner_bundle_validates_fixed_core_sources(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    observed: list[str] = []
+    original = bundle_module.require_approved_remote_runner_release_worktree_file
+
+    def record_source(path: Path, *, root: Path, policy_path: Path) -> None:
+        observed.append(policy_path.as_posix())
+        original(path, root=root, policy_path=policy_path)
+
+    monkeypatch.setattr(
+        bundle_module,
+        "require_approved_remote_runner_release_worktree_file",
+        record_source,
+    )
+
+    RemoteRunnerBundleBuilder().build(
+        version=REMOTE_RUNNER_VERSION,
+        platform="linux-64",
+        runtime_dir=_fake_runtime_dir(tmp_path),
+    )
+
+    assert observed == ["__init__.py", *bundle_module.CORE_RUNTIME_HELPER_FILES]
 
 def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"

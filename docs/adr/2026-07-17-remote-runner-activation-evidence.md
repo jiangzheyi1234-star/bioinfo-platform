@@ -439,6 +439,13 @@ directory capability，必须先实现“同一次 C-level 调用完成 openat2�
 或者把全部目录操作限制在关闭后才返回的同步 SIGINT-deferred stack scope。当前 raw-fd 入口不接 startup、
 publication 或 generation authorization。
 
+在引入任何 native owner 前，全部 remote-runner source-copy builder 已先增加 fail-closed admission
+boundary：tracked、immutable-ref 或 development-only untracked source 中出现 `.so`、`.pyd`、`.dll`、
+`.dylib`、object/static-library、`.exe`、wheel、native binary magic 或 symbolic link 都会终止构建，
+而不是静默复制、跟随或忽略。
+后续受控编译产物必须来自独立 build output，并在 builder 明确验证 ABI、architecture、ELF、hash、import、
+SBOM 与 provenance 后单独准入；不能把本地生成的 binary 写回 `apps/remote_runner` 来绕过发布链。
+
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
 证明的 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV)`

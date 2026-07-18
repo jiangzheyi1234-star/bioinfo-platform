@@ -46,6 +46,88 @@ def test_dirty_source_release_files_include_untracked_modules(monkeypatch, tmp_p
     assert any("--others" in call for call in calls)
 
 
+@pytest.mark.parametrize("include_untracked", [False, True])
+def test_release_source_collection_rejects_native_payloads(
+    monkeypatch,
+    tmp_path: Path,
+    include_untracked: bool,
+) -> None:
+    repo_root = tmp_path
+    local_dir = repo_root / "apps" / "remote_runner"
+    payload = local_dir / "_unapproved.abi3.so"
+    payload.parent.mkdir(parents=True)
+    payload.write_bytes(b"ELF")
+
+    def fake_run(cmd, **_kwargs):
+        is_untracked_query = "--others" in cmd
+        selected = is_untracked_query if include_untracked else not is_untracked_query
+        return SimpleNamespace(
+            stdout="apps/remote_runner/_unapproved.abi3.so\n" if selected else ""
+        )
+
+    monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="unapproved native payload"):
+        builder.git_tracked_release_files(
+            local_dir,
+            include_untracked=include_untracked,
+        )
+
+
+def test_release_source_collection_rejects_symbolic_links(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path
+    local_dir = repo_root / "apps" / "remote_runner"
+    payload = local_dir / "linked.py"
+    payload.parent.mkdir(parents=True)
+    payload.write_text("target", encoding="utf-8")
+    path_type = type(payload)
+    original_is_symlink = path_type.is_symlink
+
+    monkeypatch.setattr(
+        path_type,
+        "is_symlink",
+        lambda self: self == payload or original_is_symlink(self),
+    )
+    monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        builder.subprocess,
+        "run",
+        lambda cmd, **_kwargs: SimpleNamespace(
+            stdout="apps/remote_runner/linked.py\n" if "--others" in cmd else ""
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved link"):
+        builder.git_tracked_release_files(local_dir, include_untracked=True)
+
+
+def test_release_source_collection_rejects_native_magic(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path
+    local_dir = repo_root / "apps" / "remote_runner"
+    payload = local_dir / "owner.py"
+    payload.parent.mkdir(parents=True)
+    payload.write_bytes(b"\x7fELFfake")
+
+    monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        builder.subprocess,
+        "run",
+        lambda cmd, **_kwargs: SimpleNamespace(
+            stdout="apps/remote_runner/owner.py\n" if "--others" not in cmd else ""
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unapproved native payload"):
+        builder.git_tracked_release_files(local_dir)
+
+
 def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_path: Path) -> None:
     repo_root = tmp_path
     (repo_root / "apps" / "remote_runner").mkdir(parents=True)
