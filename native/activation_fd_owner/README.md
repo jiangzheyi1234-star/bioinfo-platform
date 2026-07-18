@@ -18,3 +18,16 @@ preflight.
 
 `Py_LIMITED_API` and an `abi3` filename cover only the CPython ABI. They do not
 establish architecture, libc, kernel, filesystem, or behavioral portability.
+
+## Required-platform evidence
+
+GitHub Actions
+[run 29630042088](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088),
+[job `python / native-activation-fd-owner-linux`](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088/job/88041786548),
+concluded `success` for source
+`8722fec795baadf72b9d024d442d041213f609c4` on Ubuntu 24.04 x86-64 runner
+image `20260714.240.1`. The job built and audited the production and proof
+`cp312-abi3-linux_x86_64` wheels, imported both on CPython 3.12.13 and 3.13.14,
+and completed the combined contract, wheel-validator, and proof-only Linux
+behavior suite with 51 passed. The parent workflow run concluded `failure`, so
+this is isolated job evidence, not whole-CI or branch acceptance.

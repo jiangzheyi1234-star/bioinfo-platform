@@ -547,6 +547,46 @@ one synchronous, SIGINT-deferred stack operation that closes before returning.
 The dormant raw-fd contract is not wired into startup, publication, or generation
 authorization.
 
+The first prerequisite now has a quarantined, dormant implementation, but it is
+not production wiring. Production and proof use distinct distributions,
+modules, `PyInit_*` entry points, and capsule identities. The production surface
+is limited to `_open_child`, `_require_live`, and `_close`; it exposes no root
+seed, raw fd, path open, callback, replay, or fallback.
+
+Required-platform evidence is GitHub Actions
+[run 29630042088](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088),
+[job `python / native-activation-fd-owner-linux`](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088/job/88041786548),
+at source `8722fec795baadf72b9d024d442d041213f609c4`. That job concluded
+`success` on the Ubuntu 24.04 x86-64 runner image `20260714.240.1`. CPython
+3.12.13 built
+`h2ometa_activation_release_dir_owner-0.1.0-cp312-abi3-linux_x86_64.whl`
+and
+`h2ometa_activation_release_dir_owner_proof-0.1.0-cp312-abi3-linux_x86_64.whl`;
+both imported under CPython 3.12.13 and 3.13.14. The controlled validator
+checked wheel identity, one extension, ELF64 x86-64 `DYN`, RELRO/NOW, exported
+symbols, the Stable ABI allowlist, prohibited path-fallback symbols, extra
+native payloads, and symlinks. `abi3audit 0.0.26 --strict` also completed
+successfully. Real bind-mount, foreign-UID refusal, `openat2` fail-closed, and
+symlink-refusal checks provide real syscall evidence. Injected boundaries cover
+retry and error shapes. A proof hook reports an injected post-close `EINTR`
+only after the real close has completed; this is not evidence that the kernel
+`close()` returned `EINTR`. The combined contract, wheel-validator, and
+proof-binary behavior suite ended with 51 passed, including descriptor
+reuse/double-close, destructor, SIGINT, and `sys.monitoring.INSTRUCTION`
+return-boundary coverage.
+
+Behavioral evidence belongs only to the separately identified proof binary.
+The production binary intentionally has no root seed, so its evidence is
+limited to build, ABI, import, and surface checks. Both wheels were built and
+discarded under `$RUNNER_TEMP`; neither was uploaded, bundled, or connected to
+startup, publication, or generation. This records the required job's successful
+conclusion. The parent workflow run concluded `failure`, so this is neither
+whole-CI nor branch-acceptance evidence, and it does not generalize to another
+architecture, libc, kernel, mount, or production host.
+Production adoption still requires root/session capsule ownership, exact
+runtime and glibc qualification, artifact hash/SBOM/provenance, versioned
+archive import, and startup preflight.
+
 Contrarian limits remain. Fixed quotas are availability policy, not a proof
 that memory, CPU, disk allocation, or decompressor implementation has no bugs.
 ASCII-only names and normalized modes trade artifact generality for a closed
@@ -642,6 +682,8 @@ significant.
 - [Linux close(2)](https://man7.org/linux/man-pages/man2/close.2.html)
 - [CPython 3.12 `_io.FileIO` implementation](https://github.com/python/cpython/blob/v3.12.10/Modules/_io/fileio.c)
 - [Python signal handling](https://docs.python.org/3/library/signal.html)
+- [Python 3.12 `sys.monitoring`](https://docs.python.org/3.12/library/sys.monitoring.html)
+- [CPython 3.12.13 bytecode implementation](https://github.com/python/cpython/blob/v3.12.13/Python/bytecodes.c)
 - [Linux stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)
 - [Linux openat2(2)](https://man7.org/linux/man-pages/man2/openat2.2.html)
 - [Linux getrandom(2)](https://man7.org/linux/man-pages/man2/getrandom.2.html)

@@ -439,6 +439,31 @@ directory capability，必须先实现“同一次 C-level 调用完成 openat2�
 或者把全部目录操作限制在关闭后才返回的同步 SIGINT-deferred stack scope。当前 raw-fd 入口不接 startup、
 publication 或 generation authorization。
 
+上述第一个前置条件现已由一个仍处于 quarantine 的 dormant native owner 切片实现，但尚未接入 production：
+production 与 proof 使用不同 distribution、module、`PyInit_*` 和 capsule identity；production surface 只提供
+`_open_child`、`_require_live`、`_close`，不暴露 root seed、raw fd、path open、callback、replay 或 fallback。
+GitHub Actions [run 29630042088](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088)
+中的 required [job `python / native-activation-fd-owner-linux`](https://github.com/jiangzheyi1234-star/bioinfo-platform/actions/runs/29630042088/job/88041786548)
+已在 source `8722fec795baadf72b9d024d442d041213f609c4` 上以 `success` 结束：Ubuntu 24.04 x86_64
+runner image `20260714.240.1` 使用 CPython 3.12.13 构建
+`h2ometa_activation_release_dir_owner-0.1.0-cp312-abi3-linux_x86_64.whl` 与
+`h2ometa_activation_release_dir_owner_proof-0.1.0-cp312-abi3-linux_x86_64.whl`，并在 CPython
+3.12.13/3.13.14 上完成 import 验证。受控 validator 验证 wheel identity、单一 extension、ELF64 x86-64
+`DYN`、RELRO/NOW、export surface、Stable ABI allowlist、禁止 path-fallback symbol、额外 native payload 与
+symlink；`abi3audit 0.0.26 --strict` 命令也成功完成。真实 bind mount、foreign-UID refusal、`openat2`
+fail-closed 与 symlink refusal 构成真实 syscall evidence；injected boundary 覆盖 retry/error shape，proof hook
+只在真实 close 已完成后注入 post-close `EINTR` report，不把它冒充为 kernel `close()` 返回 `EINTR`。
+Contract、wheel-validator 与 proof-binary behavior 合计为 51 passed，其中还覆盖 fd reuse/double-close、
+destructor、SIGINT 与 `sys.monitoring.INSTRUCTION` return boundary。
+
+行为结论只属于具有独立 identity 的 proof binary；production binary 刻意没有 root seed，因此这里只记录它的
+build/ABI/import/surface proof。两个 wheel 均只在 `$RUNNER_TEMP` 构建、验证后丢弃，没有 upload、bundle 或
+接入 startup/publication/generation。这条记录只说明上述 required job 的 `conclusion=success`；父 workflow
+run 的实际 `conclusion=failure`，所以它不构成整条 CI 或 branch acceptance，也不外推到其他 architecture、
+libc、kernel、mount 或 production host。Production adoption
+仍需 root/session capsule ownership、exact runtime/glibc qualification、artifact hash/SBOM/provenance、
+versioned archive import 与 startup preflight。
+
 在引入任何 native owner 前，全部 remote-runner source-copy builder 已先增加 fail-closed admission
 boundary：tracked、immutable-ref 或 development-only untracked source 中出现 `.so`、`.pyd`、`.dll`、
 `.dylib`、object/static-library、`.exe`、wheel、native binary magic 或 symbolic link 都会终止构建，
@@ -611,6 +636,8 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [Linux close(2)：close 非 durability proof 且不可盲目 retry](https://man7.org/linux/man-pages/man2/close.2.html)
 - [CPython 3.12 `_io.FileIO`：先失效内部 fd，再释放 GIL 执行 close](https://github.com/python/cpython/blob/v3.12.10/Modules/_io/fileio.c)
 - [Python signal：handler 只在主线程执行](https://docs.python.org/3/library/signal.html)
+- [Python 3.12 `sys.monitoring`：`INSTRUCTION` 在目标 bytecode 执行前触发](https://docs.python.org/3.12/library/sys.monitoring.html)
+- [CPython 3.12.13 bytecode 实现：monitor callback 失败时进入 frame unwind](https://github.com/python/cpython/blob/v3.12.13/Python/bytecodes.c)
 - [Linux getrandom(2)：内核 CSPRNG 初始化与阻塞语义](https://man7.org/linux/man-pages/man2/getrandom.2.html)
 - [Linux statfs/fstatfs(2)：filesystem magic](https://man7.org/linux/man-pages/man2/statfs.2.html)
 - [Linux proc mountinfo(5)：mount ID、device 与 filesystem type](https://man7.org/linux/man-pages/man5/proc_pid_mountinfo.5.html)
