@@ -20,9 +20,7 @@ from tests.helpers.workflow_design_drafts import (
 )
 
 
-_REAL_REQUIRE_STARTUP_RELEASE_BINDING = (
-    runtime_builder._require_startup_release_binding
-)
+_REAL_REQUIRE_STARTUP_RELEASE_BINDING = runtime_builder._require_startup_release_binding
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +56,58 @@ def test_runtime_proof_and_lock_use_distinct_strict_domains(tmp_path: Path) -> N
     }
 
 
+def test_passive_current_runtime_lock_reobserves_without_process_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = workflow_design_config(tmp_path)
+    stored = runtime_builder.build_agent_workflow_runtime_lock(cfg)
+    _forbid_process_probe(monkeypatch)
+
+    assert runtime_builder.require_passive_current_agent_workflow_runtime_lock(
+        cfg,
+        stored.runtime_payload(),
+    ) == {
+        "runtimeLock": stored.runtime_payload(),
+        "runtimeLockHash": workflow_runtime_lock_v2_hash(stored),
+        "runtimeProofHash": stored.runtimeProofHash,
+    }
+
+
+def test_passive_current_runtime_lock_detects_snakemake_byte_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = workflow_design_config(tmp_path)
+    stored = runtime_builder.build_agent_workflow_runtime_lock(cfg).runtime_payload()
+    Path(cfg.snakemake_command).write_bytes(b"passive-snakemake-byte-drift")
+    _forbid_process_probe(monkeypatch)
+
+    with pytest.raises(ValueError, match="AGENT_WORKFLOW_RUNTIME_PROOF_MISMATCH"):
+        runtime_builder.require_passive_current_agent_workflow_runtime_lock(
+            cfg,
+            stored,
+        )
+
+
+def test_passive_current_runtime_lock_rejects_configured_version_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = workflow_design_config(tmp_path)
+    stored = runtime_builder.build_agent_workflow_runtime_lock(cfg).runtime_payload()
+    cfg.snakemake_version = "Python 0.0.0-config-drift"
+    _forbid_process_probe(monkeypatch)
+
+    with pytest.raises(
+        ValueError, match="AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_MISMATCH"
+    ):
+        runtime_builder.require_passive_current_agent_workflow_runtime_lock(
+            cfg,
+            stored,
+        )
+
+
 def test_runtime_layout_materializes_managed_conda_root_before_proof(
     tmp_path: Path,
 ) -> None:
@@ -75,12 +125,16 @@ def test_runtime_lock_rejects_tampered_proof_and_hash(tmp_path: Path) -> None:
     payload = runtime_builder.build_agent_workflow_runtime_lock(cfg).runtime_payload()
     payload["proof"]["snakemake"]["reportedVersion"] = "forged"
 
-    with pytest.raises(ValidationError, match="AGENT_WORKFLOW_RUNTIME_PROOF_HASH_MISMATCH"):
+    with pytest.raises(
+        ValidationError, match="AGENT_WORKFLOW_RUNTIME_PROOF_HASH_MISMATCH"
+    ):
         WorkflowRuntimeLockV2.model_validate(payload)
 
     payload = runtime_builder.build_agent_workflow_runtime_lock(cfg).runtime_payload()
     payload["runtimeProofHash"] = "0" * 64
-    with pytest.raises(ValidationError, match="AGENT_WORKFLOW_RUNTIME_PROOF_HASH_MISMATCH"):
+    with pytest.raises(
+        ValidationError, match="AGENT_WORKFLOW_RUNTIME_PROOF_HASH_MISMATCH"
+    ):
         WorkflowRuntimeLockV2.model_validate(payload)
 
 
@@ -131,7 +185,9 @@ def test_runtime_proof_rejects_extra_or_secret_like_fields(tmp_path: Path) -> No
         AgentWorkflowRuntimeProof.model_validate(payload)
 
 
-def test_current_runtime_check_detects_release_and_wrapper_drift(tmp_path: Path) -> None:
+def test_current_runtime_check_detects_release_and_wrapper_drift(
+    tmp_path: Path,
+) -> None:
     cfg = workflow_design_config(tmp_path)
     stored = runtime_builder.build_agent_workflow_runtime_lock(cfg).runtime_payload()
     release_file = Path(cfg.release_dir) / "runtime-proof-fixture.py"
@@ -295,7 +351,9 @@ def test_production_collection_requires_and_matches_startup_binding(
     assert runtime_builder.build_agent_workflow_runtime_proof(cfg) == proof
 
     binding["declaredArtifactArchiveSha256"] = "sha256:" + "f" * 64
-    with pytest.raises(ValueError, match="AGENT_WORKFLOW_RUNTIME_STARTUP_BINDING_MISMATCH"):
+    with pytest.raises(
+        ValueError, match="AGENT_WORKFLOW_RUNTIME_STARTUP_BINDING_MISMATCH"
+    ):
         runtime_builder.build_agent_workflow_runtime_proof(cfg)
 
 
@@ -316,7 +374,9 @@ def test_collection_cannot_proceed_without_startup_binding(
         lambda: None,
     )
 
-    with pytest.raises(ValueError, match="AGENT_WORKFLOW_RUNTIME_STARTUP_BINDING_REQUIRED"):
+    with pytest.raises(
+        ValueError, match="AGENT_WORKFLOW_RUNTIME_STARTUP_BINDING_REQUIRED"
+    ):
         runtime_builder.build_agent_workflow_runtime_proof(cfg)
 
 
@@ -345,3 +405,11 @@ def test_collection_checks_production_platform_before_startup_binding(
 
     with pytest.raises(ValueError, match="AGENT_WORKFLOW_RUNTIME_PLATFORM_MISMATCH"):
         runtime_builder.build_agent_workflow_runtime_proof(cfg)
+
+
+def _forbid_process_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("passive runtime verification must not launch a subprocess")
+
+    monkeypatch.setattr(runtime_builder, "_probe_snakemake_version", fail_if_called)
+    monkeypatch.setattr(runtime_builder.subprocess, "run", fail_if_called)

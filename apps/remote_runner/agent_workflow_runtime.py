@@ -50,6 +50,17 @@ def build_agent_workflow_runtime_proof(
 ) -> AgentWorkflowRuntimeProof:
     """Collect every stable byte/path identity used by the Snakemake launcher."""
 
+    return _collect_agent_workflow_runtime_proof(
+        cfg,
+        passive_reported_version=None,
+    )
+
+
+def _collect_agent_workflow_runtime_proof(
+    cfg: RemoteRunnerConfig,
+    *,
+    passive_reported_version: str | None,
+) -> AgentWorkflowRuntimeProof:
     require_current_runner_protocol_expectation(
         cfg.runner_protocol_version,
         cfg.runner_protocol_fingerprint,
@@ -77,10 +88,14 @@ def build_agent_workflow_runtime_proof(
         release_root / "artifact.sha256",
         "AGENT_WORKFLOW_RUNTIME_ARTIFACT_SHA_INVALID",
     )
-    artifact_sha = _read_stable_bytes(
-        artifact_sha_path,
-        "AGENT_WORKFLOW_RUNTIME_ARTIFACT_SHA_INVALID",
-    ).decode("ascii", errors="strict").strip()
+    artifact_sha = (
+        _read_stable_bytes(
+            artifact_sha_path,
+            "AGENT_WORKFLOW_RUNTIME_ARTIFACT_SHA_INVALID",
+        )
+        .decode("ascii", errors="strict")
+        .strip()
+    )
     if _ARTIFACT_SHA256.fullmatch(artifact_sha) is None:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_ARTIFACT_SHA_INVALID")
     runner_manifest_fingerprint = (
@@ -151,7 +166,14 @@ def build_agent_workflow_runtime_proof(
     if profile_values.get("wrapper-prefix") != expected_wrapper_prefix:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_PROFILE_WRAPPER_PREFIX_MISMATCH")
 
-    reported_version = _probe_snakemake_version(cfg, snakemake_path)
+    reported_version = (
+        _probe_snakemake_version(cfg, snakemake_path)
+        if passive_reported_version is None
+        else _required_text(
+            passive_reported_version,
+            "AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_REQUIRED",
+        )
+    )
     configured_version = _required_text(
         cfg.snakemake_version,
         "AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_REQUIRED",
@@ -207,9 +229,7 @@ def build_agent_workflow_runtime_proof(
 def build_agent_workflow_runtime_lock(
     cfg: RemoteRunnerConfig,
 ) -> WorkflowRuntimeLockV2:
-    return build_workflow_runtime_lock_v2(
-        build_agent_workflow_runtime_proof(cfg)
-    )
+    return build_workflow_runtime_lock_v2(build_agent_workflow_runtime_proof(cfg))
 
 
 def require_current_agent_workflow_runtime_lock(
@@ -231,6 +251,39 @@ def require_current_agent_workflow_runtime_lock(
     }
 
 
+def require_passive_current_agent_workflow_runtime_lock(
+    cfg: RemoteRunnerConfig,
+    runtime_lock: dict[str, Any],
+) -> dict[str, Any]:
+    """Reobserve a stored runtime lock without launching a version subprocess."""
+
+    if not isinstance(runtime_lock, dict) or runtime_lock.get("schemaVersion") != (
+        "workflow-runtime-lock.v2"
+    ):
+        raise ValueError("AGENT_WORKFLOW_RUNTIME_LOCK_V2_REQUIRED")
+    stored = WorkflowRuntimeLockV2.model_validate(runtime_lock)
+    stored_reported_version = stored.proof.snakemake.reportedVersion
+    configured_version = _required_text(
+        cfg.snakemake_version,
+        "AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_REQUIRED",
+    )
+    if stored_reported_version != configured_version:
+        raise ValueError("AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_MISMATCH")
+    current = build_workflow_runtime_lock_v2(
+        _collect_agent_workflow_runtime_proof(
+            cfg,
+            passive_reported_version=stored_reported_version,
+        )
+    )
+    if stored.runtime_payload() != current.runtime_payload():
+        raise ValueError("AGENT_WORKFLOW_RUNTIME_PROOF_MISMATCH")
+    return {
+        "runtimeLock": current.runtime_payload(),
+        "runtimeLockHash": workflow_runtime_lock_v2_hash(current),
+        "runtimeProofHash": current.runtimeProofHash,
+    }
+
+
 def _require_runner_manifest_matches_config(
     cfg: RemoteRunnerConfig,
     manifest: dict[str, object],
@@ -242,8 +295,7 @@ def _require_runner_manifest_matches_config(
         manifest.get("version") != cfg.version
         or manifest.get("platform") != "linux-64"
         or descriptor.get("protocolVersion") != cfg.runner_protocol_version
-        or manifest.get("runnerProtocolFingerprint")
-        != cfg.runner_protocol_fingerprint
+        or manifest.get("runnerProtocolFingerprint") != cfg.runner_protocol_fingerprint
     ):
         raise ValueError("AGENT_WORKFLOW_RUNTIME_RUNNER_MANIFEST_MISMATCH")
 
@@ -329,10 +381,14 @@ def _workflow_runtime_identity(
         root / "artifact.sha256",
         "AGENT_WORKFLOW_RUNTIME_ARCHIVE_SHA_INVALID",
     )
-    artifact_sha = _read_stable_bytes(
-        artifact_sha_path,
-        "AGENT_WORKFLOW_RUNTIME_ARCHIVE_SHA_INVALID",
-    ).decode("ascii", errors="strict").strip()
+    artifact_sha = (
+        _read_stable_bytes(
+            artifact_sha_path,
+            "AGENT_WORKFLOW_RUNTIME_ARCHIVE_SHA_INVALID",
+        )
+        .decode("ascii", errors="strict")
+        .strip()
+    )
     if _ARTIFACT_SHA256.fullmatch(artifact_sha) is None:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_ARCHIVE_SHA_INVALID")
     fingerprint = "sha256:" + agent_contract_hash(
@@ -362,7 +418,9 @@ def _workflow_runtime_identity(
 
 def _find_workflow_runtime_root(*commands: Path) -> Path:
     for candidate in (commands[0].parent, *commands[0].parents):
-        if not all(command == candidate or candidate in command.parents for command in commands):
+        if not all(
+            command == candidate or candidate in command.parents for command in commands
+        ):
             continue
         if (candidate / "bootstrap_manifest.json").is_file() and (
             candidate / "artifact.sha256"
@@ -432,14 +490,22 @@ def _resolve_artifact_entrypoint(
             target = Path(os.readlink(current))
         except OSError as exc:
             raise ValueError("AGENT_WORKFLOW_RUNTIME_ENTRYPOINT_INVALID") from exc
-        if target.is_absolute() or target.name != str(target) or target.name in {".", ".."}:
+        if (
+            target.is_absolute()
+            or target.name != str(target)
+            or target.name in {".", ".."}
+        ):
             raise ValueError("AGENT_WORKFLOW_RUNTIME_ENTRYPOINT_INVALID")
         current = current.parent / target
     try:
         resolved = current.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_ENTRYPOINT_INVALID") from exc
-    if root not in resolved.parents or not resolved.is_file() or not os.access(resolved, os.X_OK):
+    if (
+        root not in resolved.parents
+        or not resolved.is_file()
+        or not os.access(resolved, os.X_OK)
+    ):
         raise ValueError("AGENT_WORKFLOW_RUNTIME_ENTRYPOINT_INVALID")
     return declared, resolved
 
@@ -464,7 +530,9 @@ def _probe_snakemake_version(
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise ValueError("AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_PROBE_FAILED") from exc
+        raise ValueError(
+            "AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_PROBE_FAILED"
+        ) from exc
     if result.returncode != 0:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_SNAKEMAKE_VERSION_PROBE_FAILED")
     output = (result.stdout or result.stderr or "").strip()
@@ -516,7 +584,9 @@ def _tree_hash(root: Path, *, require_file: bool) -> str:
 
 def _tree_entries(root: Path) -> list[dict[str, str]]:
     try:
-        paths = sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix())
+        paths = sorted(
+            root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+        )
     except OSError as exc:
         raise ValueError("AGENT_WORKFLOW_RUNTIME_TREE_UNREADABLE") from exc
     entries: list[dict[str, str]] = []
@@ -605,7 +675,12 @@ def _required_profile_name(value: str) -> str:
 
 
 def _required_text(value: Any, code: str) -> str:
-    if not isinstance(value, str) or not value or value != value.strip() or "\x00" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or "\x00" in value
+    ):
         raise ValueError(code)
     return value
 
@@ -618,4 +693,5 @@ __all__ = [
     "build_agent_workflow_runtime_lock",
     "build_agent_workflow_runtime_proof",
     "require_current_agent_workflow_runtime_lock",
+    "require_passive_current_agent_workflow_runtime_lock",
 ]
