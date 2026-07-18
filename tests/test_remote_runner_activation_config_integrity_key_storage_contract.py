@@ -559,3 +559,66 @@ def test_descriptor_relative_directory_matches_the_scoped_layout_constants() -> 
         f"{key_layout.CONFIG_INTEGRITY_KEY_DIRECTORY}"
     )
     assert key_layout.CONFIG_INTEGRITY_KEY_STAGING_DIRECTORY == ".staging"
+
+
+def test_partial_layout_cleanup_skips_absent_descriptors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[int] = []
+    monkeypatch.setattr(key_layout.os, "close", closed.append)
+
+    key_layout._close_fds_noexcept(None, -1, 17)
+
+    assert closed == [17]
+
+
+@pytest.mark.parametrize(
+    ("opened_descriptors", "expected_names", "expected_closed"),
+    [
+        ([None], [key_layout.SECRETS_DIRECTORY], []),
+        (
+            [21, None],
+            [
+                key_layout.SECRETS_DIRECTORY,
+                key_layout.CONFIG_INTEGRITY_KEY_DIRECTORY,
+            ],
+            [21],
+        ),
+    ],
+)
+def test_public_layout_opener_preserves_typed_absence_during_partial_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    opened_descriptors: list[int | None],
+    expected_names: list[str],
+    expected_closed: list[int],
+) -> None:
+    class PartialSession:
+        activation_fd = 11
+        device = 73
+
+        def require_open(self) -> None:
+            return None
+
+    remaining = iter(opened_descriptors)
+    opened: list[tuple[int, str, bool]] = []
+    closed: list[int] = []
+
+    def open_layout_directory(parent_fd: int, **kwargs: object) -> int | None:
+        opened.append((parent_fd, str(kwargs["name"]), bool(kwargs["create"])))
+        return next(remaining)
+
+    monkeypatch.setattr(key_layout.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(key_layout, "fstatfs_type", lambda _fd: 0xEF53)
+    monkeypatch.setattr(key_layout, "_open_layout_directory", open_layout_directory)
+    monkeypatch.setattr(key_layout, "_require_private_child", lambda **_kwargs: None)
+    monkeypatch.setattr(key_layout.os, "close", closed.append)
+
+    with pytest.raises(ActivationConfigIntegrityKeyMaterialAbsent):
+        key_layout.open_activation_config_integrity_key_layout(
+            PartialSession(),  # type: ignore[arg-type]
+            create=False,
+        )
+
+    assert [name for _parent, name, _create in opened] == expected_names
+    assert all(create is False for _parent, _name, create in opened)
+    assert closed == expected_closed

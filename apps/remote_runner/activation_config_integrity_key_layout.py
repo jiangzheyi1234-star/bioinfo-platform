@@ -424,9 +424,9 @@ def _require_private_child(
     )
 
 
-def _close_fds_noexcept(*descriptors: int) -> None:
+def _close_fds_noexcept(*descriptors: int | None) -> None:
     for descriptor in descriptors:
-        if descriptor < 0:
+        if descriptor is None or descriptor < 0:
             continue
         try:
             os.close(descriptor)
