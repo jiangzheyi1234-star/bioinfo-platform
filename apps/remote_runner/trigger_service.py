@@ -4,6 +4,7 @@ import json
 import uuid
 from typing import Any
 
+from core.contracts.agent_control_plane_namespace import require_public_server_id
 from .api_models import (
     WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
@@ -80,6 +81,7 @@ def create_workflow_trigger_from_request(
     *,
     actor: str,
 ) -> dict[str, Any]:
+    server_id = require_public_server_id(request.serverId)
     run_spec = request_payload(request.runSpec)
     pipeline = _validate_trigger_run_spec(cfg, run_spec)
     trigger_payload = request_payload(request)
@@ -99,7 +101,7 @@ def create_workflow_trigger_from_request(
         cfg,
         name=request.name,
         source_type=request.sourceType,
-        server_id=request.serverId,
+        server_id=server_id,
         pipeline_id=request.runSpec.pipelineId,
         run_spec=run_spec,
         trigger_spec=trigger_spec,
@@ -319,6 +321,7 @@ def _dispatch_recorded_trigger_event(
         }
 
     try:
+        server_id = require_public_server_id(str(trigger["serverId"]))
         run_spec = _stable_copy(run_spec_override if run_spec_override is not None else trigger.get("runSpec") or {})
         run_spec.pop("runId", None)
         pipeline = _validate_trigger_run_spec(cfg, run_spec)
@@ -328,13 +331,13 @@ def _dispatch_recorded_trigger_event(
         request_id = str(dispatch.get("requestId") or f"req_{uuid.uuid4().hex[:8]}")
         run_create = create_run_record(
             cfg,
-            server_id=str(trigger["serverId"]),
+            server_id=server_id,
             request_id=request_id,
             run_spec=run_spec,
             idempotency_key=str(dispatch.get("idempotencyKey") or f"trigger:{event['triggerEventId']}"),
             payload_hash=canonical_payload_hash(
                 {
-                    "serverId": trigger["serverId"],
+                    "serverId": server_id,
                     "runSpec": run_spec,
                     "triggerEventId": event["triggerEventId"],
                 }

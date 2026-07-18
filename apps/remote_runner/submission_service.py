@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 from typing import Any
 
+from core.contracts.agent_control_plane_namespace import require_public_server_id
 from .api_models import RunCreateRequest
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
@@ -24,12 +25,12 @@ def create_run_from_request(
     idempotency_key: str | None,
     x_request_id: str | None,
 ) -> dict[str, Any]:
+    server_id = require_public_server_id(request.serverId)
     ensure_submission_ready(cfg)
     run_spec = request_payload(request.runSpec)
     pipeline_id = request.runSpec.pipelineId
     pipeline_version = request.runSpec.pipelineVersion
     request_id = str(request.requestId or x_request_id or f"req_{int(time.time() * 1000)}")
-    server_id = str(request.serverId)
     idem_key = str(idempotency_key or f"idem_{request_id}")
     pipeline = get_pipeline(cfg, pipeline_id)
     validate_run_spec_for_pipeline(pipeline, run_spec)

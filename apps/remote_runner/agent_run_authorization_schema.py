@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
+from core.contracts.agent_control_plane_namespace import AGENT_CONTROL_PLANE_NAMESPACE_PREFIX
 
-AGENT_CONTROL_PLANE_NAMESPACE_PREFIX = "agent-control-plane."
 AGENT_RUN_AUTHORIZATION_RESERVED_NAMESPACE_COLLISION = (
     "AGENT_RUN_AUTHORIZATION_RESERVED_NAMESPACE_COLLISION"
 )

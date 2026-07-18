@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
+from core.contracts.agent_control_plane_namespace import require_public_server_id
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_LOOKUP,
@@ -76,13 +77,20 @@ from core.contracts.result_package_remote_endpoints import (
 )
 
 
+def _require_public_server_id(value: object) -> str:
+    try:
+        return require_public_server_id(str(value or ""))
+    except ValueError as exc:
+        raise RuntimeServiceError(str(exc), status_code=422) from exc
+
+
 class ExecutionManager(BaseRuntimeManager):
     def list_runs(self) -> list[dict[str, Any]]:
         return self.call_remote_endpoint(RUN_LIST, path_values={}, timeout=20)
 
     def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
-        server_id_hint = str(body.get("serverId") or "").strip()
+        server_id_hint = _require_public_server_id(body.get("serverId"))
         if not server_id_hint:
             raise RuntimeServiceError("serverId is required")
         request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
@@ -123,7 +131,7 @@ class ExecutionManager(BaseRuntimeManager):
 
     def create_workflow_trigger(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
-        server_id_hint = str(body.get("serverId") or "").strip()
+        server_id_hint = _require_public_server_id(body.get("serverId"))
         if not server_id_hint:
             raise RuntimeServiceError("serverId is required")
         manager, server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
