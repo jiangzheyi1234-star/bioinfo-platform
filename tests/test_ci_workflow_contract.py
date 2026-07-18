@@ -31,12 +31,21 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
         "ACTIVATION_STORAGE_LINUX_RESULT: ${{ needs.activation_storage_linux.result }}"
         in source
     )
+    assert (
+        "NATIVE_ACTIVATION_FD_OWNER_LINUX_RESULT: "
+        "${{ needs.native_activation_fd_owner_linux.result }}" in source
+    )
     assert "- security_governance" in source
     assert "- dependency_review" in source
     assert "security-governance:${SECURITY_GOVERNANCE_RESULT}" in source
     assert "dependency-review:${DEPENDENCY_REVIEW_RESULT}" in source
     assert "activation-storage-linux:${ACTIVATION_STORAGE_LINUX_RESULT}" in source
-    assert '"$name" == "activation-storage-linux" && "$result" != "success"' in source
+    assert (
+        "native-activation-fd-owner-linux:"
+        "${NATIVE_ACTIVATION_FD_OWNER_LINUX_RESULT}" in source
+    )
+    assert '"$name" == "activation-storage-linux"' in source
+    assert '"$name" == "native-activation-fd-owner-linux"' in source
     assert "CODEQL_RESULT" not in source
     assert "SCORECARD_RESULT" not in source
     assert "security / codeql" not in source
@@ -166,6 +175,51 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     assert "activation_storage_linux" in ci_green["needs"]
     assert ci_green["env"]["ACTIVATION_STORAGE_LINUX_RESULT"] == (
         "${{ needs.activation_storage_linux.result }}"
+    )
+
+
+def test_ci_workflow_requires_quarantined_native_fd_owner_proof() -> None:
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(source)
+    jobs = workflow["jobs"]
+    native_job = jobs["native_activation_fd_owner_linux"]
+    ci_green = jobs["ci_green"]
+    script = "\n".join(str(step.get("run", "")) for step in native_job["steps"])
+    step_uses = [str(step.get("uses", "")) for step in native_job["steps"]]
+
+    assert native_job["name"] == "python / native-activation-fd-owner-linux"
+    assert native_job["runs-on"] == "ubuntu-24.04"
+    assert "if" not in native_job
+    assert "uv python install 3.12" in script
+    assert "uv python install 3.13" in script
+    assert "uv build --wheel" in script
+    assert "--build-constraint" in script
+    assert "--require-hashes" in script
+    assert 'uv build --wheel "$PROOF_SOURCE/proof"' in script
+    assert "validate_native_activation_fd_owner_wheel.py" in script
+    assert "abi3audit==0.0.26" in script
+    assert "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS=1" in script
+    assert "tests/test_native_activation_fd_owner_contract.py" in script
+    assert "tests/test_native_activation_fd_owner_linux.py" in script
+    assert "tests/test_native_activation_fd_owner_wheel_validator.py" in script
+    assert 'sudo mount --bind "$BIND_PROOF_ROOT/source"' in script
+    assert 'sudo umount "$BIND_PROOF_ROOT/parent/child"' in script
+    assert 'sudo chown root:root "$BIND_PROOF_ROOT/parent/foreign"' in script
+    assert not any(use.startswith("actions/upload-artifact@") for use in step_uses)
+    for assignment in (
+        'PROD_SOURCE="$RUNNER_TEMP/',
+        'PROOF_SOURCE="$RUNNER_TEMP/',
+        'PROD_WHEELS="$RUNNER_TEMP/',
+        'PROOF_WHEELS="$RUNNER_TEMP/',
+        'PROD_SITE="$RUNNER_TEMP/',
+        'PROOF_SITE="$RUNNER_TEMP/',
+    ):
+        assert assignment in script
+    assert "apps/remote_runner" in script
+    assert "native build output escaped RUNNER_TEMP" in script
+    assert "native_activation_fd_owner_linux" in ci_green["needs"]
+    assert ci_green["env"]["NATIVE_ACTIVATION_FD_OWNER_LINUX_RESULT"] == (
+        "${{ needs.native_activation_fd_owner_linux.result }}"
     )
 
 

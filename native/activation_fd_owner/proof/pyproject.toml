@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h2ometa-activation-release-dir-owner-proof"
+version = "0.1.0"
+description = "Private proof-only build of the H2OMeta directory capability owner"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C",
+    "Operating System :: POSIX :: Linux",
+]
+
+[tool.setuptools]
+packages = []

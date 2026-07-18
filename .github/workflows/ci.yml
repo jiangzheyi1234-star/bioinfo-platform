@@ -272,6 +272,114 @@ jobs:
             tests/test_remote_runner_activation_release_publication_layout_contract.py \
             tests/test_remote_runner_activation_release_publication_layout_linux.py
 
+  native_activation_fd_owner_linux:
+    name: python / native-activation-fd-owner-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Build and prove quarantined abi3 directory owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/bio-ui-uv-venv"
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/uv-python"
+          unset UV_PYTHON
+          uv python install 3.12
+          uv venv --python 3.12 "$UV_PROJECT_ENVIRONMENT"
+          uv sync --frozen --group dev
+          uv python install 3.13
+          PYTHON312="$(uv python find 3.12)"
+          PYTHON313="$(uv python find 3.13)"
+          "$PYTHON312" -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          "$PYTHON313" -c 'import sys; assert sys.version_info[:2] == (3, 13)'
+
+          NATIVE_SOURCE="$GITHUB_WORKSPACE/native/activation_fd_owner"
+          BUILD_CONSTRAINT="$NATIVE_SOURCE/build-constraints.txt"
+          PROD_SOURCE="$RUNNER_TEMP/native-owner-prod-source"
+          PROOF_SOURCE="$RUNNER_TEMP/native-owner-proof-source"
+          PROD_WHEELS="$RUNNER_TEMP/native-owner-prod-wheels"
+          PROOF_WHEELS="$RUNNER_TEMP/native-owner-proof-wheels"
+          cp -a "$NATIVE_SOURCE" "$PROD_SOURCE"
+          cp -a "$NATIVE_SOURCE" "$PROOF_SOURCE"
+          mkdir -p "$PROD_WHEELS" "$PROOF_WHEELS"
+          uv build --wheel "$PROD_SOURCE" \
+            --out-dir "$PROD_WHEELS" \
+            --python "$PYTHON312" \
+            --build-constraint "$BUILD_CONSTRAINT" \
+            --require-hashes
+          uv build --wheel "$PROOF_SOURCE/proof" \
+            --out-dir "$PROOF_WHEELS" \
+            --python "$PYTHON312" \
+            --build-constraint "$BUILD_CONSTRAINT" \
+            --require-hashes
+
+          mapfile -t prod_wheel_set < <(find "$PROD_WHEELS" -maxdepth 1 -type f -name '*.whl')
+          mapfile -t proof_wheel_set < <(find "$PROOF_WHEELS" -maxdepth 1 -type f -name '*.whl')
+          test "${#prod_wheel_set[@]}" -eq 1
+          test "${#proof_wheel_set[@]}" -eq 1
+          PROD_WHEEL="${prod_wheel_set[0]}"
+          PROOF_WHEEL="${proof_wheel_set[0]}"
+          PROD_SITE="$RUNNER_TEMP/native-owner-prod-site"
+          PROOF_SITE="$RUNNER_TEMP/native-owner-proof-site"
+          "$PYTHON312" scripts/validate_native_activation_fd_owner_wheel.py \
+            --wheel "$PROD_WHEEL" \
+            --site "$PROD_SITE" \
+            --python "$PYTHON312" \
+            --python "$PYTHON313"
+          "$PYTHON312" scripts/validate_native_activation_fd_owner_wheel.py \
+            --wheel "$PROOF_WHEEL" \
+            --site "$PROOF_SITE" \
+            --python "$PYTHON312" \
+            --python "$PYTHON313" \
+            --testing
+          uvx --from abi3audit==0.0.26 abi3audit --strict "$PROD_WHEEL" "$PROOF_WHEEL"
+
+          BIND_PROOF_ROOT="$RUNNER_TEMP/native-owner-bind-proof"
+          mkdir -p \
+            "$BIND_PROOF_ROOT/parent/child" \
+            "$BIND_PROOF_ROOT/parent/foreign" \
+            "$BIND_PROOF_ROOT/source"
+          sudo chown root:root "$BIND_PROOF_ROOT/parent/foreign"
+          sudo chmod 0755 "$BIND_PROOF_ROOT/parent/foreign"
+          test "$(stat -c %u "$BIND_PROOF_ROOT/parent/foreign")" -eq 0
+          sudo mount --bind "$BIND_PROOF_ROOT/source" "$BIND_PROOF_ROOT/parent/child"
+          cleanup_native_owner_bind() {
+            sudo umount "$BIND_PROOF_ROOT/parent/child"
+          }
+          trap cleanup_native_owner_bind EXIT
+          export H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS=1
+          export H2OMETA_NATIVE_ACTIVATION_FD_OWNER_PROOF_SITE="$PROOF_SITE"
+          export H2OMETA_NATIVE_ACTIVATION_FD_OWNER_BIND_PARENT="$BIND_PROOF_ROOT/parent"
+          mountpoint -q "$BIND_PROOF_ROOT/parent/child"
+          findmnt -T "$BIND_PROOF_ROOT/parent/child" -o TARGET,SOURCE,FSTYPE,OPTIONS
+          uv run --frozen python -m pytest -q \
+            --basetemp "$RUNNER_TEMP/native-owner-pytest" \
+            tests/test_native_activation_fd_owner_contract.py \
+            tests/test_native_activation_fd_owner_linux.py \
+            tests/test_native_activation_fd_owner_wheel_validator.py
+
+          if find apps/remote_runner core native -type f \
+            \( -name '*.so' -o -name '*.pyd' -o -name '*.o' -o -name '*.whl' \) \
+            -print -quit | grep -q .; then
+            echo "native build output escaped RUNNER_TEMP" >&2
+            exit 1
+          fi
+          if find apps/remote_runner core native -type d \
+            \( -name build -o -name dist -o -name '*.egg-info' \) \
+            -print -quit | grep -q .; then
+            echo "native build directory escaped RUNNER_TEMP" >&2
+            exit 1
+          fi
+
   ci_green:
     name: required / ci-green
     if: ${{ always() }}
@@ -283,6 +391,7 @@ jobs:
       - web_windows
       - linux_parity_smoke
       - activation_storage_linux
+      - native_activation_fd_owner_linux
     runs-on: ubuntu-24.04
     env:
       DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}
@@ -292,6 +401,7 @@ jobs:
       WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}
       LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}
       ACTIVATION_STORAGE_LINUX_RESULT: ${{ needs.activation_storage_linux.result }}
+      NATIVE_ACTIVATION_FD_OWNER_LINUX_RESULT: ${{ needs.native_activation_fd_owner_linux.result }}
     steps:
       - name: Verify required jobs
         shell: bash
@@ -305,13 +415,16 @@ jobs:
             "dependency-review:${DEPENDENCY_REVIEW_RESULT}" \
             "web-windows:${WEB_WINDOWS_RESULT}" \
             "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}" \
-            "activation-storage-linux:${ACTIVATION_STORAGE_LINUX_RESULT}"
+            "activation-storage-linux:${ACTIVATION_STORAGE_LINUX_RESULT}" \
+            "native-activation-fd-owner-linux:${NATIVE_ACTIVATION_FD_OWNER_LINUX_RESULT}"
           do
             name="${job%%:*}"
             result="${job#*:}"
             echo "$name => $result"
-            if [[ "$name" == "activation-storage-linux" && "$result" != "success" ]]; then
-              failed=1
+            if [[ "$name" == "activation-storage-linux" || "$name" == "native-activation-fd-owner-linux" ]]; then
+              if [[ "$result" != "success" ]]; then
+                failed=1
+              fi
             elif [[ "$result" != "success" && "$result" != "skipped" ]]; then
               failed=1
             fi
