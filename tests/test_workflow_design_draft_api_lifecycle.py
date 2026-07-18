@@ -74,6 +74,9 @@ def test_workflow_design_draft_remote_runner_api_lifecycle(monkeypatch, tmp_path
     assert workflow_revision["draftId"] == draft_id
     assert workflow_revision["draftRevision"] == 1
     assert workflow_revision["manifest"]["layout"]["snakefile"] == "workflow/Snakefile"
+    assert workflow_revision["runtimeLock"]["schemaVersion"] == (
+        "workflow-runtime-lock.v1"
+    )
     assert {"workflow/Snakefile", "workflow/rules/generated.smk", "config/config.yaml"}.issubset(
         {item["path"] for item in workflow_revision["manifest"]["files"]}
     )

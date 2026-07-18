@@ -49,6 +49,7 @@ from .workflow_design_storage import (
     create_or_fetch_workflow_design_draft,
     require_workflow_design_draft,
 )
+from .workflow_revision_storage import fetch_workflow_revision
 
 
 def create_agent_session_from_request(
@@ -281,7 +282,7 @@ def approve_agent_session_from_request(
             "session": session,
             "plan": plan,
             "approval": approval,
-            "compiled": _compile_approved_plan(cfg, plan),
+            "compiled": _compiled_approval_replay(cfg, session, plan),
         }
     if session["status"] != "awaiting_approval":
         raise AgentSessionStorageConflictError(
@@ -592,7 +593,30 @@ def _compile_approved_plan(
         str(plan["draftId"]),
         expected_revision=int(plan["draftRevision"]),
         expected_draft=dict(plan["proposal"]["draft"]),
+        require_agent_runtime_proof=True,
     )
+
+
+def _compiled_approval_replay(
+    cfg: RemoteRunnerConfig,
+    session: dict[str, Any],
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    revision_id = str(session.get("workflowRevisionId") or "").strip()
+    if not revision_id:
+        raise AgentSessionStorageConflictError("AGENT_WORKFLOW_REVISION_REQUIRED")
+    revision = fetch_workflow_revision(cfg, revision_id)
+    if revision is None:
+        raise AgentSessionStorageConflictError("AGENT_WORKFLOW_REVISION_NOT_FOUND")
+    if (
+        revision.get("draftId") != plan.get("draftId")
+        or revision.get("draftRevision") != plan.get("draftRevision")
+    ):
+        raise AgentSessionStorageConflictError("AGENT_WORKFLOW_REVISION_PLAN_MISMATCH")
+    return {
+        "workflowRevisionId": revision_id,
+        "workflowRevision": revision,
+    }
 
 
 def _latest_plan_revision_id(cfg: RemoteRunnerConfig, session_id: str) -> str | None:

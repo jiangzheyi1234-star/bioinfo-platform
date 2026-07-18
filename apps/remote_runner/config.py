@@ -18,6 +18,7 @@ from core.env_bool import parse_strict_env_bool
 from .api_token_config import apply_api_token_env_overrides, normalize_api_token_roles
 from .config_snapshot import (
     bind_remote_runner_config_snapshot,
+    bind_remote_runner_startup_binding,
     get_process_bound_remote_runner_config,
     require_explicit_loaded_runner_protocol,
 )
@@ -25,7 +26,6 @@ from .database_backend_config import apply_database_backend_env_overrides, asser
 from .runtime_state import get_runtime_state_path, write_runtime_state
 from .worker_resource_config import apply_run_worker_env_overrides
 from .sqlite_migrations import initialize_or_migrate_runtime_db
-
 from .workflow_runtime_config import (
     DEFAULT_CONDA_PREFIX_DIRNAME,
     DEFAULT_SNAKEMAKE_WRAPPER_PREFIX,
@@ -47,6 +47,7 @@ __all__ = [
     "DEFAULT_SNAKEMAKE_WRAPPER_PREFIX",
     "DEFAULT_WORKFLOW_PROFILE_NAME",
     "bind_remote_runner_config_snapshot",
+    "bind_remote_runner_startup_binding",
     "build_workflow_runtime_environment",
     "get_runtime_state_path",
     "get_workflow_profile_path",
@@ -189,6 +190,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     cfg.workflow_profile_name = get_workflow_profile_name(cfg)
     workflow_profile_path = workflow_profile_dir / cfg.workflow_profile_name
     conda_prefix_dir = resolve_default_conda_prefix(cfg)
+    managed_conda_root_prefix = str(cfg.managed_conda_root_prefix or "").strip()
 
     for directory in (
         data_root,
@@ -200,6 +202,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
         logs_dir,
         workflow_profile_dir,
         conda_prefix_dir,
+        *([Path(managed_conda_root_prefix)] if managed_conda_root_prefix else []),
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

@@ -12,6 +12,7 @@ from .api_models import (
     WorkflowDesignDraftUpdateRequest,
 )
 from .config import RemoteRunnerConfig
+from .agent_workflow_runtime import build_agent_workflow_runtime_lock
 from .errors import WorkflowDesignRevisionConflictError
 from .route_utils import authorized_config, data_response, request_payload, run_sync
 from .workflow_design_compiler import compile_workflow_design_project
@@ -158,6 +159,7 @@ def compile_workflow_design_draft_export(
     *,
     expected_revision: int | None = None,
     expected_draft: dict[str, Any] | None = None,
+    require_agent_runtime_proof: bool = False,
 ) -> dict[str, Any]:
     item = require_workflow_design_draft(cfg, draft_id)
     if expected_revision is not None and int(item["revision"]) != expected_revision:
@@ -168,6 +170,11 @@ def compile_workflow_design_draft_export(
         raise WorkflowDesignRevisionConflictError(
             "AGENT_APPROVAL_DRAFT_SNAPSHOT_CONFLICT"
         )
+    runtime_lock = (
+        build_agent_workflow_runtime_lock(cfg).runtime_payload()
+        if require_agent_runtime_proof
+        else _workflow_revision_runtime_lock(cfg)
+    )
     export_dir = Path(cfg.work_dir) / "workflow-design-exports" / draft_id / f"rev-{item['revision']}"
     compiled = compile_workflow_design_project(
         cfg,
@@ -182,7 +189,7 @@ def compile_workflow_design_draft_export(
         draft_revision=int(item["revision"]),
         manifest=_workflow_revision_manifest(export_dir, compiled),
         graph_snapshot=_workflow_revision_graph_snapshot(compiled),
-        runtime_lock=_workflow_revision_runtime_lock(cfg),
+        runtime_lock=runtime_lock,
         compiler=_workflow_revision_compiler(),
     )
     compiled_run_spec = dict(compiled.get("runSpec") if isinstance(compiled.get("runSpec"), dict) else {})

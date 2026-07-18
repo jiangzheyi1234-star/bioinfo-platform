@@ -281,6 +281,10 @@ def test_runner_layout_failure_cleans_up_before_releasing_lock(monkeypatch) -> N
         lambda _cfg: events.append("bind_snapshot"),
     )
     monkeypatch.setattr(
+        "apps.remote_runner.config.bind_remote_runner_startup_binding",
+        lambda _binding: None,
+    )
+    monkeypatch.setattr(
         "apps.remote_runner.config.ensure_runtime_layout",
         lambda _cfg: (_ for _ in ()).throw(RuntimeError("layout failed")),
     )
@@ -336,6 +340,10 @@ def test_runner_cleanup_failures_do_not_replace_primary_runtime_failure(
     monkeypatch.setattr(
         "apps.remote_runner.config.bind_remote_runner_config_snapshot",
         lambda _cfg: None,
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config.bind_remote_runner_startup_binding",
+        lambda _binding: None,
     )
     monkeypatch.setattr(
         "apps.remote_runner.config.ensure_runtime_layout",
@@ -414,6 +422,10 @@ def test_runner_serve_failure_closes_socket_before_releasing_lock(monkeypatch) -
     monkeypatch.setattr(
         "apps.remote_runner.config.bind_remote_runner_config_snapshot",
         lambda _cfg: events.append("bind_snapshot"),
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config.bind_remote_runner_startup_binding",
+        lambda _binding: None,
     )
     monkeypatch.setattr(
         "apps.remote_runner.config.ensure_runtime_layout",

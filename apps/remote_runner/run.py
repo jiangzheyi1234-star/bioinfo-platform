@@ -75,11 +75,13 @@ def main() -> None:
 
         from .config import (
             bind_remote_runner_config_snapshot,
+            bind_remote_runner_startup_binding,
             ensure_runtime_layout,
             write_runtime_state,
         )
 
         bind_remote_runner_config_snapshot(cfg)
+        bind_remote_runner_startup_binding(startup_binding)
         configure_structured_logging()
         _set_process_name()
         ensure_runtime_layout(cfg)

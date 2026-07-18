@@ -17,6 +17,10 @@ from apps.remote_runner.config import (
     load_remote_runner_config,
     require_explicit_loaded_runner_protocol,
 )
+from apps.remote_runner.config_snapshot import (
+    bind_remote_runner_startup_binding,
+    get_process_bound_remote_runner_startup_binding,
+)
 from apps.remote_runner.errors import RemoteRunnerAuthError
 from apps.remote_runner.route_utils import authorized_config
 from apps.remote_runner.runner_protocol_startup import (
@@ -502,6 +506,34 @@ def test_preflighted_config_snapshot_remains_process_bound_after_disk_drift(
     assert bound.data_root == str(tmp_path / "shared")
     with pytest.raises(RemoteRunnerAuthError, match="authentication failed"):
         authorized_config("Bearer drifted-token")
+
+
+def test_preflight_release_evidence_remains_process_bound_and_detached(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path, package_dir, _config, _manifest = _startup_fixture(tmp_path)
+    _cfg, binding = load_remote_runner_startup_snapshot(
+        config_path=config_path,
+        package_dir=package_dir,
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config_snapshot._PROCESS_BOUND_REMOTE_RUNNER_STARTUP_BINDING",
+        None,
+    )
+
+    bind_remote_runner_startup_binding(binding)
+    original = deepcopy(binding)
+    binding["packagePath"] = str(tmp_path / "drifted-release")
+
+    assert get_process_bound_remote_runner_startup_binding() == original
+    bind_remote_runner_startup_binding(original)
+    with pytest.raises(RuntimeError, match="REMOTE_RUNNER_STARTUP_BINDING_ALREADY_BOUND"):
+        bind_remote_runner_startup_binding(binding)
+
+    invalid = {**original, "unexpected": "value"}
+    with pytest.raises(RuntimeError, match="REMOTE_RUNNER_STARTUP_BINDING_INVALID"):
+        bind_remote_runner_startup_binding(invalid)
 
 
 def test_explicit_startup_initialization_uses_one_snapshot_and_migrates_layout(

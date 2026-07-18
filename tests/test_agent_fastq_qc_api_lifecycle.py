@@ -19,7 +19,10 @@ from apps.remote_runner.main import app
 from apps.remote_runner.storage import get_connection, list_runs, list_tools, persist_upload
 from apps.remote_runner.tool_platform_storage import upsert_tool_index
 from tests.generated_workflow_test_helpers import upsert_ready_tool
-from tests.helpers.workflow_design_drafts import workflow_design_config
+from tests.helpers.workflow_design_drafts import (
+    install_agent_runtime_proof_test_seam,
+    workflow_design_config,
+)
 
 
 class HttpRemoteBridgeRuntime:
@@ -102,6 +105,7 @@ def test_single_fastq_agent_plan_approves_real_fastqc_multiqc_compile(
     tmp_path: Path,
 ) -> None:
     cfg = workflow_design_config(tmp_path)
+    install_agent_runtime_proof_test_seam(monkeypatch)
     cfg.work_dir = str(tmp_path.parent / f"agent-qc-{tmp_path.name[-4:]}")
     cfg.api_token_actor = "user-1"
     fastqc = _ready_profile_tool(cfg, "fastqc")
@@ -175,6 +179,14 @@ def test_single_fastq_agent_plan_approves_real_fastqc_multiqc_compile(
     approved = _data(approval)
     assert approved["session"]["status"] == "ready_to_run"
     assert approved["compiled"]["workflowRevisionId"] == approved["session"]["workflowRevisionId"]
+    with get_connection(cfg) as connection:
+        revision_row = connection.execute(
+            "SELECT runtime_lock_json FROM workflow_revisions WHERE workflow_revision_id = ?",
+            (approved["compiled"]["workflowRevisionId"],),
+        ).fetchone()
+    assert json.loads(revision_row["runtime_lock_json"])["schemaVersion"] == (
+        "workflow-runtime-lock.v2"
+    )
     export_dir = (
         Path(cfg.work_dir)
         / "workflow-design-exports"

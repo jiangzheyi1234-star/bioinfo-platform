@@ -9,10 +9,11 @@ from fastapi.testclient import TestClient
 from apps.remote_runner.agent_plan_storage import list_agent_approvals, list_agent_plan_revisions
 from apps.remote_runner.agent_session_storage import fetch_agent_events
 from apps.remote_runner.main import app
-from apps.remote_runner.storage import list_runs
+from apps.remote_runner.storage import get_connection, list_runs
 from apps.remote_runner.workflow_revision_storage import fetch_workflow_revision
 from tests.generated_workflow_test_helpers import upsert_ready_tool
 from tests.helpers.workflow_design_drafts import (
+    install_agent_runtime_proof_test_seam,
     workflow_design_config,
     workflow_design_draft,
     workflow_design_tool_manifest,
@@ -94,6 +95,7 @@ def test_agent_principal_context_is_authenticated_and_minimal(
 
 def test_agent_session_remote_api_plan_approve_compile_and_replan(monkeypatch, tmp_path: Path) -> None:
     cfg = workflow_design_config(tmp_path)
+    install_agent_runtime_proof_test_seam(monkeypatch)
     cfg.api_token_actor = "user-1"
     upsert_ready_tool(cfg, workflow_design_tool_manifest())
     monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
@@ -142,6 +144,32 @@ def test_agent_session_remote_api_plan_approve_compile_and_replan(monkeypatch, t
         "expectedPlanHash": planned["plan"]["planHash"],
         "reason": "Reviewed exact tool revision, inputs, parameters, and outputs.",
     }
+    runtime_marker = Path(cfg.managed_conda_root_prefix).parent / "artifact.sha256"
+    runtime_marker_bytes = runtime_marker.read_bytes()
+    events_before_failed_compile = fetch_agent_events(cfg, session_id)
+    try:
+        runtime_marker.write_text("invalid\n", encoding="ascii")
+        failed_compile = client.post(
+            f"/api/v1/agent-sessions/{session_id}/approval",
+            headers=headers,
+            json=approval_request,
+        )
+    finally:
+        runtime_marker.write_bytes(runtime_marker_bytes)
+    assert failed_compile.status_code == 400
+    assert "AGENT_WORKFLOW_RUNTIME_ARCHIVE_SHA_INVALID" in failed_compile.text
+    assert len(list_agent_approvals(cfg, session_id)) == 1
+    events_after_failed_compile = fetch_agent_events(cfg, session_id)
+    assert events_after_failed_compile[:-1] == events_before_failed_compile
+    assert events_after_failed_compile[-1]["eventType"] == "agent.approval_granted"
+    with get_connection(cfg) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM workflow_revisions").fetchone()[0] == 0
+    assert not (
+        Path(cfg.work_dir)
+        / "workflow-design-exports"
+        / planned["plan"]["draftId"]
+    ).exists()
+
     approved_response = client.post(
         f"/api/v1/agent-sessions/{session_id}/approval",
         headers=headers,
@@ -168,13 +196,27 @@ def test_agent_session_remote_api_plan_approve_compile_and_replan(monkeypatch, t
     ]
     assert events[-1]["prevEventHash"] == events[-2]["eventHash"]
 
+    release_fixture = Path(cfg.release_dir) / "runtime-proof-fixture.py"
+    original_release_bytes = release_fixture.read_bytes()
+    release_fixture.write_text("# runtime drift after approval\n", encoding="utf-8")
+    with get_connection(cfg) as connection:
+        revision_count_before_replay = int(
+            connection.execute("SELECT COUNT(*) FROM workflow_revisions").fetchone()[0]
+        )
     approval_replay = client.post(
         f"/api/v1/agent-sessions/{session_id}/approval",
         headers=headers,
         json=approval_request,
     )
+    release_fixture.write_bytes(original_release_bytes)
     assert approval_replay.status_code == 200
-    assert _data(approval_replay)["session"]["workflowRevisionId"] == workflow_revision_id
+    replayed_approval = _data(approval_replay)
+    assert replayed_approval["session"]["workflowRevisionId"] == workflow_revision_id
+    assert replayed_approval["compiled"]["workflowRevisionId"] == workflow_revision_id
+    with get_connection(cfg) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM workflow_revisions").fetchone()[0] == (
+            revision_count_before_replay
+        )
     assert len(list_agent_approvals(cfg, session_id)) == 1
     assert list_runs(cfg) == []
 
