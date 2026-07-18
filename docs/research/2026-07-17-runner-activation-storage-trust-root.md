@@ -587,6 +587,11 @@ Production adoption still requires root/session capsule ownership, exact
 runtime and glibc qualification, artifact hash/SBOM/provenance, versioned
 archive import, and startup preflight.
 
+The next dormant implementation boundary is specified by the
+[capsule-only directory leaf-primitives research](2026-07-18-capsule-only-directory-leaf-primitives.md).
+It adds only create-only directory ownership and explicit directory sync; it
+does not begin file/link replay or production wiring.
+
 Contrarian limits remain. Fixed quotas are availability policy, not a proof
 that memory, CPU, disk allocation, or decompressor implementation has no bugs.
 ASCII-only names and normalized modes trade artifact generality for a closed

@@ -464,6 +464,10 @@ libc、kernel、mount 或 production host。Production adoption
 仍需 root/session capsule ownership、exact runtime/glibc qualification、artifact hash/SBOM/provenance、
 versioned archive import 与 startup preflight。
 
+下一 dormant 实现切片的固定范围、反例与分阶段证明见
+[Capsule-only 目录叶原语 ADR](2026-07-18-capsule-only-directory-leaf-primitives.md)；它只增加 create-only
+directory capsule 与显式 directory fsync，不开始 file/link replay 或 production wiring。
+
 在引入任何 native owner 前，全部 remote-runner source-copy builder 已先增加 fail-closed admission
 boundary：tracked、immutable-ref 或 development-only untracked source 中出现 `.so`、`.pyd`、`.dll`、
 `.dylib`、object/static-library、`.exe`、wheel、native binary magic 或 symbolic link 都会终止构建，
