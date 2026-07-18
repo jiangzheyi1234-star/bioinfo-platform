@@ -76,6 +76,8 @@ def test_native_owner_adopts_descriptor_before_any_python_handoff() -> None:
     assert "Py_BEGIN_ALLOW_THREADS" not in source
     assert "PyCapsule_New" in source
     assert "SYS_openat2" in source
+    assert "H2OMetaDirOwner *child = NULL;" in open_child
+    assert "H2OMetaDirOwner *owner = NULL;" in source
     assert open_child.index("h2ometa_new_owner_capsule") < open_child.index(
         "h2ometa_openat2_once"
     )

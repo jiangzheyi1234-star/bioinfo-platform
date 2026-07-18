@@ -394,7 +394,7 @@ static PyObject *h2ometa_open_child(PyObject *self, PyObject *args) {
     PyObject *component_object;
     PyObject *child_capsule;
     H2OMetaDirOwner *parent;
-    H2OMetaDirOwner *child;
+    H2OMetaDirOwner *child = NULL;
     const char *component;
     Py_ssize_t component_length;
     struct open_how how = {
@@ -522,7 +522,7 @@ static int h2ometa_require_plain_fd(PyObject *value, int *fd_out) {
 static PyObject *h2ometa_test_duplicate_directory(PyObject *self, PyObject *args) {
     PyObject *fd_object;
     PyObject *capsule;
-    H2OMetaDirOwner *owner;
+    H2OMetaDirOwner *owner = NULL;
     int source_fd;
     int result;
     int saved_errno;
