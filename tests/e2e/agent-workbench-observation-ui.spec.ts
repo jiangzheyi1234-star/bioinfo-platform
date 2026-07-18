@@ -41,7 +41,7 @@ test.describe("Agent Workbench snapshot-derived observation panel", () => {
     expect(observedApiMethods.every((method) => method === "GET")).toBe(true);
   });
 
-  test("shows a stable fail-closed error instead of inventing a state-entry time", async ({
+  test("shows a stable fail-closed error for a discontinuous status chain", async ({
     page,
   }) => {
     await installObservationRoutes(page, false);
@@ -49,7 +49,9 @@ test.describe("Agent Workbench snapshot-derived observation panel", () => {
 
     const error = page.getByTestId("agent-session-observation-error");
     await expect(error).toBeVisible();
-    await expect(error).toContainText("AGENT_SESSION_OBSERVATION_STATE_ENTRY_REQUIRED");
+    await expect(error).toContainText(
+      "AGENT_SESSION_OBSERVATION_EVENT_STATUS_CHAIN_INVALID"
+    );
     await expect(error).not.toContainText(PRIVATE_SENTINEL);
     await expect(page.getByTestId("agent-session-observation")).toHaveCount(0);
     await expect(page.getByTestId("agent-event-timeline")).toBeVisible();

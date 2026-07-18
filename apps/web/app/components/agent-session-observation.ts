@@ -1,4 +1,5 @@
 import type {
+  AgentEvent,
   AgentSessionSnapshot,
   AgentSessionStatus,
 } from "./agent-workbench-model";
@@ -8,11 +9,15 @@ export const AGENT_SESSION_OBSERVATION_ERRORS = Object.freeze({
   EVENT_IDENTITY_MISMATCH: "AGENT_SESSION_OBSERVATION_EVENT_IDENTITY_MISMATCH",
   EVENT_SEQUENCE_INVALID: "AGENT_SESSION_OBSERVATION_EVENT_SEQUENCE_INVALID",
   EVENT_PREV_HASH_INVALID: "AGENT_SESSION_OBSERVATION_EVENT_PREV_HASH_INVALID",
+  EVENT_STATUS_CHAIN_INVALID:
+    "AGENT_SESSION_OBSERVATION_EVENT_STATUS_CHAIN_INVALID",
+  EVENT_SEMANTICS_INVALID:
+    "AGENT_SESSION_OBSERVATION_EVENT_SEMANTICS_INVALID",
+  EVENT_STATE_VERSION_INVALID:
+    "AGENT_SESSION_OBSERVATION_EVENT_STATE_VERSION_INVALID",
   HEAD_STATUS_MISMATCH: "AGENT_SESSION_OBSERVATION_HEAD_STATUS_MISMATCH",
   HEAD_GENERATION_MISMATCH: "AGENT_SESSION_OBSERVATION_HEAD_GENERATION_MISMATCH",
   STATE_VERSION_MISMATCH: "AGENT_SESSION_OBSERVATION_STATE_VERSION_MISMATCH",
-  STATE_ENTRY_REQUIRED: "AGENT_SESSION_OBSERVATION_STATE_ENTRY_REQUIRED",
-  REPLAN_COUNT_MISMATCH: "AGENT_SESSION_OBSERVATION_REPLAN_COUNT_MISMATCH",
   REPLAN_BUDGET_EXCEEDED: "AGENT_SESSION_OBSERVATION_REPLAN_BUDGET_EXCEEDED",
   OBSERVED_AT_INVALID: "AGENT_SESSION_OBSERVATION_OBSERVED_AT_INVALID",
 } as const);
@@ -107,6 +112,8 @@ export function deriveAgentSessionObservation(
 
   const { session } = snapshot;
   let previousEventHash: string | null = null;
+  let previousStatus: AgentSessionStatus | null = null;
+  let previousStateVersion = 0;
   let maximumStateVersion = 0;
   let replanEventCount = 0;
   let planFailures = 0;
@@ -122,7 +129,21 @@ export function deriveAgentSessionObservation(
     if ((event.prevEventHash ?? null) !== previousEventHash) {
       fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_PREV_HASH_INVALID);
     }
+    if ((event.fromStatus ?? null) !== previousStatus) {
+      fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATUS_CHAIN_INVALID);
+    }
+    const expectedStateVersion = validateEventSemantics(
+      event,
+      index,
+      previousStateVersion,
+      index === 0 ? 0 : events[index - 1].planGeneration
+    );
+    if (event.stateVersion !== expectedStateVersion) {
+      fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATE_VERSION_INVALID);
+    }
     previousEventHash = event.eventHash;
+    previousStatus = event.toStatus;
+    previousStateVersion = event.stateVersion;
     maximumStateVersion = Math.max(maximumStateVersion, event.stateVersion);
     if (event.eventType === "agent.replan_requested") replanEventCount += 1;
     if (event.eventType === "agent.plan_rejected") planFailures += 1;
@@ -148,11 +169,11 @@ export function deriveAgentSessionObservation(
         event.toStatus === session.status &&
         (event.fromStatus ?? null) !== event.toStatus
     );
-  if (!stateEntry) fail(AGENT_SESSION_OBSERVATION_ERRORS.STATE_ENTRY_REQUIRED);
+  if (!stateEntry) fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_SEMANTICS_INVALID);
 
   const replansUsed = Math.max(0, session.planGeneration - 1);
   if (replansUsed !== replanEventCount) {
-    fail(AGENT_SESSION_OBSERVATION_ERRORS.REPLAN_COUNT_MISMATCH);
+    fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_SEMANTICS_INVALID);
   }
   if (replansUsed > session.budget.maxReplans) {
     fail(AGENT_SESSION_OBSERVATION_ERRORS.REPLAN_BUDGET_EXCEEDED);
@@ -200,6 +221,81 @@ export function deriveAgentSessionObservation(
     },
     redactionPolicy: { ...REDACTION_POLICY },
   };
+}
+
+function validateEventSemantics(
+  event: AgentEvent,
+  index: number,
+  previousStateVersion: number,
+  previousPlanGeneration: number
+): number {
+  if (index === 0) {
+    if (
+      event.eventType !== "agent.session_created" ||
+      event.fromStatus !== null ||
+      event.toStatus !== "created" ||
+      event.planGeneration !== 0
+    ) {
+      fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_SEMANTICS_INVALID);
+    }
+    return 1;
+  }
+
+  let generationDelta = 0;
+  let stateVersionDelta = 1;
+  const valid = (() => {
+    switch (event.eventType) {
+      case "agent.plan_requested":
+        generationDelta = 1;
+        return (
+          event.fromStatus === "created" &&
+          event.toStatus === "planning" &&
+          previousPlanGeneration === 0
+        );
+      case "agent.plan_validated":
+        return (
+          event.fromStatus === "planning" &&
+          event.toStatus === "awaiting_approval"
+        );
+      case "agent.plan_rejected":
+        return event.fromStatus === "planning" && event.toStatus === "plan_failed";
+      case "agent.approval_granted":
+        stateVersionDelta = 0;
+        return (
+          event.fromStatus === "awaiting_approval" &&
+          event.toStatus === "awaiting_approval"
+        );
+      case "agent.changes_requested":
+        return (
+          event.fromStatus === "awaiting_approval" &&
+          event.toStatus === "changes_requested"
+        );
+      case "agent.workflow_revision_compiled":
+        return (
+          event.fromStatus === "awaiting_approval" &&
+          event.toStatus === "ready_to_run"
+        );
+      case "agent.replan_requested":
+        generationDelta = 1;
+        return (
+          (event.fromStatus === "plan_failed" ||
+            event.fromStatus === "changes_requested" ||
+            event.fromStatus === "ready_to_run") &&
+          event.toStatus === "planning"
+        );
+      case "agent.session_cancelled":
+        return event.fromStatus !== "cancelled" && event.toStatus === "cancelled";
+      default:
+        return false;
+    }
+  })();
+  if (
+    !valid ||
+    event.planGeneration !== previousPlanGeneration + generationDelta
+  ) {
+    fail(AGENT_SESSION_OBSERVATION_ERRORS.EVENT_SEMANTICS_INVALID);
+  }
+  return previousStateVersion + stateVersionDelta;
 }
 
 function observationTimestamp(value: number): string {

@@ -59,18 +59,27 @@ agent-session-observation.v1
 
 1. 使用 snapshot 原顺序，不排序；event 非空且 `sequence === index + 1`。
 2. Genesis `prevEventHash` 为 `null`，后续每项精确等于前一 `eventHash`。
-3. Head 的 status/generation 与 session 一致；最大 event state version 与 session 一致。
-4. 不要求 event count 等于 state version；一个 state version 可以对应多个事件。
-5. `stateEnteredAt` 必须倒序找到首个
+3. Genesis 必须精确为 `agent.session_created: null -> created, stateVersion=1,
+   planGeneration=0`；后续每项 `fromStatus` 必须精确等于前一项 `toStatus`，禁止用断裂的状态链伪造
+   进入当前状态的时间。
+4. 当前 runner 实际发出的 mutation event 必须匹配精确状态对，`stateVersion + 1`；只有 append-only
+   `agent.approval_granted: awaiting_approval -> awaiting_approval` 保持版本不变。`plan_requested` 只允许
+   generation `0 -> 1`，`replan_requested` 只允许从 `plan_failed | changes_requested | ready_to_run`
+   进入 `planning` 且 generation `+1`，其他 event 保持 generation。
+5. 尚未由当前 runner 实际发出的 `agent.draft_created` / `agent.draft_revised` 与未知 event 在本地
+   observation v1 中明确拒绝；未来启用时必须先版本化其 event 语义，不能按 same-status 猜测。
+6. Head 的 status/generation 与 session 一致；最大 event state version 与 session 一致。
+7. 不要求 event count 等于 state version；一个 state version 可以对应多个事件。
+8. `stateEnteredAt` 必须倒序找到首个
    `toStatus === session.status && fromStatus !== toStatus`；genesis `null -> created` 合法；找不到就拒绝，
    不得 fallback 到 same-status 事件。
-6. timestamp 无法解析时返回 `invalid_timestamp`；client clock 回退时返回 `clock_regression`；两者 age
+9. timestamp 无法解析时返回 `invalid_timestamp`；client clock 回退时返回 `clock_regression`；两者 age
    都是 `null`。非负结果只能标记 `client_estimate`，不能叫 `ok`：browser 无法识别向前偏快的本地时钟，
    因而任何 age 都不得推断 timeout/stalled。
-7. `replansUsed = max(0, planGeneration - 1)`，必须与 `agent.replan_requested` 精确计数一致且不得超过
+10. `replansUsed = max(0, planGeneration - 1)`，必须与 `agent.replan_requested` 精确计数一致且不得超过
    `maxReplans`；超预算 snapshot 必须拒绝，不能用 remaining clamp 掩盖。
-8. 任何 counter 都只按稳定字段或精确 event type 计算，不读取 `event.payload`。
-9. 所有派生失败只返回稳定错误码；错误消息不得拼入 snapshot、payload、actor、request、path 或 model
+11. 任何 counter 都只按稳定字段或精确 event type 计算，不读取 `event.payload`。
+12. 所有派生失败只返回稳定错误码；错误消息不得拼入 snapshot、payload、actor、request、path 或 model
    output sentinel。
 
 ## Attention 映射

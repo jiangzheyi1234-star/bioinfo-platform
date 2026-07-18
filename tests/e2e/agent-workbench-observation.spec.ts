@@ -165,7 +165,7 @@ test("replan and failure counters are derived only from stable event fields", ()
   });
 });
 
-test("replan history mismatch and over-budget history fail closed", () => {
+test("head generation mismatch and over-budget history fail closed", () => {
   const mismatch = snapshotFrom(HISTORIES.planning, { planGeneration: 2 });
   expectStableError(
     () => deriveAgentSessionObservation(mismatch, OBSERVED_AT),
@@ -186,17 +186,74 @@ test("replan history mismatch and over-budget history fail closed", () => {
     AGENT_SESSION_OBSERVATION_ERRORS.REPLAN_BUDGET_EXCEEDED
   );
 
-  const hiddenReplan = snapshotFrom([
-    spec("agent.session_created", null, "created", 1, 0, "00:00"),
-    spec("agent.replan_requested", "created", "planning", 2, 1, "00:01"),
-  ]);
-  expectStableError(
-    () => deriveAgentSessionObservation(hiddenReplan, OBSERVED_AT),
-    AGENT_SESSION_OBSERVATION_ERRORS.REPLAN_COUNT_MISMATCH
-  );
 });
 
-test("sequence, hash linkage, scope, and head projection mismatches fail closed", () => {
+test("the latest valid replan transition defines the current planning age", () => {
+  const snapshot = snapshotFrom([
+    spec("agent.session_created", null, "created", 1, 0, "00:00"),
+    spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+    spec("agent.plan_rejected", "planning", "plan_failed", 3, 1, "00:02"),
+    spec("agent.replan_requested", "plan_failed", "planning", 4, 2, "00:03"),
+  ]);
+
+  const observation = deriveAgentSessionObservation(snapshot, OBSERVED_AT);
+
+  expect(observation.lifecycle).toMatchObject({
+    status: "planning",
+    stateEnteredAt: "2026-07-18T00:03:00Z",
+    stateAgeSeconds: 540,
+  });
+  expect(observation.counters.replansUsed).toBe(1);
+});
+
+test("runner-impossible event semantics fail closed", () => {
+  const cases = [
+    snapshotFrom([
+      spec("agent.plan_requested", null, "planning", 1, 1, "00:00"),
+    ]),
+    snapshotFrom([
+      ...HISTORIES.awaiting_approval,
+      spec(
+        "agent.plan_validated",
+        "awaiting_approval",
+        "awaiting_approval",
+        3,
+        1,
+        "00:03"
+      ),
+    ]),
+    snapshotFrom([
+      spec("agent.session_created", null, "created", 1, 0, "00:00"),
+      spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+      spec("agent.approval_granted", "planning", "planning", 2, 1, "00:02"),
+    ]),
+    snapshotFrom([
+      spec("agent.session_created", null, "created", 1, 0, "00:00"),
+      spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+      spec("agent.draft_created", "planning", "planning", 2, 1, "00:02"),
+    ]),
+    snapshotFrom([
+      spec("agent.session_created", null, "created", 1, 0, "00:00"),
+      spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+      spec("agent.replan_requested", "planning", "planning", 3, 2, "00:02"),
+    ]),
+    snapshotFrom([
+      spec("agent.session_created", null, "created", 1, 0, "00:00"),
+      spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+      spec("agent.plan_rejected", "planning", "plan_failed", 3, 1, "00:02"),
+      spec("agent.replan_requested", "plan_failed", "planning", 4, 3, "00:03"),
+    ]),
+  ];
+
+  for (const snapshot of cases) {
+    expectStableError(
+      () => deriveAgentSessionObservation(snapshot, OBSERVED_AT),
+      AGENT_SESSION_OBSERVATION_ERRORS.EVENT_SEMANTICS_INVALID
+    );
+  }
+});
+
+test("sequence, hash linkage, status chain, scope, and head projection mismatches fail closed", () => {
   const cases: Array<{
     mutate: (snapshot: AgentSessionSnapshot) => void;
     code: string;
@@ -212,6 +269,30 @@ test("sequence, hash linkage, scope, and head projection mismatches fail closed"
         snapshot.events[1].prevEventHash = "sentinel-prev-hash";
       },
       code: AGENT_SESSION_OBSERVATION_ERRORS.EVENT_PREV_HASH_INVALID,
+    },
+    {
+      mutate: (snapshot) => {
+        snapshot.events[0].fromStatus = "created";
+      },
+      code: AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATUS_CHAIN_INVALID,
+    },
+    {
+      mutate: (snapshot) => {
+        snapshot.events[1].fromStatus = "awaiting_approval";
+      },
+      code: AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATUS_CHAIN_INVALID,
+    },
+    {
+      mutate: (snapshot) => {
+        snapshot.events[1].stateVersion = 1;
+      },
+      code: AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATE_VERSION_INVALID,
+    },
+    {
+      mutate: (snapshot) => {
+        snapshot.events[1].stateVersion = 3;
+      },
+      code: AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATE_VERSION_INVALID,
     },
     {
       mutate: (snapshot) => {
@@ -246,15 +327,28 @@ test("sequence, hash linkage, scope, and head projection mismatches fail closed"
   }
 });
 
-test("missing a real state transition and invalid observation epochs fail closed", () => {
-  const noEntry = snapshotFrom([
-    spec("agent.session_created", "created", "created", 1, 0, "00:00"),
-  ]);
+test("same-status events cannot advance state version", () => {
+  const snapshot = snapshotFrom(HISTORIES.ready_to_run);
+  snapshot.events[3].stateVersion = 4;
   expectStableError(
-    () => deriveAgentSessionObservation(noEntry, OBSERVED_AT),
-    AGENT_SESSION_OBSERVATION_ERRORS.STATE_ENTRY_REQUIRED
+    () => deriveAgentSessionObservation(snapshot, OBSERVED_AT),
+    AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATE_VERSION_INVALID
   );
 
+  const replan = snapshotFrom([
+    spec("agent.session_created", null, "created", 1, 0, "00:00"),
+    spec("agent.plan_requested", "created", "planning", 2, 1, "00:01"),
+    spec("agent.plan_rejected", "planning", "plan_failed", 3, 1, "00:02"),
+    spec("agent.replan_requested", "plan_failed", "planning", 4, 2, "00:03"),
+  ]);
+  replan.events[3].stateVersion = 3;
+  expectStableError(
+    () => deriveAgentSessionObservation(replan, OBSERVED_AT),
+    AGENT_SESSION_OBSERVATION_ERRORS.EVENT_STATE_VERSION_INVALID
+  );
+});
+
+test("invalid observation epochs fail closed", () => {
   expectStableError(
     () => deriveAgentSessionObservation(snapshotFrom(HISTORIES.created), Number.NaN),
     AGENT_SESSION_OBSERVATION_ERRORS.OBSERVED_AT_INVALID

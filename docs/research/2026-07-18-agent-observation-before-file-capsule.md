@@ -161,8 +161,21 @@ redactionPolicy
 The pure derivation receives an explicit observation epoch so tests do not
 depend on the wall clock. It validates the snapshot's existing order rather
 than sorting it, requires exact sequence `1..N`, checks genesis and every
-previous-event link, and checks that the head status/generation and maximum
-state version match the session projection.
+previous-event link, requires genesis `fromStatus = null`, and requires every
+later `fromStatus` to equal the preceding `toStatus`. Genesis is exactly
+`agent.session_created: null -> created, stateVersion=1, planGeneration=0`.
+Every currently emitted session mutation has an exact event/status pair and
+increments state version by one. The sole current append-only same-state fact,
+`agent.approval_granted`, is restricted to
+`awaiting_approval -> awaiting_approval` and retains version and generation.
+Initial planning changes generation from zero to one; a replan may only enter
+planning from a replanable state and increments generation by one. Other
+events retain generation. Declared but not currently emitted draft events are
+rejected until their durable semantics are versioned rather than inferred from
+same-status coincidence. The derivation also checks that the head
+status/generation and maximum state version match the session projection.
+These checks prevent a structurally linked but runner-impossible event list
+from forging state-entry time or replan consumption.
 
 `stateEnteredAt` is found by scanning backward for the first event whose
 `toStatus` equals the current session status and whose `fromStatus` differs.
