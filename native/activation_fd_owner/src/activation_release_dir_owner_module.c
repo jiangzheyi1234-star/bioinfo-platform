@@ -54,6 +54,9 @@ static PyObject *h2ometa_open_child(PyObject *self, PyObject *args) {
         );
         if (result >= 0) {
             child->fd = (int)result;
+#ifdef H2OMETA_NATIVE_TESTING
+            h2ometa_test_state.fd_adoptions += 1;
+#endif
             break;
         }
         saved_errno = errno;
@@ -152,6 +155,9 @@ static PyObject *h2ometa_test_duplicate_directory(PyObject *self, PyObject *args
     result = fcntl(source_fd, F_DUPFD_CLOEXEC, 0);
     if (result >= 0) {
         owner->fd = result;
+#ifdef H2OMETA_NATIVE_TESTING
+        h2ometa_test_state.fd_adoptions += 1;
+#endif
     } else {
         saved_errno = errno;
         Py_DecRef(capsule);
@@ -232,6 +238,242 @@ static PyObject *h2ometa_test_set_close_report_errno(
     }
     h2ometa_test_state.close_report_errno = (int)error_number;
     Py_RETURN_NONE;
+}
+
+static int h2ometa_test_store_errno(
+    PyObject *args,
+    int *slot,
+    const char *label
+) {
+    PyObject *value;
+    long error_number;
+
+    if (!PyArg_ParseTuple(args, "O", &value)) {
+        return -1;
+    }
+    if (!PyLong_CheckExact(value)) {
+        PyErr_Format(PyExc_TypeError, "%s errno is invalid", label);
+        return -1;
+    }
+    error_number = PyLong_AsLong(value);
+    if (error_number < 0 || error_number > INT_MAX || PyErr_Occurred()) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_ValueError, "%s errno is invalid", label);
+        }
+        return -1;
+    }
+    *slot = (int)error_number;
+    return 0;
+}
+
+static PyObject *h2ometa_test_set_mkdirat_errno(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (h2ometa_test_store_errno(
+            args,
+            &h2ometa_test_state.mkdirat_errno,
+            "mkdirat"
+        ) < 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_set_fchmod_errno(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (h2ometa_test_store_errno(
+            args,
+            &h2ometa_test_state.fchmod_errno,
+            "fchmod"
+        ) < 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_set_fsync_errno(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (h2ometa_test_store_errno(
+            args,
+            &h2ometa_test_state.fsync_errno,
+            "fsync"
+        ) < 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static int h2ometa_test_reproof_phase(
+    PyObject *value,
+    H2OMetaReproofPhase *phase_out
+) {
+    static const char *const phase_names[H2OMETA_REPROOF_PHASE_COUNT] = {
+        "mkdir_parent_pre",
+        "mkdir_child_baseline",
+        "mkdir_parent_post",
+        "mkdir_child_post",
+        "fsync_pre",
+        "fsync_post",
+    };
+    int phase;
+
+    if (!PyUnicode_CheckExact(value)) {
+        PyErr_SetString(PyExc_TypeError, "reproof phase is invalid");
+        return -1;
+    }
+    for (phase = 0; phase < H2OMETA_REPROOF_PHASE_COUNT; phase += 1) {
+        if (PyUnicode_CompareWithASCIIString(value, phase_names[phase]) == 0) {
+            *phase_out = (H2OMetaReproofPhase)phase;
+            return 0;
+        }
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "reproof phase is invalid");
+    return -1;
+}
+
+static PyObject *h2ometa_test_set_reproof_errno(
+    PyObject *self,
+    PyObject *args
+) {
+    PyObject *phase_object;
+    PyObject *errno_object;
+    H2OMetaReproofPhase phase;
+    long error_number;
+
+    (void)self;
+    if (!PyArg_ParseTuple(
+            args,
+            "OO:_test_set_reproof_errno",
+            &phase_object,
+            &errno_object
+        )) {
+        return NULL;
+    }
+    if (h2ometa_test_reproof_phase(phase_object, &phase) < 0) {
+        return NULL;
+    }
+    if (!PyLong_CheckExact(errno_object)) {
+        PyErr_SetString(PyExc_TypeError, "reproof errno is invalid");
+        return NULL;
+    }
+    error_number = PyLong_AsLong(errno_object);
+    if (error_number < 0 || error_number > INT_MAX || PyErr_Occurred()) {
+        if (!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_ValueError, "reproof errno is invalid");
+        }
+        return NULL;
+    }
+    h2ometa_test_state.reproof_errnos[phase] = (int)error_number;
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_fail_next_capsule_creation(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (!PyArg_ParseTuple(args, ":_test_fail_next_capsule_creation")) {
+        return NULL;
+    }
+    h2ometa_test_state.fail_next_capsule_creation = 1;
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_arm_sigint_for_next_eintr(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (!PyArg_ParseTuple(args, ":_test_arm_sigint_for_next_eintr")) {
+        return NULL;
+    }
+    h2ometa_test_state.arm_sigint_for_next_eintr = 1;
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_note_signal_handler_dispatch(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (!PyArg_ParseTuple(args, ":_test_note_signal_handler_dispatch")) {
+        return NULL;
+    }
+    if (h2ometa_test_state.inside_errno_conversion) {
+        h2ometa_test_state.handler_dispatch_inside += 1;
+    } else {
+        h2ometa_test_state.handler_dispatch_outside += 1;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *h2ometa_test_lifecycle_snapshot(
+    PyObject *self,
+    PyObject *args
+) {
+    (void)self;
+    if (!PyArg_ParseTuple(args, ":_test_lifecycle_snapshot")) {
+        return NULL;
+    }
+    return Py_BuildValue(
+        "(iiiiiiiiiiiiiiii)",
+        h2ometa_test_state.owner_allocations,
+        h2ometa_test_state.capsule_creation_successes,
+        h2ometa_test_state.pretransfer_owner_frees,
+        h2ometa_test_state.destructor_calls,
+        h2ometa_test_state.destructor_owner_frees,
+        h2ometa_test_state.fd_adoptions,
+        h2ometa_test_state.fd_consumptions,
+        h2ometa_test_state.namespace_mutations,
+        h2ometa_test_state.eintr_conversions,
+        h2ometa_test_state.sigint_raise_calls,
+        h2ometa_test_state.handler_dispatch_inside,
+        h2ometa_test_state.handler_dispatch_outside,
+        h2ometa_test_state.inside_errno_conversion,
+        h2ometa_test_state.boundary_owner_state,
+        h2ometa_test_state.boundary_namespace_state,
+        h2ometa_test_state.last_errno
+    );
+}
+
+static PyObject *h2ometa_test_leaf_snapshot(PyObject *self, PyObject *args) {
+    (void)self;
+    if (!PyArg_ParseTuple(args, ":_test_leaf_snapshot")) {
+        return NULL;
+    }
+    return Py_BuildValue(
+        "((iKKy#K)(iKKK)(iKK)(iiiiii))",
+        h2ometa_test_state.mkdirat_calls,
+        (unsigned long long)h2ometa_test_state.mkdir_parent_device,
+        (unsigned long long)h2ometa_test_state.mkdir_parent_inode,
+        h2ometa_test_state.mkdir_component,
+        h2ometa_test_state.mkdir_component_length,
+        (unsigned long long)h2ometa_test_state.mkdir_mode,
+        h2ometa_test_state.fchmod_calls,
+        (unsigned long long)h2ometa_test_state.fchmod_device,
+        (unsigned long long)h2ometa_test_state.fchmod_inode,
+        (unsigned long long)h2ometa_test_state.fchmod_mode,
+        h2ometa_test_state.fsync_calls,
+        (unsigned long long)h2ometa_test_state.fsync_device,
+        (unsigned long long)h2ometa_test_state.fsync_inode,
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_MKDIR_PARENT_PRE],
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_MKDIR_CHILD_BASELINE],
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_MKDIR_PARENT_POST],
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_MKDIR_CHILD_POST],
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_FSYNC_PRE],
+        h2ometa_test_state.reproof_calls[H2OMETA_REPROOF_FSYNC_POST]
+    );
 }
 
 static PyObject *h2ometa_test_raise_sigint_after_adopt(
@@ -321,6 +563,18 @@ static PyMethodDef h2ometa_methods[] = {
         "Open one release-tree child from a live directory capability.",
     },
     {
+        "_mkdir_child",
+        h2ometa_mkdir_child,
+        METH_VARARGS,
+        "Create and adopt one private release-tree child directory.",
+    },
+    {
+        "_fsync_directory",
+        h2ometa_fsync_directory,
+        METH_VARARGS,
+        "Synchronize one live directory capability and reprove it.",
+    },
+    {
         "_require_live",
         h2ometa_require_live,
         METH_VARARGS,
@@ -352,6 +606,48 @@ static PyMethodDef h2ometa_methods[] = {
         "Proof-only close error report injection.",
     },
     {
+        "_test_set_mkdirat_errno",
+        h2ometa_test_set_mkdirat_errno,
+        METH_VARARGS,
+        "Proof-only mkdirat error injection.",
+    },
+    {
+        "_test_set_fchmod_errno",
+        h2ometa_test_set_fchmod_errno,
+        METH_VARARGS,
+        "Proof-only fchmod error injection.",
+    },
+    {
+        "_test_set_fsync_errno",
+        h2ometa_test_set_fsync_errno,
+        METH_VARARGS,
+        "Proof-only fsync error injection.",
+    },
+    {
+        "_test_set_reproof_errno",
+        h2ometa_test_set_reproof_errno,
+        METH_VARARGS,
+        "Proof-only phase-specific reproof error injection.",
+    },
+    {
+        "_test_fail_next_capsule_creation",
+        h2ometa_test_fail_next_capsule_creation,
+        METH_VARARGS,
+        "Proof-only pre-transfer capsule creation failure.",
+    },
+    {
+        "_test_arm_sigint_for_next_eintr",
+        h2ometa_test_arm_sigint_for_next_eintr,
+        METH_VARARGS,
+        "Proof-only in-method EINTR signal dispatch arm.",
+    },
+    {
+        "_test_note_signal_handler_dispatch",
+        h2ometa_test_note_signal_handler_dispatch,
+        METH_VARARGS,
+        "Proof-only signal handler dispatch observation.",
+    },
+    {
         "_test_raise_sigint_after_adopt",
         h2ometa_test_raise_sigint_after_adopt,
         METH_VARARGS,
@@ -368,6 +664,18 @@ static PyMethodDef h2ometa_methods[] = {
         h2ometa_test_attempt_snapshot,
         METH_VARARGS,
         "Proof-only syscall attempt snapshot.",
+    },
+    {
+        "_test_lifecycle_snapshot",
+        h2ometa_test_lifecycle_snapshot,
+        METH_VARARGS,
+        "Proof-only redacted lifecycle snapshot.",
+    },
+    {
+        "_test_leaf_snapshot",
+        h2ometa_test_leaf_snapshot,
+        METH_VARARGS,
+        "Proof-only redacted directory leaf snapshot.",
     },
     {
         "_test_reset",

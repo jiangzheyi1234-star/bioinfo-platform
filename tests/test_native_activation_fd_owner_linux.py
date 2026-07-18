@@ -6,6 +6,7 @@ import importlib
 import os
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from types import ModuleType
 
@@ -15,6 +16,7 @@ import pytest
 _REQUIRED_ENV = "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS"
 _PROOF_SITE_ENV = "H2OMETA_NATIVE_ACTIVATION_FD_OWNER_PROOF_SITE"
 _BIND_PARENT_ENV = "H2OMETA_NATIVE_ACTIVATION_FD_OWNER_BIND_PARENT"
+_EXPECTED_PYTHON_MINOR_ENV = "H2OMETA_NATIVE_EXPECTED_PYTHON_MINOR"
 
 
 class _StrSubclass(str):
@@ -53,7 +55,10 @@ def native_owner() -> ModuleType:
     assert sys.platform == "linux"
     assert os.uname().machine == "x86_64"
     assert sys.implementation.name == "cpython"
-    assert sys.version_info[:2] == (3, 12)
+    expected_minor = os.environ.get(_EXPECTED_PYTHON_MINOR_ENV, "3.12")
+    assert expected_minor in {"3.12", "3.13", "3.14"}
+    assert f"{sys.version_info.major}.{sys.version_info.minor}" == expected_minor
+    assert not sysconfig.get_config_var("Py_GIL_DISABLED")
     proof_site = Path(os.environ[_PROOF_SITE_ENV])
     sys.path.insert(0, str(proof_site))
     module = importlib.import_module(
@@ -87,22 +92,29 @@ def private_parent(
 def test_native_owner_exposes_capsule_only_production_api(
     native_owner: ModuleType,
 ) -> None:
-    private_methods = {
-        name
-        for name in vars(native_owner)
-        if not name.startswith("__")
-    }
+    private_methods = {name for name in vars(native_owner) if not name.startswith("__")}
 
     assert private_methods == {
         "_open_child",
+        "_mkdir_child",
+        "_fsync_directory",
         "_require_live",
         "_close",
         "_test_duplicate_directory",
         "_test_set_openat2_errnos",
         "_test_set_close_report_errno",
+        "_test_set_mkdirat_errno",
+        "_test_set_fchmod_errno",
+        "_test_set_fsync_errno",
+        "_test_set_reproof_errno",
+        "_test_fail_next_capsule_creation",
+        "_test_arm_sigint_for_next_eintr",
+        "_test_note_signal_handler_dispatch",
         "_test_raise_sigint_after_adopt",
         "_test_snapshot",
         "_test_attempt_snapshot",
+        "_test_lifecycle_snapshot",
+        "_test_leaf_snapshot",
         "_test_reset",
     }
     assert not hasattr(native_owner, "fileno")
@@ -387,11 +399,14 @@ def test_native_owner_consumes_fd_before_reporting_close_eintr(
 
 
 @pytest.mark.parametrize("scenario", ["sigint", "opcode"])
+@pytest.mark.parametrize("operation", ["open_child", "mkdir_child"])
 def test_native_owner_return_boundary_has_no_descriptor_leak(
     scenario: str,
+    operation: str,
 ) -> None:
     proof_site = Path(os.environ[_PROOF_SITE_ENV])
     probe = Path(__file__).with_name("native_activation_fd_owner_boundary_probe.py")
+    expected_minor = os.environ.get(_EXPECTED_PYTHON_MINOR_ENV, "3.12")
 
     result = subprocess.run(
         [
@@ -401,6 +416,10 @@ def test_native_owner_return_boundary_has_no_descriptor_leak(
             str(proof_site),
             "--scenario",
             scenario,
+            "--operation",
+            operation,
+            "--python-minor",
+            expected_minor,
             "--loops",
             "50",
         ],
@@ -411,3 +430,4 @@ def test_native_owner_return_boundary_has_no_descriptor_leak(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"scenario={scenario}" in result.stdout
+    assert f"operation={operation}" in result.stdout

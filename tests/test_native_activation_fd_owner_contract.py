@@ -10,14 +10,40 @@ PROJECT = Path("native/activation_fd_owner")
 SOURCE_DIR = PROJECT / "src"
 INTERNAL_HEADER = SOURCE_DIR / "activation_release_dir_owner_internal.h"
 CORE_SOURCE = SOURCE_DIR / "activation_release_dir_owner_core.c"
+LEAF_SOURCE = SOURCE_DIR / "activation_release_dir_owner_leaf.c"
 MODULE_SOURCE = SOURCE_DIR / "activation_release_dir_owner_module.c"
-NATIVE_SOURCES = (INTERNAL_HEADER, CORE_SOURCE, MODULE_SOURCE)
+NATIVE_SOURCES = (INTERNAL_HEADER, CORE_SOURCE, LEAF_SOURCE, MODULE_SOURCE)
 SETUP = PROJECT / "setup.py"
 PROOF_PROJECT = PROJECT / "proof"
 PROOF_SETUP = PROOF_PROJECT / "setup.py"
 CONSTRAINTS = PROJECT / "build-constraints.txt"
 LINUX_TEST = Path("tests/test_native_activation_fd_owner_linux.py")
 BOUNDARY_PROBE = Path("tests/native_activation_fd_owner_boundary_probe.py")
+EXPECTED_PRODUCTION_METHODS = [
+    "_open_child",
+    "_mkdir_child",
+    "_fsync_directory",
+    "_require_live",
+    "_close",
+]
+EXPECTED_PROOF_HOOKS = {
+    "_test_arm_sigint_for_next_eintr",
+    "_test_attempt_snapshot",
+    "_test_duplicate_directory",
+    "_test_fail_next_capsule_creation",
+    "_test_leaf_snapshot",
+    "_test_lifecycle_snapshot",
+    "_test_note_signal_handler_dispatch",
+    "_test_raise_sigint_after_adopt",
+    "_test_reset",
+    "_test_set_close_report_errno",
+    "_test_set_fchmod_errno",
+    "_test_set_fsync_errno",
+    "_test_set_mkdirat_errno",
+    "_test_set_openat2_errnos",
+    "_test_set_reproof_errno",
+    "_test_snapshot",
+}
 
 
 def _extension_paths(source: str, keyword_name: str) -> tuple[str, ...]:
@@ -48,7 +74,7 @@ def test_native_owner_is_an_independent_private_build_project() -> None:
         "requires": ["setuptools==83.0.0"],
         "build-backend": "setuptools.build_meta",
     }
-    assert payload["project"]["version"] == "0.1.0"
+    assert payload["project"]["version"] == "0.1.1"
     assert payload["project"]["requires-python"] == ">=3.12"
     assert "Private :: Do Not Upload" in payload["project"]["classifiers"]
     assert payload["tool"]["setuptools"]["packages"] == []
@@ -59,7 +85,7 @@ def test_native_owner_is_an_independent_private_build_project() -> None:
     assert proof_payload["project"]["name"] == (
         "h2ometa-activation-release-dir-owner-proof"
     )
-    assert proof_payload["project"]["version"] == "0.1.0"
+    assert proof_payload["project"]["version"] == "0.1.1"
     assert "Private :: Do Not Upload" in proof_payload["project"]["classifiers"]
     assert proof_payload["tool"]["setuptools"]["packages"] == []
 
@@ -80,6 +106,7 @@ def test_native_owner_build_is_linux_x86_64_abi3_only() -> None:
     proof_source = PROOF_SETUP.read_text(encoding="utf-8")
     expected_sources = (
         "src/activation_release_dir_owner_core.c",
+        "src/activation_release_dir_owner_leaf.c",
         "src/activation_release_dir_owner_module.c",
     )
     expected_proof_sources = tuple(f"../{path}" for path in expected_sources)
@@ -142,9 +169,9 @@ def test_native_owner_adopts_descriptor_before_any_python_handoff() -> None:
 
 def test_native_owner_production_surface_has_no_raw_fd_or_callback_api() -> None:
     module = MODULE_SOURCE.read_text(encoding="utf-8")
-    method_table = module.split(
-        "static PyMethodDef h2ometa_methods[]", maxsplit=1
-    )[1].split("{NULL, NULL, 0, NULL}", maxsplit=1)[0]
+    method_table = module.split("static PyMethodDef h2ometa_methods[]", maxsplit=1)[
+        1
+    ].split("{NULL, NULL, 0, NULL}", maxsplit=1)[0]
     production_methods, proof_methods = method_table.split(
         "#ifdef H2OMETA_NATIVE_TESTING", maxsplit=1
     )
@@ -152,16 +179,9 @@ def test_native_owner_production_surface_has_no_raw_fd_or_callback_api() -> None
     production_names = re.findall(method_entry, production_methods)
     proof_names = re.findall(method_entry, proof_methods)
 
-    assert production_names == ["_open_child", "_require_live", "_close"]
-    assert proof_names == [
-        "_test_duplicate_directory",
-        "_test_set_openat2_errnos",
-        "_test_set_close_report_errno",
-        "_test_raise_sigint_after_adopt",
-        "_test_snapshot",
-        "_test_attempt_snapshot",
-        "_test_reset",
-    ]
+    assert production_names == EXPECTED_PRODUCTION_METHODS
+    assert set(proof_names) == EXPECTED_PROOF_HOOKS
+    assert len(proof_names) == len(EXPECTED_PROOF_HOOKS)
     for forbidden in (
         '"fileno"',
         '"take_fd"',
@@ -201,16 +221,20 @@ def test_native_owner_child_inherits_parent_authority_uid() -> None:
 def test_native_owner_split_keeps_one_module_and_hidden_internal_api() -> None:
     header = INTERNAL_HEADER.read_text(encoding="utf-8")
     core = CORE_SOURCE.read_text(encoding="utf-8")
+    leaf = LEAF_SOURCE.read_text(encoding="utf-8")
     module = MODULE_SOURCE.read_text(encoding="utf-8")
 
     assert header.startswith(
         "#ifndef H2OMETA_ACTIVATION_RELEASE_DIR_OWNER_INTERNAL_H\n"
     )
     assert core.startswith('#include "activation_release_dir_owner_internal.h"\n')
+    assert leaf.startswith('#include "activation_release_dir_owner_internal.h"\n')
     assert module.startswith('#include "activation_release_dir_owner_internal.h"\n')
     assert "PyMethodDef" not in core
+    assert "PyMethodDef" not in leaf
     assert module.count("static PyMethodDef") == 1
     assert "PyMODINIT_FUNC" not in core
+    assert "PyMODINIT_FUNC" not in leaf
     assert module.count("PyMODINIT_FUNC") == 1
     assert "static H2OMetaNativeTestState h2ometa_test_state" not in header
     assert "extern H2OMetaNativeTestState h2ometa_test_state" in header
@@ -221,6 +245,7 @@ def test_native_owner_source_and_tests_remain_import_safe_on_windows() -> None:
     expected = {
         "activation_release_dir_owner_core.c",
         "activation_release_dir_owner_internal.h",
+        "activation_release_dir_owner_leaf.c",
         "activation_release_dir_owner_module.c",
     }
     actual = {
@@ -240,10 +265,26 @@ def test_native_owner_source_and_tests_remain_import_safe_on_windows() -> None:
     assert _REQUIRED_ENV_LITERAL in test_source
 
     probe_source = BOUNDARY_PROBE.read_text(encoding="utf-8")
+    probe_tree = ast.parse(probe_source)
+    acquisition_functions = [
+        node
+        for node in ast.walk(probe_tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "acquire_child"
+    ]
     assert "sys.settrace" not in probe_source
     assert "monitoring.events.INSTRUCTION" in probe_source
     assert "monitoring.set_local_events" in probe_source
     assert "instruction_offset == store_offset" in probe_source
+    assert len(acquisition_functions) == 2
+    for function in acquisition_functions:
+        owner_stores = [
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == "child_owner"
+        ]
+        assert len(owner_stores) == 1
 
 
 _REQUIRED_ENV_LITERAL = "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS"

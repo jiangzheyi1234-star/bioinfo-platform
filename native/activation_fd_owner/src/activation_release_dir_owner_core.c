@@ -5,8 +5,23 @@ H2OMetaNativeTestState h2ometa_test_state;
 #endif
 
 int h2ometa_set_errno_error(int error_number) {
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.last_errno = error_number;
+    if (error_number == EINTR) {
+        h2ometa_test_state.eintr_conversions += 1;
+        if (h2ometa_test_state.arm_sigint_for_next_eintr) {
+            h2ometa_test_state.arm_sigint_for_next_eintr = 0;
+            h2ometa_test_state.inside_errno_conversion = 1;
+            h2ometa_test_state.sigint_raise_calls += 1;
+            (void)raise(SIGINT);
+        }
+    }
+#endif
     errno = error_number;
     PyErr_SetFromErrno(PyExc_OSError);
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.inside_errno_conversion = 0;
+#endif
     return -1;
 }
 
@@ -19,17 +34,36 @@ PyObject *h2ometa_new_owner_capsule(H2OMetaDirOwner **owner_out) {
     if (owner == NULL) {
         return PyErr_NoMemory();
     }
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.owner_allocations += 1;
+#endif
     memset(owner, 0, sizeof(*owner));
     owner->magic = H2OMETA_OWNER_MAGIC;
     owner->fd = -1;
+#ifdef H2OMETA_NATIVE_TESTING
+    if (h2ometa_test_state.fail_next_capsule_creation) {
+        h2ometa_test_state.fail_next_capsule_creation = 0;
+        (void)PyErr_NoMemory();
+        goto owner_not_transferred;
+    }
+#endif
     capsule = PyCapsule_New(owner, H2OMETA_CAPSULE_NAME, h2ometa_capsule_destructor);
     if (capsule == NULL) {
-        owner->magic = 0;
-        PyMem_Free(owner);
-        return NULL;
+        goto owner_not_transferred;
     }
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.capsule_creation_successes += 1;
+#endif
     *owner_out = owner;
     return capsule;
+
+owner_not_transferred:
+    owner->magic = 0;
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.pretransfer_owner_frees += 1;
+#endif
+    PyMem_Free(owner);
+    return NULL;
 }
 
 H2OMetaDirOwner *h2ometa_owner_from_capsule(PyObject *capsule) {
@@ -77,6 +111,9 @@ int h2ometa_consume_owner_fd(H2OMetaDirOwner *owner, int report_error) {
     if (fd < 0) {
         return 0;
     }
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.fd_consumptions += 1;
+#endif
     result = h2ometa_close_once(fd);
     saved_errno = errno;
     if (result < 0 && report_error) {
@@ -88,6 +125,9 @@ int h2ometa_consume_owner_fd(H2OMetaDirOwner *owner, int report_error) {
 static void h2ometa_capsule_destructor(PyObject *capsule) {
     H2OMetaDirOwner *owner;
 
+#ifdef H2OMETA_NATIVE_TESTING
+    h2ometa_test_state.destructor_calls += 1;
+#endif
     if (!PyCapsule_IsValid(capsule, H2OMETA_CAPSULE_NAME)) {
         return;
     }
@@ -99,41 +139,62 @@ static void h2ometa_capsule_destructor(PyObject *capsule) {
     if (owner->magic == H2OMETA_OWNER_MAGIC) {
         (void)h2ometa_consume_owner_fd(owner, 0);
         owner->magic = 0;
+#ifdef H2OMETA_NATIVE_TESTING
+        h2ometa_test_state.destructor_owner_frees += 1;
+#endif
         PyMem_Free(owner);
     }
 }
 
-static int h2ometa_require_directory_policy(const struct stat *status) {
+static int h2ometa_directory_policy_error(const struct stat *status) {
     if (!S_ISDIR(status->st_mode)) {
-        return h2ometa_set_errno_error(ENOTDIR);
+        return ENOTDIR;
     }
     if ((status->st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-        return h2ometa_set_errno_error(EPERM);
+        return EPERM;
     }
     return 0;
 }
 
-int h2ometa_finish_adoption(
+static int h2ometa_observe_directory_status_error(
+    int fd,
+    struct stat *status_out
+) {
+    int descriptor_flags;
+    int error_number;
+
+    if (fd < 0) {
+        return EBADF;
+    }
+    descriptor_flags = fcntl(fd, F_GETFD);
+    if (descriptor_flags < 0) {
+        return errno;
+    }
+    if ((descriptor_flags & FD_CLOEXEC) == 0) {
+        return EIO;
+    }
+    if (fstat(fd, status_out) < 0) {
+        return errno;
+    }
+    error_number = h2ometa_directory_policy_error(status_out);
+    if (error_number != 0) {
+        return error_number;
+    }
+    return 0;
+}
+
+int h2ometa_finish_adoption_error(
     H2OMetaDirOwner *owner,
     uid_t authority_uid
 ) {
     struct stat status;
-    int descriptor_flags = fcntl(owner->fd, F_GETFD);
+    int error_number = h2ometa_observe_directory_status_error(owner->fd, &status);
 
-    if (descriptor_flags < 0) {
-        return h2ometa_set_errno_error(errno);
-    }
-    if ((descriptor_flags & FD_CLOEXEC) == 0) {
-        return h2ometa_set_errno_error(EIO);
-    }
-    if (fstat(owner->fd, &status) < 0) {
-        return h2ometa_set_errno_error(errno);
-    }
-    if (h2ometa_require_directory_policy(&status) < 0) {
-        return -1;
+    if (error_number != 0) {
+        return error_number;
     }
     if (status.st_uid != authority_uid) {
-        return h2ometa_set_errno_error(EPERM);
+        return EPERM;
     }
     owner->device = status.st_dev;
     owner->inode = status.st_ino;
@@ -141,31 +202,44 @@ int h2ometa_finish_adoption(
     return 0;
 }
 
-int h2ometa_require_live_owner(H2OMetaDirOwner *owner) {
-    struct stat status;
-    int descriptor_flags;
+int h2ometa_finish_adoption(
+    H2OMetaDirOwner *owner,
+    uid_t authority_uid
+) {
+    int error_number = h2ometa_finish_adoption_error(owner, authority_uid);
 
-    if (owner->fd < 0) {
-        return h2ometa_set_errno_error(EBADF);
+    if (error_number != 0) {
+        return h2ometa_set_errno_error(error_number);
     }
-    descriptor_flags = fcntl(owner->fd, F_GETFD);
-    if (descriptor_flags < 0) {
-        return h2ometa_set_errno_error(errno);
-    }
-    if ((descriptor_flags & FD_CLOEXEC) == 0) {
-        return h2ometa_set_errno_error(EIO);
-    }
-    if (fstat(owner->fd, &status) < 0) {
-        return h2ometa_set_errno_error(errno);
-    }
-    if (h2ometa_require_directory_policy(&status) < 0) {
-        return -1;
+    return 0;
+}
+
+int h2ometa_live_owner_status_error(
+    const H2OMetaDirOwner *owner,
+    struct stat *status_out
+) {
+    struct stat status;
+    int error_number = h2ometa_observe_directory_status_error(owner->fd, &status);
+
+    if (error_number != 0) {
+        return error_number;
     }
     if (status.st_dev != owner->device || status.st_ino != owner->inode) {
-        return h2ometa_set_errno_error(ESTALE);
+        return ESTALE;
     }
     if (status.st_uid != owner->uid) {
-        return h2ometa_set_errno_error(EPERM);
+        return EPERM;
+    }
+    *status_out = status;
+    return 0;
+}
+
+int h2ometa_require_live_owner(H2OMetaDirOwner *owner) {
+    struct stat status;
+    int error_number = h2ometa_live_owner_status_error(owner, &status);
+
+    if (error_number != 0) {
+        return h2ometa_set_errno_error(error_number);
     }
     return 0;
 }

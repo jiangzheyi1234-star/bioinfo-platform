@@ -8,7 +8,9 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
-SECURITY_ANALYSIS_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "security-analysis.yml"
+SECURITY_ANALYSIS_WORKFLOW = (
+    REPOSITORY_ROOT / ".github" / "workflows" / "security-analysis.yml"
+)
 
 
 def test_ci_workflow_provides_required_mainline_gates() -> None:
@@ -23,7 +25,9 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "name: required / ci-green" in source
     assert "DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}" in source
     assert "PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}" in source
-    assert "SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}" in source
+    assert (
+        "SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}" in source
+    )
     assert "DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}" in source
     assert "WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}" in source
     assert "LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}" in source
@@ -84,12 +88,10 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
     assert "H2OMETA_REQUIRE_LINUX_ACTIVATION_STORAGE_TESTS=1" in activation_script
     assert "H2OMETA_REQUIRE_LINUX_RELEASE_PUBLICATION_TESTS=1" in activation_script
     assert (
-        "H2OMETA_REQUIRE_LINUX_RELEASE_ARCHIVE_INSPECTION_TESTS=1"
-        in activation_script
+        "H2OMETA_REQUIRE_LINUX_RELEASE_ARCHIVE_INSPECTION_TESTS=1" in activation_script
     )
     assert (
-        "H2OMETA_REQUIRE_LINUX_RELEASE_MATERIALIZATION_IO_TESTS=1"
-        in activation_script
+        "H2OMETA_REQUIRE_LINUX_RELEASE_MATERIALIZATION_IO_TESTS=1" in activation_script
     )
     assert 'sudo mount --bind "$BIND_PROOF_ROOT/source"' in activation_script
     assert 'sudo umount "$BIND_PROOF_ROOT/parent/child"' in activation_script
@@ -133,12 +135,10 @@ def test_ci_workflow_requires_real_linux_activation_storage_proof() -> None:
         in activation_script
     )
     assert (
-        "tests/test_runner_activation_release_archive_contract.py"
-        in activation_script
+        "tests/test_runner_activation_release_archive_contract.py" in activation_script
     )
     assert (
-        "tests/test_runner_activation_release_archive_binding.py"
-        in activation_script
+        "tests/test_runner_activation_release_archive_binding.py" in activation_script
     )
     assert (
         "tests/test_remote_runner_activation_release_tar_inspection.py"
@@ -185,13 +185,28 @@ def test_ci_workflow_requires_quarantined_native_fd_owner_proof() -> None:
     native_job = jobs["native_activation_fd_owner_linux"]
     ci_green = jobs["ci_green"]
     script = "\n".join(str(step.get("run", "")) for step in native_job["steps"])
+    script_lines = [line.strip() for line in script.splitlines()]
     step_uses = [str(step.get("uses", "")) for step in native_job["steps"]]
+    validator_blocks = []
+    for start in [
+        index
+        for index, line in enumerate(script_lines)
+        if "scripts/validate_native_activation_fd_owner_wheel.py" in line
+    ]:
+        block = []
+        for line in script_lines[start:]:
+            block.append(line)
+            if not line.endswith("\\"):
+                break
+        validator_blocks.append(block)
 
     assert native_job["name"] == "python / native-activation-fd-owner-linux"
     assert native_job["runs-on"] == "ubuntu-24.04"
     assert "if" not in native_job
     assert "uv python install 3.12" in script
     assert "uv python install 3.13" in script
+    assert "uv python install 3.14" in script
+    assert script.count('sysconfig.get_config_var("Py_GIL_DISABLED")') == 3
     assert "uv build --wheel" in script
     assert "--build-constraint" in script
     assert "--require-hashes" in script
@@ -200,8 +215,36 @@ def test_ci_workflow_requires_quarantined_native_fd_owner_proof() -> None:
     assert "abi3audit==0.0.26" in script
     assert "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS=1" in script
     assert "tests/test_native_activation_fd_owner_contract.py" in script
+    assert "tests/test_native_activation_fd_owner_leaf_contract.py" in script
     assert "tests/test_native_activation_fd_owner_linux.py" in script
+    assert "tests/test_native_activation_fd_owner_leaf_linux.py" in script
     assert "tests/test_native_activation_fd_owner_wheel_validator.py" in script
+    assert validator_blocks == [
+        [
+            '"$PYTHON312" scripts/validate_native_activation_fd_owner_wheel.py \\',
+            '--wheel "$PROD_WHEEL" \\',
+            '--site "$PROD_SITE" \\',
+            '--python "$PYTHON312" \\',
+            '--python "$PYTHON313" \\',
+            '--python "$PYTHON314"',
+        ],
+        [
+            '"$PYTHON312" scripts/validate_native_activation_fd_owner_wheel.py \\',
+            '--wheel "$PROOF_WHEEL" \\',
+            '--site "$PROOF_SITE" \\',
+            '--python "$PYTHON312" \\',
+            '--python "$PYTHON313" \\',
+            '--python "$PYTHON314" \\',
+            "--testing",
+        ],
+    ]
+    assert '"3.12:$PYTHON312"' in script
+    assert '"3.13:$PYTHON313"' in script
+    assert '"3.14:$PYTHON314"' in script
+    assert "H2OMETA_NATIVE_EXPECTED_PYTHON_MINOR" in script
+    assert "uv run --isolated --frozen --group dev" in script
+    assert "--no-project" not in script
+    assert "--with pytest" not in script
     assert 'sudo mount --bind "$BIND_PROOF_ROOT/source"' in script
     assert 'sudo umount "$BIND_PROOF_ROOT/parent/child"' in script
     assert 'sudo chown root:root "$BIND_PROOF_ROOT/parent/foreign"' in script
@@ -281,9 +324,17 @@ def test_security_analysis_workflow_is_optional_and_governed() -> None:
     assert "permissions:\n  contents: read" in source
     assert "name: security / codeql" in source
     assert "name: security / scorecard" in source
-    assert "github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
-    assert "github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
-    assert "github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
+    assert (
+        "github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
+    )
+    assert (
+        "github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e"
+        in source
+    )
+    assert (
+        "github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e"
+        in source
+    )
     assert "ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a" in source
     assert "queries: +security-extended,security-and-quality" in source
     assert "results_file: results.sarif" in source
@@ -300,7 +351,9 @@ def test_ci_workflow_uses_sha_pinned_actions() -> None:
         path.read_text(encoding="utf-8")
         for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml"))
     )
-    uses_specs = re.findall(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", source, flags=re.MULTILINE)
+    uses_specs = re.findall(
+        r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", source, flags=re.MULTILINE
+    )
     uses_lines = re.findall(r"uses:\s+[^@\s]+@([^\s#]+)", source)
 
     assert uses_specs
@@ -318,7 +371,9 @@ def test_workflow_checkouts_do_not_persist_github_token_credentials() -> None:
 
 
 def test_dependabot_updates_cover_managed_dependency_surfaces() -> None:
-    source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "version: 2" in source
     assert 'package-ecosystem: "github-actions"' in source
@@ -338,7 +393,9 @@ def test_workflow_upload_artifacts_are_short_lived_handoff_files() -> None:
     for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")):
         source = path.read_text(encoding="utf-8")
         upload_count = source.count("actions/upload-artifact@")
-        retentions = [int(value) for value in re.findall(r"retention-days:\s*(\d+)", source)]
+        retentions = [
+            int(value) for value in re.findall(r"retention-days:\s*(\d+)", source)
+        ]
 
         assert "retention-days: 14" not in source
         if upload_count:
@@ -354,15 +411,21 @@ def test_workflows_do_not_use_privileged_untrusted_pr_triggers() -> None:
 
 
 def test_release_workflows_keep_write_permissions_explicit_and_narrow() -> None:
-    release = (REPOSITORY_ROOT / ".github" / "workflows" / "release-remote-runner-artifacts.yml").read_text(
-        encoding="utf-8"
-    )
-    register = (
-        REPOSITORY_ROOT / ".github" / "workflows" / "register-remote-runner-release-gate-evidence.yml"
+    release = (
+        REPOSITORY_ROOT
+        / ".github"
+        / "workflows"
+        / "release-remote-runner-artifacts.yml"
     ).read_text(encoding="utf-8")
-    promote = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-remote-runner-release.yml").read_text(
-        encoding="utf-8"
-    )
+    register = (
+        REPOSITORY_ROOT
+        / ".github"
+        / "workflows"
+        / "register-remote-runner-release-gate-evidence.yml"
+    ).read_text(encoding="utf-8")
+    promote = (
+        REPOSITORY_ROOT / ".github" / "workflows" / "promote-remote-runner-release.yml"
+    ).read_text(encoding="utf-8")
 
     assert "release_gate_evidence_run_id:" not in release
     assert "release_gate_evidence_artifact:" not in release
@@ -383,7 +446,10 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
 
     assert "/.github/workflows/ @jiangzheyi1234-star" in source
     assert "/.github/container-image-scan.target.json @jiangzheyi1234-star" in source
-    assert "/.github/container-runtime-hardening.target.json @jiangzheyi1234-star" in source
+    assert (
+        "/.github/container-runtime-hardening.target.json @jiangzheyi1234-star"
+        in source
+    )
     assert "/.github/rulesets/ @jiangzheyi1234-star" in source
     assert "/.github/dependabot.yml @jiangzheyi1234-star" in source
     assert "/scripts/container_image_scan_governance.py @jiangzheyi1234-star" in source

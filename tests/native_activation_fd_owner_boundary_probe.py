@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated CPython 3.12 return-boundary leak probes for the proof module."""
+"""Isolated standard-GIL CPython return-boundary owner leak probes."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import gc
 import importlib
 import os
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -41,9 +42,25 @@ def _matching_fds(device: int, inode: int) -> set[int]:
     return matches
 
 
-def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
-    if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 12):
-        raise RuntimeError("native owner return-boundary proof requires CPython 3.12")
+def _run_probe(
+    *,
+    site: Path,
+    scenario: str,
+    operation: str,
+    python_minor: str,
+    loops: int,
+) -> None:
+    actual_minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if (
+        sys.implementation.name != "cpython"
+        or python_minor not in {"3.12", "3.13", "3.14"}
+        or actual_minor != python_minor
+        or sysconfig.get_config_var("Py_GIL_DISABLED")
+    ):
+        raise RuntimeError(
+            "native owner return-boundary proof requires the selected "
+            "standard-GIL CPython 3.12, 3.13, or 3.14"
+        )
     sys.path.insert(0, str(site))
     module = importlib.import_module(
         "remote_runner._activation_release_dir_owner_proof"
@@ -59,23 +76,39 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
         root = Path(raw) / "root"
         child = root / "child"
         root.mkdir(mode=0o700)
-        child.mkdir(mode=0o700)
+        if operation == "open_child":
+            child.mkdir(mode=0o700)
         raw_parent = os.open(
             root,
             os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
         )
         parent = module._test_duplicate_directory(raw_parent)
         os.close(raw_parent)
-        child_status = child.stat()
-        child_identity = (child_status.st_dev, child_status.st_ino)
+        component = ["child"]
         gc.collect()
         baseline = _fd_set()
-        if _matching_fds(*child_identity):
+        if operation == "open_child" and _matching_fds(
+            child.stat().st_dev,
+            child.stat().st_ino,
+        ):
             raise AssertionError("child descriptor exists before boundary probe")
 
-        def acquire_child():
-            child_owner = module._open_child(parent, "child")
-            return child_owner
+        if operation == "open_child":
+
+            def acquire_child():
+                child_owner = module._open_child(parent, component[0])
+
+                return child_owner
+
+        elif operation == "mkdir_child":
+
+            def acquire_child():
+                child_owner = module._mkdir_child(parent, component[0])
+
+                return child_owner
+
+        else:
+            raise AssertionError(operation)
 
         store_offsets = {
             instruction.offset
@@ -107,7 +140,9 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
             )
 
         try:
-            for _index in range(loops):
+            for index in range(loops):
+                if operation == "mkdir_child":
+                    component[0] = f"child-{index}"
                 if scenario == "sigint":
                     module._test_raise_sigint_after_adopt(True)
                     try:
@@ -116,7 +151,9 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
                         pass
                     else:
                         module._close(leaked)
-                        raise AssertionError("pending SIGINT did not interrupt the return")
+                        raise AssertionError(
+                            "pending SIGINT did not interrupt the return"
+                        )
                     finally:
                         module._test_raise_sigint_after_adopt(False)
                 elif scenario == "opcode":
@@ -131,9 +168,20 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
                     raise AssertionError(scenario)
                 gc.collect()
                 if _fd_set() != baseline:
-                    raise AssertionError("descriptor set changed across return boundary")
+                    raise AssertionError(
+                        "descriptor set changed across return boundary"
+                    )
+                child_status = (root / component[0]).stat()
+                child_identity = (child_status.st_dev, child_status.st_ino)
                 if _matching_fds(*child_identity):
-                    raise AssertionError("child descriptor leaked across return boundary")
+                    raise AssertionError(
+                        "child descriptor leaked across return boundary"
+                    )
+                if (
+                    operation == "mkdir_child"
+                    and child_status.st_mode & 0o7777 != 0o700
+                ):
+                    raise AssertionError("created child mode is not exactly 0700")
         finally:
             if scenario == "opcode":
                 monitoring.set_local_events(
@@ -154,6 +202,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--site", type=Path, required=True)
     parser.add_argument("--scenario", choices=("sigint", "opcode"), required=True)
+    parser.add_argument(
+        "--operation",
+        choices=("open_child", "mkdir_child"),
+        required=True,
+    )
+    parser.add_argument("--python-minor", required=True)
     parser.add_argument("--loops", type=int, default=50)
     return parser.parse_args()
 
@@ -162,8 +216,17 @@ def main() -> int:
     args = parse_args()
     if args.loops < 1:
         raise SystemExit("--loops must be positive")
-    _run_probe(site=args.site, scenario=args.scenario, loops=args.loops)
-    print(f"NATIVE_OWNER_BOUNDARY_OK scenario={args.scenario} loops={args.loops}")
+    _run_probe(
+        site=args.site,
+        scenario=args.scenario,
+        operation=args.operation,
+        python_minor=args.python_minor,
+        loops=args.loops,
+    )
+    print(
+        "NATIVE_OWNER_BOUNDARY_OK "
+        f"scenario={args.scenario} operation={args.operation} loops={args.loops}"
+    )
     return 0
 
 

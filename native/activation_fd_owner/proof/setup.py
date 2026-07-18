@@ -15,6 +15,7 @@ extension = Extension(
     "remote_runner._activation_release_dir_owner_proof",
     sources=[
         "../src/activation_release_dir_owner_core.c",
+        "../src/activation_release_dir_owner_leaf.c",
         "../src/activation_release_dir_owner_module.c",
     ],
     depends=["../src/activation_release_dir_owner_internal.h"],

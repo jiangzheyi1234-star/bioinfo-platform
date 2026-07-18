@@ -28,10 +28,10 @@ def _write_wheel(path: Path, member: str, payload: bytes) -> None:
 
 def test_production_and_proof_wheels_have_distinct_identities() -> None:
     production = (
-        "h2ometa_activation_release_dir_owner-0.1.0-cp312-abi3-linux_x86_64.whl"
+        "h2ometa_activation_release_dir_owner-0.1.1-cp312-abi3-linux_x86_64.whl"
     )
     proof = (
-        "h2ometa_activation_release_dir_owner_proof-0.1.0-cp312-abi3-linux_x86_64.whl"
+        "h2ometa_activation_release_dir_owner_proof-0.1.1-cp312-abi3-linux_x86_64.whl"
     )
 
     assert EXPECTED_PRODUCTION_WHEEL.fullmatch(production)
@@ -43,6 +43,8 @@ def test_production_and_proof_wheels_have_distinct_identities() -> None:
     assert EXPECTED_PRODUCTION_INIT_SYMBOL != EXPECTED_PROOF_INIT_SYMBOL
     assert EXPECTED_PRODUCTION_METHODS == {
         "_open_child",
+        "_mkdir_child",
+        "_fsync_directory",
         "_require_live",
         "_close",
     }
@@ -51,9 +53,18 @@ def test_production_and_proof_wheels_have_distinct_identities() -> None:
         "_test_duplicate_directory",
         "_test_set_openat2_errnos",
         "_test_set_close_report_errno",
+        "_test_set_mkdirat_errno",
+        "_test_set_fchmod_errno",
+        "_test_set_fsync_errno",
+        "_test_set_reproof_errno",
+        "_test_fail_next_capsule_creation",
+        "_test_arm_sigint_for_next_eintr",
+        "_test_note_signal_handler_dispatch",
         "_test_raise_sigint_after_adopt",
         "_test_snapshot",
         "_test_attempt_snapshot",
+        "_test_lifecycle_snapshot",
+        "_test_leaf_snapshot",
         "_test_reset",
     }
 

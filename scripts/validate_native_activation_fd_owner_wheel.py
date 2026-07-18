@@ -13,11 +13,11 @@ from pathlib import Path, PurePosixPath
 
 
 EXPECTED_PRODUCTION_WHEEL = re.compile(
-    r"^h2ometa_activation_release_dir_owner-0[.]1[.]0-"
+    r"^h2ometa_activation_release_dir_owner-0[.]1[.]1-"
     r"cp312-abi3-linux_x86_64[.]whl$"
 )
 EXPECTED_PROOF_WHEEL = re.compile(
-    r"^h2ometa_activation_release_dir_owner_proof-0[.]1[.]0-"
+    r"^h2ometa_activation_release_dir_owner_proof-0[.]1[.]1-"
     r"cp312-abi3-linux_x86_64[.]whl$"
 )
 EXPECTED_PRODUCTION_EXTENSION = "remote_runner/_activation_release_dir_owner.abi3.so"
@@ -27,17 +27,32 @@ EXPECTED_PROOF_INIT_SYMBOL = "PyInit__activation_release_dir_owner_proof"
 EXPECTED_PRODUCTION_MODULE = "remote_runner._activation_release_dir_owner"
 EXPECTED_PROOF_MODULE = "remote_runner._activation_release_dir_owner_proof"
 EXPECTED_PRODUCTION_METHODS = frozenset(
-    {"_open_child", "_require_live", "_close"}
+    {
+        "_close",
+        "_fsync_directory",
+        "_mkdir_child",
+        "_open_child",
+        "_require_live",
+    }
 )
 EXPECTED_PROOF_HOOKS = frozenset(
     {
-        "_test_duplicate_directory",
-        "_test_set_openat2_errnos",
-        "_test_set_close_report_errno",
-        "_test_raise_sigint_after_adopt",
-        "_test_snapshot",
+        "_test_arm_sigint_for_next_eintr",
         "_test_attempt_snapshot",
+        "_test_duplicate_directory",
+        "_test_fail_next_capsule_creation",
+        "_test_leaf_snapshot",
+        "_test_lifecycle_snapshot",
+        "_test_note_signal_handler_dispatch",
+        "_test_raise_sigint_after_adopt",
         "_test_reset",
+        "_test_set_close_report_errno",
+        "_test_set_fchmod_errno",
+        "_test_set_fsync_errno",
+        "_test_set_mkdirat_errno",
+        "_test_set_openat2_errnos",
+        "_test_set_reproof_errno",
+        "_test_snapshot",
     }
 )
 EXPECTED_TAG = "Tag: cp312-abi3-linux_x86_64"
@@ -75,6 +90,26 @@ FORBIDDEN_PATH_FALLBACK_SYMBOLS = frozenset(
         "realpath",
         "scandir",
         "stat",
+    }
+)
+FORBIDDEN_LIBC_NAMESPACE_SYMBOLS = frozenset(
+    {
+        "__mkdirat",
+        "__mkdirat_2",
+        "link",
+        "linkat",
+        "mkdir",
+        "mkdirat",
+        "mkdirat64",
+        "remove",
+        "rename",
+        "renameat",
+        "renameat2",
+        "rmdir",
+        "symlink",
+        "symlinkat",
+        "unlink",
+        "unlinkat",
     }
 )
 NATIVE_SUFFIXES = frozenset(
@@ -217,6 +252,12 @@ def _validate_symbols(extension: Path, *, testing: bool) -> None:
     if path_fallbacks:
         raise RuntimeError(
             f"native owner references path fallback symbols: {path_fallbacks}"
+        )
+    namespace_symbols = undefined & FORBIDDEN_LIBC_NAMESPACE_SYMBOLS
+    if namespace_symbols:
+        raise RuntimeError(
+            "native owner references forbidden namespace libc symbols: "
+            f"{namespace_symbols}"
         )
 
 

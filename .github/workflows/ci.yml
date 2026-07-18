@@ -297,10 +297,13 @@ jobs:
           uv venv --python 3.12 "$UV_PROJECT_ENVIRONMENT"
           uv sync --frozen --group dev
           uv python install 3.13
+          uv python install 3.14
           PYTHON312="$(uv python find 3.12)"
           PYTHON313="$(uv python find 3.13)"
-          "$PYTHON312" -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-          "$PYTHON313" -c 'import sys; assert sys.version_info[:2] == (3, 13)'
+          PYTHON314="$(uv python find 3.14)"
+          "$PYTHON312" -c 'import sys, sysconfig; assert sys.version_info[:2] == (3, 12); assert not sysconfig.get_config_var("Py_GIL_DISABLED")'
+          "$PYTHON313" -c 'import sys, sysconfig; assert sys.version_info[:2] == (3, 13); assert not sysconfig.get_config_var("Py_GIL_DISABLED")'
+          "$PYTHON314" -c 'import sys, sysconfig; assert sys.version_info[:2] == (3, 14); assert not sysconfig.get_config_var("Py_GIL_DISABLED")'
 
           NATIVE_SOURCE="$GITHUB_WORKSPACE/native/activation_fd_owner"
           BUILD_CONSTRAINT="$NATIVE_SOURCE/build-constraints.txt"
@@ -334,12 +337,14 @@ jobs:
             --wheel "$PROD_WHEEL" \
             --site "$PROD_SITE" \
             --python "$PYTHON312" \
-            --python "$PYTHON313"
+            --python "$PYTHON313" \
+            --python "$PYTHON314"
           "$PYTHON312" scripts/validate_native_activation_fd_owner_wheel.py \
             --wheel "$PROOF_WHEEL" \
             --site "$PROOF_SITE" \
             --python "$PYTHON312" \
             --python "$PYTHON313" \
+            --python "$PYTHON314" \
             --testing
           uvx --from abi3audit==0.0.26 abi3audit --strict "$PROD_WHEEL" "$PROOF_WHEEL"
 
@@ -362,10 +367,24 @@ jobs:
           mountpoint -q "$BIND_PROOF_ROOT/parent/child"
           findmnt -T "$BIND_PROOF_ROOT/parent/child" -o TARGET,SOURCE,FSTYPE,OPTIONS
           uv run --frozen python -m pytest -q \
-            --basetemp "$RUNNER_TEMP/native-owner-pytest" \
+            --basetemp "$RUNNER_TEMP/native-owner-contract-pytest" \
             tests/test_native_activation_fd_owner_contract.py \
-            tests/test_native_activation_fd_owner_linux.py \
+            tests/test_native_activation_fd_owner_leaf_contract.py \
             tests/test_native_activation_fd_owner_wheel_validator.py
+
+          for entry in \
+            "3.12:$PYTHON312" \
+            "3.13:$PYTHON313" \
+            "3.14:$PYTHON314"; do
+            minor="${entry%%:*}"
+            python="${entry#*:}"
+            export H2OMETA_NATIVE_EXPECTED_PYTHON_MINOR="$minor"
+            uv run --isolated --frozen --group dev --python "$python" \
+              python -m pytest -q \
+              --basetemp "$RUNNER_TEMP/native-owner-pytest-$minor" \
+              tests/test_native_activation_fd_owner_linux.py \
+              tests/test_native_activation_fd_owner_leaf_linux.py
+          done
 
           if find apps/remote_runner core native -type f \
             \( -name '*.so' -o -name '*.pyd' -o -name '*.o' -o -name '*.whl' \) \
