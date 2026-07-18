@@ -47,6 +47,7 @@ from .agent_run_authorization_storage import (
 from .config import RemoteRunnerConfig
 from .errors import WorkflowDesignRevisionConflictError
 from .execution_query_storage import fetch_run_for_connection
+from .governance_audit import append_governance_audit_event
 from .storage_core import get_connection, now_iso
 from .workflow_run_storage import create_run_record_for_connection
 
@@ -172,6 +173,12 @@ def authorize_agent_workflow_run(
             require_agent_run_authorization_origin_for_connection(
                 connection,
                 authorization_id,
+            )
+            _append_fresh_authorization_audit(
+                connection,
+                cfg=cfg,
+                receipt=receipt,
+                candidate=candidate,
             )
             run = fetch_run_for_connection(connection, run_id)
             if run is None:
@@ -404,6 +411,39 @@ def _require_internal_idempotency_absent(connection: Any, key: str) -> None:
     ).fetchone()
     if row is not None:
         raise AgentRunAuthorizationStorageConflictError(_INTERNAL_IDEMPOTENCY_COLLISION)
+
+
+def _append_fresh_authorization_audit(
+    connection: Any,
+    *,
+    cfg: RemoteRunnerConfig,
+    receipt: AgentRunAuthorizationReceipt,
+    candidate: AgentFastqQcExecutionCandidate,
+) -> None:
+    project_id = str(candidate.run_spec.get("projectId") or "")
+    append_governance_audit_event(
+        connection,
+        action="agent_session.run_authorize",
+        actor=receipt.actor,
+        actor_roles=cfg.api_token_roles,
+        subject_kind="agent_run_authorization",
+        subject_id=receipt.authorizationId,
+        decision="allow",
+        reason_code="AGENT_RUN_AUTHORIZATION_CREATED",
+        request_id=receipt.requestId,
+        project_id=project_id,
+        details={
+            "sessionId": receipt.sessionId,
+            "requestId": receipt.requestId,
+            "runId": receipt.runId,
+            "planRevisionId": receipt.planRevisionId,
+            "workflowRevisionId": receipt.workflowRevisionId,
+            "projectId": project_id,
+            "effectCreated": True,
+            "idempotencyReplay": False,
+            "consequenceCode": "create-and-enqueue-one-workflow-run",
+        },
+    )
 
 
 def _build_result(

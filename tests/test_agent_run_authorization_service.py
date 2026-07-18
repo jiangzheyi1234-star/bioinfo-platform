@@ -20,6 +20,7 @@ from apps.remote_runner.errors import (
     RemoteRunnerAuthorizationError,
     WorkflowDesignRevisionConflictError,
 )
+from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.storage_core import get_connection
 from core.contracts.agent_run_authorization import AgentRunAuthorizationResult
 
@@ -88,6 +89,30 @@ def test_authorize_fresh_then_fast_replay_without_candidate_and_with_current_run
     assert fresh["idempotencyReplay"] is False
     assert fresh["authorization"]["runId"] == fresh["run"]["runId"]
     assert _ledger_counts(cfg) == (1, 1, 2, 1, 1, 1)
+    fresh_audits = list_governance_audit_events(
+        cfg,
+        action="agent_session.run_authorize",
+    )["items"]
+    assert len(fresh_audits) == 1
+    assert fresh_audits[0]["subjectKind"] == "agent_run_authorization"
+    assert fresh_audits[0]["subjectId"] == fresh["authorization"]["authorizationId"]
+    assert fresh_audits[0]["actor"] == "user-1"
+    assert fresh_audits[0]["decision"] == "allow"
+    assert fresh_audits[0]["reasonCode"] == "AGENT_RUN_AUTHORIZATION_CREATED"
+    assert fresh_audits[0]["requestId"] == request["requestId"]
+    assert fresh_audits[0]["details"] == {
+        "sessionId": session_id,
+        "requestId": request["requestId"],
+        "runId": fresh["run"]["runId"],
+        "planRevisionId": fresh["authorization"]["planRevisionId"],
+        "workflowRevisionId": fresh["authorization"]["workflowRevisionId"],
+        "projectId": candidate_case["revision"]["graphSnapshot"]["runSpec"][
+            "projectId"
+        ],
+        "effectCreated": True,
+        "idempotencyReplay": False,
+        "consequenceCode": "create-and-enqueue-one-workflow-run",
+    }
 
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -120,6 +145,15 @@ def test_authorize_fresh_then_fast_replay_without_candidate_and_with_current_run
     assert replay["run"]["message"] == ""
     assert replay["run"]["lastUpdatedAt"] == "2099-07-19T01:02:03Z"
     assert _ledger_counts(cfg) == (1, 1, 2, 1, 1, 1)
+    assert (
+        len(
+            list_governance_audit_events(
+                cfg,
+                action="agent_session.run_authorize",
+            )["items"]
+        )
+        == 1
+    )
 
 
 def test_authorize_rejects_different_command_and_stale_preview_without_writes(
@@ -144,6 +178,52 @@ def test_authorize_rejects_different_command_and_stale_preview_without_writes(
             actor="user-1",
         )
     assert _ledger_counts(cfg) == before
+
+
+def test_writer_replay_after_concurrent_create_does_not_duplicate_effect_audit(
+    candidate_case: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = candidate_case["cfg"]
+    session_id = candidate_case["session"]["sessionId"]
+    prepared_before_create = prepare_agent_run_authorization_authority(
+        cfg,
+        session_id,
+        actor="user-1",
+    )
+    request = _request(prepared_before_create.preview, suffix="writer-replay")
+    fresh = service.authorize_agent_workflow_run(
+        cfg,
+        session_id,
+        request,
+        actor="user-1",
+    )
+    monkeypatch.setattr(service, "_read_exact_replay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "prepare_agent_run_authorization_authority",
+        lambda *_args, **_kwargs: prepared_before_create,
+    )
+
+    replay = service.authorize_agent_workflow_run(
+        cfg,
+        session_id,
+        request,
+        actor="user-1",
+    )
+
+    assert replay["idempotencyReplay"] is True
+    assert replay["authorization"] == fresh["authorization"]
+    assert _ledger_counts(cfg) == (1, 1, 2, 1, 1, 1)
+    assert (
+        len(
+            list_governance_audit_events(
+                cfg,
+                action="agent_session.run_authorize",
+            )["items"]
+        )
+        == 1
+    )
 
 
 def test_authorize_rejects_stale_expected_value_and_wrong_owner_before_writes(

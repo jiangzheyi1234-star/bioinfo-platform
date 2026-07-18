@@ -9,6 +9,7 @@ AGENT_SESSION_CREATE = "agent_session.create"
 AGENT_SESSION_READ = "agent_session.read"
 AGENT_SESSION_SNAPSHOT_READ = "agent_session.snapshot.read"
 AGENT_RUN_AUTHORIZATION_PREVIEW_READ = "agent_session.run_authorization_preview.read"
+AGENT_RUN_AUTHORIZE = "agent_session.run_authorize"
 AGENT_SESSION_EVENTS_READ = "agent_session.events.read"
 AGENT_SESSION_PLANS_READ = "agent_session.plans.read"
 AGENT_SESSION_APPROVALS_READ = "agent_session.approvals.read"
@@ -75,6 +76,21 @@ AGENT_REMOTE_ENDPOINT_SPECS: dict[str, dict[str, Any]] = {
         "request_schema": None,
         "response_schema": "agent-run-authorization-preview.v1",
         "cache_scope": "agent-run-authorization-preview-read-model",
+    },
+    AGENT_RUN_AUTHORIZE: {
+        "method": "POST",
+        "path_template": "/api/v1/agent-sessions/{session_id}/run-authorization",
+        "operation_id": "authorizeAgentWorkflowRun",
+        "governance_action": AGENT_RUN_AUTHORIZE,
+        "request_schema": "agent-run-authorization-request.v1",
+        "response_schema": "agent-run-authorization-result.v1",
+        "cache_scope": "agent-run-authorization-command",
+        "invalidates": (
+            "agent-run-authorization-preview-read-model",
+            "agent-session-read-model",
+            "run-read-model",
+        ),
+        "accepted_statuses": (202,),
     },
     AGENT_SESSION_EVENTS_READ: {
         "method": "GET",

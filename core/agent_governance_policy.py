@@ -71,6 +71,15 @@ AGENT_REMOTE_GOVERNANCE_SPECS: tuple[AgentRemoteGovernanceSpec, ...] = (
         ("workflow-operator",),
     ),
     (
+        "POST",
+        "/api/v1/agent-sessions/{session_id}/run-authorization",
+        _ROUTES,
+        "agent_session.run_authorize",
+        "agent_run_authorization",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
         "GET",
         "/api/v1/agent-sessions/{session_id}/events",
         _ROUTES,

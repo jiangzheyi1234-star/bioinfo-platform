@@ -100,6 +100,26 @@ _FAULT_TRIGGERS = (
         END
         """,
     ),
+    (
+        "evidence_schemas",
+        """
+        CREATE TRIGGER test_agent_authorization_fail_evidence_schemas
+        AFTER INSERT ON evidence_schemas
+        BEGIN
+            SELECT RAISE(ABORT, 'TEST_AGENT_AUTHORIZATION_FAIL_EVIDENCE_SCHEMAS');
+        END
+        """,
+    ),
+    (
+        "evidence_events",
+        """
+        CREATE TRIGGER test_agent_authorization_fail_evidence_events
+        AFTER INSERT ON evidence_events
+        BEGIN
+            SELECT RAISE(ABORT, 'TEST_AGENT_AUTHORIZATION_FAIL_EVIDENCE_EVENTS');
+        END
+        """,
+    ),
 )
 _EFFECT_TABLES = (
     "runs",
@@ -108,6 +128,8 @@ _EFFECT_TABLES = (
     "run_jobs",
     "idempotency",
     "agent_run_authorizations",
+    "evidence_schemas",
+    "evidence_events",
 )
 
 
@@ -210,6 +232,8 @@ def test_internal_idempotency_collision_without_binding_is_never_adopted(
         "run_jobs": 0,
         "idempotency": 1,
         "agent_run_authorizations": 0,
+        "evidence_schemas": 0,
+        "evidence_events": 0,
     }
     with get_connection(cfg) as connection:
         row = connection.execute(
@@ -296,6 +320,8 @@ def test_same_derived_key_in_public_server_namespace_does_not_collide(
         "run_jobs": 1,
         "idempotency": 2,
         "agent_run_authorizations": 1,
+        "evidence_schemas": 1,
+        "evidence_events": 1,
     }
     with get_connection(cfg) as connection:
         rows = connection.execute(

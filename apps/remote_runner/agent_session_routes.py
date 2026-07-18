@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from core.contracts.agent_remote_endpoints import (
     AGENT_PRINCIPAL_CONTEXT_READ,
+    AGENT_RUN_AUTHORIZE,
     AGENT_RUN_AUTHORIZATION_PREVIEW_READ,
     AGENT_SESSION_APPROVAL,
     AGENT_SESSION_APPROVALS_READ,
@@ -21,6 +22,7 @@ from core.contracts.agent_remote_endpoints import (
     AGENT_SESSION_REPLAN,
     AGENT_SESSION_SNAPSHOT_READ,
 )
+from core.contracts.agent_run_authorization import AgentRunAuthorizationRequest
 from core.contracts.agent_session import (
     AgentApprovalRequest,
     AgentCancelRequest,
@@ -28,7 +30,10 @@ from core.contracts.agent_session import (
     AgentReplanRequest,
     AgentSessionCreateRequest,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    remote_endpoint_success_status,
+)
 
 from .agent_session_service import (
     approve_agent_session_from_http,
@@ -47,6 +52,10 @@ from .agent_session_service import (
 from .agent_run_authorization_preview_service import (
     get_agent_run_authorization_preview_from_http,
 )
+from .agent_run_authorization_remote_endpoint import (
+    AgentRunAuthorizationHttpResponse,
+    authorize_agent_workflow_run_from_http,
+)
 from .route_headers import AuthorizationHeader
 
 
@@ -63,8 +72,13 @@ async def get_agent_principal_context_api(
     return await get_agent_principal_context_from_http(authorization)
 
 
-@router.get("/api/v1/agent-sessions", operation_id=REMOTE_ENDPOINTS[AGENT_SESSION_LIST].operation_id)
-async def list_agent_sessions_api(authorization: AuthorizationHeader = None) -> dict[str, Any]:
+@router.get(
+    "/api/v1/agent-sessions",
+    operation_id=REMOTE_ENDPOINTS[AGENT_SESSION_LIST].operation_id,
+)
+async def list_agent_sessions_api(
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
     return await list_agent_sessions_from_http(authorization)
 
 
@@ -112,6 +126,24 @@ async def get_agent_run_authorization_preview_api(
 ) -> dict[str, Any]:
     return await get_agent_run_authorization_preview_from_http(
         session_id,
+        authorization,
+    )
+
+
+@router.post(
+    "/api/v1/agent-sessions/{session_id}/run-authorization",
+    operation_id=REMOTE_ENDPOINTS[AGENT_RUN_AUTHORIZE].operation_id,
+    status_code=remote_endpoint_success_status(AGENT_RUN_AUTHORIZE),
+    response_model=AgentRunAuthorizationHttpResponse,
+)
+async def authorize_agent_workflow_run_api(
+    session_id: str,
+    payload: AgentRunAuthorizationRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await authorize_agent_workflow_run_from_http(
+        session_id,
+        payload,
         authorization,
     )
 

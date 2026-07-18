@@ -17,6 +17,8 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "audit_service.py",
             ROOT / "apps" / "remote_runner" / "agent_session_service.py",
             ROOT / "apps" / "remote_runner" / "agent_run_authorization_preview_service.py",
+            ROOT / "apps" / "remote_runner" / "agent_run_authorization_remote_endpoint.py",
+            ROOT / "apps" / "remote_runner" / "agent_run_authorization_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control_route_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_policy.py",
