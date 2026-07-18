@@ -153,6 +153,78 @@ def test_authority_snapshot_rejects_noncanonical_proposal_tamper(
         )
 
 
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("draft", "nodes", 1, "params", "use_input_files_only"), 1),
+        (("draft", "nodes", 0, "runtime", "schedulerResources", "mem_mb"), 2048.0),
+    ],
+)
+def test_authority_snapshot_rejects_json_type_equivalent_proposal_tamper(
+    tmp_path: Path,
+    path: tuple[str | int, ...],
+    replacement: object,
+) -> None:
+    case = _authority_case(tmp_path)
+    tampered = deepcopy(case["proposal"].runtime_payload())
+    target: Any = tampered
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = replacement
+
+    with pytest.raises(ValueError, match="WORKFLOW_FASTQ_QC_PLAN_NOT_CANONICAL"):
+        validation.require_fastq_qc_authority_snapshot(
+            case["cfg"],
+            session=case["session"],
+            plan=tampered,
+        )
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "mutate", "code"),
+    [
+        (
+            "multiqc",
+            lambda tool: tool.__setitem__("version", 1.34),
+            "WORKFLOW_FASTQ_QC_TOOL_IDENTITY_INVALID",
+        ),
+        (
+            "fastqc",
+            lambda tool: tool["ruleSpecDraft"]["lock"].__setitem__(
+                "profileVersion", 2.0
+            ),
+            "WORKFLOW_FASTQ_QC_TOOL_PROFILE_LOCK_INVALID",
+        ),
+    ],
+)
+def test_authority_snapshot_rejects_tool_json_type_coercion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    profile_id: str,
+    mutate: Any,
+    code: str,
+) -> None:
+    case = _authority_case(tmp_path)
+    original_tool_reader = validation.fetch_tool_revision
+    revision_id = case["tools"][profile_id]["toolRevisionId"]
+
+    def drifted_tool_reader(cfg: Any, candidate_id: str) -> dict[str, Any] | None:
+        tool = original_tool_reader(cfg, candidate_id)
+        if tool is not None and candidate_id == revision_id:
+            tool = deepcopy(tool)
+            mutate(tool)
+        return tool
+
+    monkeypatch.setattr(validation, "fetch_tool_revision", drifted_tool_reader)
+
+    with pytest.raises(ValueError, match=code):
+        validation.require_fastq_qc_authority_snapshot(
+            case["cfg"],
+            session=case["session"],
+            plan=case["proposal"],
+        )
+
+
 def test_legacy_validator_keeps_compatibility_while_snapshot_has_no_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -181,6 +253,7 @@ def test_legacy_validator_keeps_compatibility_while_snapshot_has_no_fallback(
             case["cfg"],
             session=generic_session,
             proposal=generic_plan,
+            replan=True,
         )
         is None
     )

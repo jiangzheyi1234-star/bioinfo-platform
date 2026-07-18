@@ -191,7 +191,10 @@ def _require_fastq_qc_authority_snapshot(
         fastqc=fastqc.planner_capability,
         multiqc=multiqc.planner_capability,
     )
-    if normalized.runtime_payload() != expected.runtime_payload():
+    if not _strict_json_equal(
+        normalized.runtime_payload(),
+        expected.runtime_payload(),
+    ):
         raise ValueError("WORKFLOW_FASTQ_QC_PLAN_NOT_CANONICAL")
     return FastqQcAuthoritySnapshot(
         context=context,
@@ -218,31 +221,36 @@ def _trusted_capability(
         tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {}
     )
     lock = draft.get("lock") if isinstance(draft.get("lock"), dict) else {}
-    identity = {
-        "toolId": str(tool.get("id") or tool.get("toolId") or ""),
-        "toolRevisionId": str(tool.get("toolRevisionId") or ""),
-        "name": str(tool.get("name") or ""),
-        "source": str(tool.get("source") or ""),
-        "version": str(tool.get("version") or ""),
-        "packageSpec": str(tool.get("packageSpec") or ""),
-        "targetPlatform": str(tool.get("targetPlatform") or ""),
-        "profileId": str(tool.get("profileId") or ""),
-        "profileVersion": tool.get("profileVersion"),
-        "packId": str(tool.get("packId") or ""),
-    }
     expected_identity = {
         "toolId": expected_tool_id,
         "toolRevisionId": tool_revision_id,
         "name": profile_id,
         "source": "bioconda",
         "version": expected_version,
-        "packageSpec": str(profile["packageSpec"]),
+        "packageSpec": profile["packageSpec"],
         "targetPlatform": "linux-64",
         "profileId": profile_id,
         "profileVersion": profile["profileVersion"],
         "packId": FASTQ_QC_CAPABILITY_PACK_ID,
     }
-    if identity != expected_identity:
+    stored_identity = {
+        "id": tool.get("id"),
+        "toolId": tool.get("toolId"),
+        "toolRevisionId": tool.get("toolRevisionId"),
+        "name": tool.get("name"),
+        "source": tool.get("source"),
+        "version": tool.get("version"),
+        "packageSpec": tool.get("packageSpec"),
+        "targetPlatform": tool.get("targetPlatform"),
+        "profileId": tool.get("profileId"),
+        "profileVersion": tool.get("profileVersion"),
+        "packId": tool.get("packId"),
+    }
+    expected_stored_identity = {
+        "id": expected_tool_id,
+        **expected_identity,
+    }
+    if not _strict_json_equal(stored_identity, expected_stored_identity):
         raise ValueError("WORKFLOW_FASTQ_QC_TOOL_IDENTITY_INVALID")
     if tool.get("environmentSpec") not in (None, {}) or tool.get(
         "environmentLock"
@@ -251,17 +259,30 @@ def _trusted_capability(
         {},
     ):
         raise ValueError("WORKFLOW_FASTQ_QC_TOOL_ENVIRONMENT_LOCK_INVALID")
+    stored_lock_identity = {
+        "type": lock.get("type"),
+        "profileId": lock.get("profileId"),
+        "profileVersion": lock.get("profileVersion"),
+        "packageSpec": lock.get("packageSpec"),
+        "version": lock.get("version"),
+        "source": lock.get("source"),
+        "packageName": lock.get("packageName"),
+        "wrapperIdentifier": lock.get("wrapperIdentifier"),
+    }
+    expected_lock_identity = {
+        "type": "h2ometa-tool-profile",
+        "profileId": profile_id,
+        "profileVersion": profile["profileVersion"],
+        "packageSpec": profile["packageSpec"],
+        "version": expected_version,
+        "source": "bioconda",
+        "packageName": profile_id,
+        "wrapperIdentifier": profile["wrapper"],
+    }
     if (
         draft.get("source") != "h2ometa-tool-profile"
         or draft.get("requiresUserCompletion") is not False
-        or lock.get("type") != "h2ometa-tool-profile"
-        or lock.get("profileId") != profile_id
-        or lock.get("profileVersion") != profile["profileVersion"]
-        or lock.get("packageSpec") != profile["packageSpec"]
-        or lock.get("version") != expected_version
-        or lock.get("source") != "bioconda"
-        or lock.get("packageName") != profile_id
-        or lock.get("wrapperIdentifier") != profile["wrapper"]
+        or not _strict_json_equal(stored_lock_identity, expected_lock_identity)
     ):
         raise ValueError("WORKFLOW_FASTQ_QC_TOOL_PROFILE_LOCK_INVALID")
 
@@ -288,7 +309,7 @@ def _trusted_capability(
         {
             "stepId": profile_id,
             "capabilityId": capability_id,
-            **identity,
+            **expected_identity,
             "wrapperIdentifier": str(profile["wrapper"]),
             "ruleTemplateSha256": expected_digest,
         }
@@ -323,8 +344,25 @@ def _ports(value: Any) -> list[dict[str, Any]]:
 
 
 def _canonical_digest(value: dict[str, Any]) -> str:
-    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    raw = _canonical_json(value)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    try:
+        return _canonical_json(left) == _canonical_json(right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 __all__ = [
