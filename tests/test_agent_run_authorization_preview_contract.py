@@ -7,6 +7,11 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from core.contracts.agent_fastq_qc_execution import (
+    AGENT_FASTQ_QC_EXECUTION_POLICY_ID,
+    agent_fastq_qc_execution_hash,
+    build_agent_fastq_qc_execution,
+)
 from core.contracts.agent_run_authorization_preview import (
     AgentRunAuthorizationPreview,
     agent_run_authorization_preview_hash,
@@ -93,7 +98,12 @@ def _resources() -> dict[str, Any]:
     }
 
 
+def _execution_policy() -> dict[str, Any]:
+    return build_agent_fastq_qc_execution().runtime_payload()
+
+
 def _preview_payload() -> dict[str, Any]:
+    execution_policy = _execution_policy()
     payload: dict[str, Any] = {
         "contractVersion": "agent-run-authorization-preview.v1",
         "sessionId": "ags_preview_1",
@@ -108,8 +118,9 @@ def _preview_payload() -> dict[str, Any]:
         "workflowRevisionContentHash": "c" * 64,
         "inputManifestDigest": "sha256:" + "d" * 64,
         "runSpecHash": "e" * 64,
-        "executionPolicyId": "agent-fastq-qc-execution.v1",
-        "executionPolicyHash": "f" * 64,
+        "executionPolicyId": AGENT_FASTQ_QC_EXECUTION_POLICY_ID,
+        "executionPolicyHash": agent_fastq_qc_execution_hash(execution_policy),
+        "executionPolicy": execution_policy,
         "runtimeLockHash": "0" * 64,
         "runtimeProofHash": "1" * 64,
         "effectBudgetHash": "2" * 64,
@@ -192,13 +203,25 @@ def test_preview_hash_binds_nested_summaries_and_array_order() -> None:
 
     runtime_changed = copy.deepcopy(original)
     runtime_changed["runtime"]["workflowProfile"]["name"] = "changed"
-    assert agent_run_authorization_preview_hash(runtime_changed) != original["previewHash"]
+    assert (
+        agent_run_authorization_preview_hash(runtime_changed) != original["previewHash"]
+    )
+
+    execution_changed = copy.deepcopy(original)
+    execution_changed["executionPolicy"]["timeoutPolicy"]["heartbeatTimeoutSeconds"] = (
+        61
+    )
+    assert (
+        agent_run_authorization_preview_hash(execution_changed)
+        != original["previewHash"]
+    )
 
     resources_changed = copy.deepcopy(original)
-    resources_changed["resources"]["bindings"] = {
-        "taxonomy": {"databaseId": "db_1"}
-    }
-    assert agent_run_authorization_preview_hash(resources_changed) != original["previewHash"]
+    resources_changed["resources"]["bindings"] = {"taxonomy": {"databaseId": "db_1"}}
+    assert (
+        agent_run_authorization_preview_hash(resources_changed)
+        != original["previewHash"]
+    )
 
     reordered = copy.deepcopy(original)
     reordered["tools"].reverse()
@@ -206,19 +229,24 @@ def test_preview_hash_binds_nested_summaries_and_array_order() -> None:
     assert agent_run_authorization_preview_hash(reordered) != original["previewHash"]
 
 
-def test_preview_hash_canonicalizes_object_order_but_preserves_zero_false_and_empty() -> None:
+def test_preview_hash_canonicalizes_object_order_but_preserves_zero_false_and_empty() -> (
+    None
+):
     original = _preview_payload()
     reordered_map = copy.deepcopy(original)
     resource_map = reordered_map["resources"]["orderedSteps"][0]["resources"]
     reordered_map["resources"]["orderedSteps"][0]["resources"] = {
-        key: resource_map[key]
-        for key in reversed(tuple(resource_map))
+        key: resource_map[key] for key in reversed(tuple(resource_map))
     }
-    assert agent_run_authorization_preview_hash(reordered_map) == original["previewHash"]
+    assert (
+        agent_run_authorization_preview_hash(reordered_map) == original["previewHash"]
+    )
 
     without_empty = copy.deepcopy(original)
     without_empty["resources"]["orderedSteps"][0]["resources"].pop("label")
-    assert agent_run_authorization_preview_hash(without_empty) != original["previewHash"]
+    assert (
+        agent_run_authorization_preview_hash(without_empty) != original["previewHash"]
+    )
 
     zero_changed = copy.deepcopy(original)
     zero_changed["resources"]["orderedSteps"][0]["resources"]["mem_mb"] = 1
@@ -226,7 +254,9 @@ def test_preview_hash_canonicalizes_object_order_but_preserves_zero_false_and_em
 
     false_changed = copy.deepcopy(original)
     false_changed["resources"]["orderedSteps"][0]["resources"]["enabled"] = 0
-    assert agent_run_authorization_preview_hash(false_changed) != original["previewHash"]
+    assert (
+        agent_run_authorization_preview_hash(false_changed) != original["previewHash"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -266,8 +296,27 @@ def test_preview_model_rejects_nested_tamper_with_stale_hash() -> None:
         AgentRunAuthorizationPreview.model_validate(payload)
 
     payload = _preview_payload()
+    payload["executionPolicy"]["retryPolicy"]["maxAttempts"] = 4
+    with pytest.raises(ValidationError):
+        AgentRunAuthorizationPreview.model_validate(payload)
+
+    payload = _preview_payload()
     payload["resources"]["orderedSteps"][0]["resources"]["mem_mb"] = 1
     with pytest.raises(ValidationError, match="PREVIEW_HASH_MISMATCH"):
+        AgentRunAuthorizationPreview.model_validate(payload)
+
+
+def test_preview_rejects_execution_policy_identity_or_hash_drift() -> None:
+    payload = _preview_payload()
+    payload["executionPolicyId"] = "agent-fastq-qc-execution.v2"
+    _rehash(payload)
+    with pytest.raises(ValidationError, match="EXECUTION_POLICY_ID_MISMATCH"):
+        AgentRunAuthorizationPreview.model_validate(payload)
+
+    payload = _preview_payload()
+    payload["executionPolicyHash"] = "f" * 64
+    _rehash(payload)
+    with pytest.raises(ValidationError, match="EXECUTION_POLICY_HASH_MISMATCH"):
         AgentRunAuthorizationPreview.model_validate(payload)
 
 
@@ -302,14 +351,16 @@ def test_preview_model_rejects_top_level_nested_and_path_extras() -> None:
         AgentRunAuthorizationPreview.model_validate(payload)
     assert any(error["type"] == "extra_forbidden" for error in nested.value.errors())
 
-    for section, field in (("workflowRuntime", "root"), ("workflowProfile", "directory")):
+    for section, field in (
+        ("workflowRuntime", "root"),
+        ("workflowProfile", "directory"),
+    ):
         payload = _preview_payload()
         payload["runtime"][section][field] = "/private/runtime/path"
         with pytest.raises(ValidationError) as path_extra:
             AgentRunAuthorizationPreview.model_validate(payload)
         assert any(
-            error["type"] == "extra_forbidden"
-            for error in path_extra.value.errors()
+            error["type"] == "extra_forbidden" for error in path_extra.value.errors()
         )
 
 
@@ -323,7 +374,9 @@ def test_preview_model_rejects_top_level_nested_and_path_extras() -> None:
         (("resources", "orderedSteps", 0, "threads"), True),
     ],
 )
-def test_preview_rejects_bool_as_integer(path: tuple[object, ...], value: object) -> None:
+def test_preview_rejects_bool_as_integer(
+    path: tuple[object, ...], value: object
+) -> None:
     payload = _preview_payload()
     target: Any = payload
     for item in path[:-1]:

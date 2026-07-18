@@ -9,12 +9,15 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from .agent_contract_hash import agent_contract_hash, exact_hash_payload
+from .agent_fastq_qc_execution import (
+    AGENT_FASTQ_QC_EXECUTION_POLICY_ID,
+    AgentFastqQcExecutionPolicy,
+    agent_fastq_qc_execution_hash,
+)
 from .agent_session import AgentSessionModel, assert_agent_session_json_safe
 
 
-AGENT_RUN_AUTHORIZATION_PREVIEW_CONTRACT_VERSION = (
-    "agent-run-authorization-preview.v1"
-)
+AGENT_RUN_AUTHORIZATION_PREVIEW_CONTRACT_VERSION = "agent-run-authorization-preview.v1"
 
 _PREVIEW_HASH_DOMAIN = AGENT_RUN_AUTHORIZATION_PREVIEW_CONTRACT_VERSION
 _HEX_SHA256 = r"^[0-9a-f]{64}$"
@@ -35,6 +38,7 @@ _PREVIEW_HASH_FIELDS = (
     "runSpecHash",
     "executionPolicyId",
     "executionPolicyHash",
+    "executionPolicy",
     "runtimeLockHash",
     "runtimeProofHash",
     "effectBudgetHash",
@@ -78,7 +82,9 @@ class AgentRunAuthorizationToolSummary(AgentSessionModel):
     )
     @classmethod
     def validate_text(cls, value: str) -> str:
-        return _required_text(value, "AGENT_RUN_AUTHORIZATION_TOOL_SUMMARY_TEXT_REQUIRED")
+        return _required_text(
+            value, "AGENT_RUN_AUTHORIZATION_TOOL_SUMMARY_TEXT_REQUIRED"
+        )
 
 
 class AgentRunAuthorizationRunnerProtocolSummary(AgentSessionModel):
@@ -112,7 +118,9 @@ class AgentRunAuthorizationSnakemakeSummary(AgentSessionModel):
     @field_validator("reportedVersion")
     @classmethod
     def validate_version(cls, value: str) -> str:
-        return _required_text(value, "AGENT_RUN_AUTHORIZATION_SNAKEMAKE_VERSION_REQUIRED")
+        return _required_text(
+            value, "AGENT_RUN_AUTHORIZATION_SNAKEMAKE_VERSION_REQUIRED"
+        )
 
 
 class AgentRunAuthorizationManagedCondaSummary(AgentSessionModel):
@@ -153,7 +161,9 @@ class AgentRunAuthorizationResourceStepSummary(AgentSessionModel):
     @field_validator("stepId")
     @classmethod
     def validate_step_id(cls, value: str) -> str:
-        return _required_text(value, "AGENT_RUN_AUTHORIZATION_RESOURCE_STEP_ID_REQUIRED")
+        return _required_text(
+            value, "AGENT_RUN_AUTHORIZATION_RESOURCE_STEP_ID_REQUIRED"
+        )
 
     @field_validator("resources", "schedulerResources")
     @classmethod
@@ -212,6 +222,7 @@ class AgentRunAuthorizationPreview(AgentSessionModel):
     runSpecHash: str = Field(pattern=_HEX_SHA256)
     executionPolicyId: str = Field(min_length=1, max_length=500)
     executionPolicyHash: str = Field(pattern=_HEX_SHA256)
+    executionPolicy: AgentFastqQcExecutionPolicy
     runtimeLockHash: str = Field(pattern=_HEX_SHA256)
     runtimeProofHash: str = Field(pattern=_HEX_SHA256)
     effectBudgetHash: str = Field(pattern=_HEX_SHA256)
@@ -242,8 +253,24 @@ class AgentRunAuthorizationPreview(AgentSessionModel):
 
     @model_validator(mode="after")
     def validate_projection(self) -> "AgentRunAuthorizationPreview":
-        if self.usedRunSubmissions + self.remainingRunSubmissions != self.maxRunSubmissions:
-            raise ValueError("AGENT_RUN_AUTHORIZATION_PREVIEW_EFFECT_BUDGET_INCONSISTENT")
+        if self.executionPolicyId != AGENT_FASTQ_QC_EXECUTION_POLICY_ID:
+            raise ValueError(
+                "AGENT_RUN_AUTHORIZATION_PREVIEW_EXECUTION_POLICY_ID_MISMATCH"
+            )
+        if not hmac.compare_digest(
+            agent_fastq_qc_execution_hash(self.executionPolicy),
+            self.executionPolicyHash,
+        ):
+            raise ValueError(
+                "AGENT_RUN_AUTHORIZATION_PREVIEW_EXECUTION_POLICY_HASH_MISMATCH"
+            )
+        if (
+            self.usedRunSubmissions + self.remainingRunSubmissions
+            != self.maxRunSubmissions
+        ):
+            raise ValueError(
+                "AGENT_RUN_AUTHORIZATION_PREVIEW_EFFECT_BUDGET_INCONSISTENT"
+            )
         tool_step_ids = [item.stepId for item in self.tools]
         if len(set(tool_step_ids)) != len(tool_step_ids):
             raise ValueError("AGENT_RUN_AUTHORIZATION_PREVIEW_TOOL_STEP_DUPLICATE")
