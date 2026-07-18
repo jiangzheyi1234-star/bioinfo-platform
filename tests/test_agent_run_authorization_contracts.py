@@ -12,6 +12,7 @@ from core.contracts.agent_run_authorization import (
     AgentRunAuthorizationRead,
     AgentRunAuthorizationReceipt,
     AgentRunAuthorizationRequest,
+    AgentRunAuthorizationResult,
     agent_run_authorization_command_hash,
     agent_run_authorization_receipt_hash,
     agent_run_authorization_run_idempotency_key,
@@ -420,4 +421,87 @@ def test_run_authorization_read_rejects_inconsistent_state_identity_and_extras()
                 "run": None,
             }
         )
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_run_authorization_result_is_exact_and_allows_empty_current_message() -> None:
+    receipt = _receipt_payload()
+    payload = {
+        "contractVersion": "agent-run-authorization-result.v1",
+        "authorization": receipt,
+        "run": {
+            "runId": receipt["runId"],
+            "requestId": receipt["requestId"],
+            "status": "running",
+            "stage": "execution",
+            "stateVersion": 2,
+            "message": "",
+            "submittedAt": receipt["createdAt"],
+            "lastUpdatedAt": "2026-07-18T12:31:00Z",
+        },
+        "idempotencyReplay": True,
+    }
+
+    result = AgentRunAuthorizationResult.model_validate(payload)
+
+    assert result.runtime_payload() == payload
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("contractVersion",), "agent-run-authorization-result.v2"),
+        (("run", "runId"), "run_other"),
+        (("run", "requestId"), "request_other"),
+        (("run", "submittedAt"), "2026-07-18T12:30:01Z"),
+        (("run", "stateVersion"), "2"),
+        (("idempotencyReplay",), 1),
+    ],
+)
+def test_run_authorization_result_rejects_contract_binding_and_coercion(
+    path: tuple[str, ...],
+    replacement: object,
+) -> None:
+    receipt = _receipt_payload()
+    payload: dict[str, Any] = {
+        "contractVersion": "agent-run-authorization-result.v1",
+        "authorization": receipt,
+        "run": {
+            "runId": receipt["runId"],
+            "requestId": receipt["requestId"],
+            "status": "queued",
+            "stage": "submitted",
+            "stateVersion": 1,
+            "message": "Accepted",
+            "submittedAt": receipt["createdAt"],
+            "lastUpdatedAt": receipt["createdAt"],
+        },
+        "idempotencyReplay": False,
+    }
+    target: dict[str, Any] = payload
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = replacement
+
+    with pytest.raises(ValidationError):
+        AgentRunAuthorizationResult.model_validate(payload)
+
+    payload = {
+        "contractVersion": "agent-run-authorization-result.v1",
+        "authorization": receipt,
+        "run": {
+            "runId": receipt["runId"],
+            "requestId": receipt["requestId"],
+            "status": "queued",
+            "stage": "submitted",
+            "stateVersion": 1,
+            "message": "Accepted",
+            "submittedAt": receipt["createdAt"],
+            "lastUpdatedAt": receipt["createdAt"],
+            "runSpec": {},
+        },
+        "idempotencyReplay": False,
+    }
+    with pytest.raises(ValidationError) as extra:
+        AgentRunAuthorizationResult.model_validate(payload)
     assert extra.value.errors()[0]["type"] == "extra_forbidden"

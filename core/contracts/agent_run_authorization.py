@@ -16,6 +16,7 @@ from .agent_session import AgentSessionModel, assert_agent_session_json_safe
 AGENT_RUN_AUTHORIZATION_CONTRACT_VERSION = "agent-run-authorization.v1"
 AGENT_RUN_AUTHORIZATION_REQUEST_SCHEMA = "agent-run-authorization-request.v1"
 AGENT_RUN_AUTHORIZATION_READ_CONTRACT_VERSION = "agent-run-authorization-read.v1"
+AGENT_RUN_AUTHORIZATION_RESULT_CONTRACT_VERSION = "agent-run-authorization-result.v1"
 AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN = (
     "agent-run-authorization-run-idempotency.v1"
 )
@@ -160,6 +161,48 @@ class AgentRunAuthorizationRead(AgentSessionModel):
         return self
 
 
+class AgentRunAuthorizationRunSummary(AgentSessionModel):
+    """Exact public projection of the current authorized run lifecycle."""
+
+    runId: str = Field(min_length=1, max_length=500)
+    requestId: str = Field(min_length=1, max_length=500)
+    status: str = Field(min_length=1, max_length=100)
+    stage: str = Field(min_length=1, max_length=100)
+    stateVersion: int = Field(ge=1)
+    message: str = Field(max_length=10_000)
+    submittedAt: str = Field(min_length=1, max_length=100)
+    lastUpdatedAt: str = Field(min_length=1, max_length=100)
+
+    @field_validator(
+        "runId",
+        "requestId",
+        "status",
+        "stage",
+        "submittedAt",
+        "lastUpdatedAt",
+    )
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _required_text(value, "AGENT_RUN_AUTHORIZATION_RESULT_RUN_TEXT_REQUIRED")
+
+
+class AgentRunAuthorizationResult(AgentSessionModel):
+    contractVersion: Literal["agent-run-authorization-result.v1"]
+    authorization: AgentRunAuthorizationReceipt
+    run: AgentRunAuthorizationRunSummary
+    idempotencyReplay: bool
+
+    @model_validator(mode="after")
+    def validate_binding_projection(self) -> "AgentRunAuthorizationResult":
+        if (
+            self.run.runId != self.authorization.runId
+            or self.run.requestId != self.authorization.requestId
+            or self.run.submittedAt != self.authorization.createdAt
+        ):
+            raise ValueError("AGENT_RUN_AUTHORIZATION_RESULT_BINDING_MISMATCH")
+        return self
+
+
 def agent_run_authorization_command_hash(
     session_id: str,
     actor: str,
@@ -247,10 +290,13 @@ __all__ = [
     "AGENT_RUN_AUTHORIZATION_CONTRACT_VERSION",
     "AGENT_RUN_AUTHORIZATION_READ_CONTRACT_VERSION",
     "AGENT_RUN_AUTHORIZATION_REQUEST_SCHEMA",
+    "AGENT_RUN_AUTHORIZATION_RESULT_CONTRACT_VERSION",
     "AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN",
     "AgentRunAuthorizationRead",
     "AgentRunAuthorizationReceipt",
     "AgentRunAuthorizationRequest",
+    "AgentRunAuthorizationResult",
+    "AgentRunAuthorizationRunSummary",
     "agent_run_authorization_command_hash",
     "agent_run_authorization_receipt_hash",
     "agent_run_authorization_run_idempotency_key",
