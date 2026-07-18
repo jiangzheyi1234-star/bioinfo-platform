@@ -92,6 +92,19 @@ def require_runner_activation_release_tree_entries(
     return _require_entries(entries, make_error=make_error)
 
 
+def require_runner_activation_release_tree_component(
+    value: object,
+    *,
+    make_error: Callable[[str], Exception] = ValueError,
+) -> str:
+    """Validate one portable release-tree path component."""
+
+    if not _is_runner_activation_release_tree_component(value):
+        raise make_error("runner activation release-tree component is invalid")
+    assert isinstance(value, str)
+    return value
+
+
 def require_runner_activation_release_tree_manifest(
     payload: object,
     *,
@@ -403,7 +416,7 @@ def _require_entry_path(
     field: str,
     make_error: Callable[[str], Exception],
 ) -> str:
-    if not isinstance(value, str) or not value or value.startswith("/") or "\\" in value:
+    if type(value) is not str or not value or value.startswith("/") or "\\" in value:
         raise make_error(f"runner activation releaseTreeManifest.{field} is invalid")
     try:
         encoded = value.encode("ascii", errors="strict")
@@ -411,21 +424,31 @@ def _require_entry_path(
         raise make_error(
             f"runner activation releaseTreeManifest.{field} is invalid"
         ) from None
-    components = value.split("/")
     if (
         len(encoded) > _MAX_PATH_BYTES
-        or any(byte < 0x20 or byte > 0x7E for byte in encoded)
         or any(
-            not component
-            or component in {".", ".."}
-            or component != component.strip(" ")
-            or len(component.encode("ascii")) > _MAX_COMPONENT_BYTES
-            or component.startswith(_RESERVED_COMPONENT_PREFIX)
-            for component in components
+            not _is_runner_activation_release_tree_component(component)
+            for component in value.split("/")
         )
     ):
         raise make_error(f"runner activation releaseTreeManifest.{field} is invalid")
     return value
+
+
+def _is_runner_activation_release_tree_component(value: object) -> bool:
+    if type(value) is not str or not value or "/" in value or "\\" in value:
+        return False
+    try:
+        encoded = value.encode("ascii", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return (
+        value not in {".", ".."}
+        and value == value.strip(" ")
+        and len(encoded) <= _MAX_COMPONENT_BYTES
+        and all(0x20 <= byte <= 0x7E for byte in encoded)
+        and not value.startswith(_RESERVED_COMPONENT_PREFIX)
+    )
 
 
 def _require_symlink_target(
@@ -644,6 +667,7 @@ __all__ = [
     "RUNNER_ACTIVATION_RELEASE_TREE_ROOT_MODE",
     "RUNNER_ACTIVATION_RELEASE_TREE_SCHEMA",
     "build_runner_activation_release_tree_manifest",
+    "require_runner_activation_release_tree_component",
     "require_runner_activation_release_tree_entries",
     "require_runner_activation_release_tree_manifest",
     "runner_activation_release_tree_content_fingerprint",

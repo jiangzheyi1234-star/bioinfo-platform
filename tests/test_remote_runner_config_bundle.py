@@ -187,6 +187,11 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (
         bundle.bundle_dir
         / "remote_runner"
+        / "activation_release_materialization_io.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
         / "activation_release_publication_layout.py"
     ).exists()
     assert (

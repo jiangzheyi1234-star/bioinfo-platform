@@ -509,6 +509,32 @@ external evidence and a marker. Markerless trees are abandoned; a possible
 marker commit followed by any uncertain durability or reproof result is
 `outcome_unknown`.
 
+The first fd-relative implementation slice now shares the release-tree entry
+component validator with that manifest contract and adds a dormant dynamic
+directory `openat2` contract boundary. It uses the same exact directory flags and
+`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS |
+RESOLVE_NO_XDEV` policy as the fixed publication layout. Only `EAGAIN` is
+retried, for at most three identical calls; unsupported ABI, invalid `open_how`,
+cross-mount, symlink, and interrupted calls fail immediately without a path or
+`openat` fallback.
+
+This slice proves the validation, call shape, retry budget, post-open checks,
+and no-fallback behavior against an injected syscall boundary. It does not yet
+claim a real-kernel proof for the dynamic opener. A real Linux child-directory,
+symlink rejection, and bind-mount `EXDEV` suite must still be added to the
+required Ubuntu activation-storage job before leaf primitives may rely on it.
+
+That Python boundary intentionally says `raw_fd` and is not a production
+capability. `O_CLOEXEC` prevents inheritance across `execve`, but does not close
+an abandoned descriptor in the current process. CPython `_io.FileIO` cannot
+adopt a directory descriptor, so the archive-file SIGINT handoff proof does not
+generalize to directories. Before a materializer may retain a directory fd, it
+must either use a native owner whose single C-level operation opens and adopts
+the descriptor with deallocation cleanup, or keep all directory-fd work inside
+one synchronous, SIGINT-deferred stack operation that closes before returning.
+The dormant raw-fd contract is not wired into startup, publication, or generation
+authorization.
+
 Contrarian limits remain. Fixed quotas are availability policy, not a proof
 that memory, CPU, disk allocation, or decompressor implementation has no bugs.
 ASCII-only names and normalized modes trade artifact generality for a closed

@@ -412,6 +412,23 @@ final tree。该 evidence 和 receipt vNext 未完成前，不得创建 authorit
 Materializer 仍必须先 reserve 永不复用的 real final path，在该 path 内逐 member fd-relative 创建，最后创建
 link，原地完成 conda relocation，然后 seal/fsync/fresh-walk/marker-last。本轮仍不接 bootstrap 或 generation。
 
+首个 fd-relative 实现切片只共享 release-tree entry component validator，并增加 dormant dynamic-directory
+`openat2` contract boundary。它固定使用 directory-only flags 与
+`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`；只有 `EAGAIN`
+允许最多三次完全相同的调用，`ENOSYS`、`EINVAL`、`E2BIG`、`EOPNOTSUPP`、`EXDEV`、`ELOOP` 与
+`EINTR` 均立即失败，绝不回退到 path check、`open` 或 `openat`。
+
+本切片只通过 injected syscall boundary 证明 validation、call shape、retry budget、post-open check 与
+no-fallback；尚不宣称 dynamic opener 已有真实 kernel proof。真实 Linux child-directory、symlink reject 与
+bind-mount `EXDEV` 测试仍必须接入 required Ubuntu activation-storage job，叶子原语才能依赖该边界。
+
+该 Python 入口刻意命名为 `raw_fd`，不构成 production capability。`O_CLOEXEC` 只防 `execve` 继承，
+不能回收当前进程内在 syscall/return handoff 被异步异常遗弃的 descriptor；CPython `_io.FileIO` 又会拒绝
+directory fd，因此 archive regular-file 的 native-owner/SIGINT 证明不能套用。Materializer 若要 retained
+directory capability，必须先实现“同一次 C-level 调用完成 openat2→native owner 且 deallocator 负责 close”，
+或者把全部目录操作限制在关闭后才返回的同步 SIGINT-deferred stack scope。当前 raw-fd 入口不接 startup、
+publication 或 generation authorization。
+
 这份 journal 路径只解析 installation 派生的固定组件，不接受调用方提供的任意 descendant path。后续
 release-tree/generation directory publisher 若需要解析动态嵌套路径，必须以经过目标 architecture 与 kernel
 证明的 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV)`
