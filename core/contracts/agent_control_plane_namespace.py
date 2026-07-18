@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 AGENT_CONTROL_PLANE_NAMESPACE_PREFIX = "agent-control-plane."
+AGENT_CONTROL_PLANE_SERVER_ID = "agent-control-plane.v1"
 AGENT_CONTROL_PLANE_NAMESPACE_RESERVED = "AGENT_CONTROL_PLANE_NAMESPACE_RESERVED"
 
 
@@ -19,5 +20,6 @@ def require_public_server_id(server_id: str) -> str:
 __all__ = [
     "AGENT_CONTROL_PLANE_NAMESPACE_PREFIX",
     "AGENT_CONTROL_PLANE_NAMESPACE_RESERVED",
+    "AGENT_CONTROL_PLANE_SERVER_ID",
     "require_public_server_id",
 ]

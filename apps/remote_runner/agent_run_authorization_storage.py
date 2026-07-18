@@ -26,6 +26,17 @@ class AgentRunAuthorizationStorageNotFoundError(RemoteRunnerNotFoundError):
     """Raised when an authorization read targets an unknown AgentSession."""
 
 
+def fetch_agent_run_authorization_by_id_for_connection(
+    connection: sqlite3.Connection,
+    authorization_id: str,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        "SELECT * FROM agent_run_authorizations WHERE authorization_id = ?",
+        (authorization_id,),
+    ).fetchone()
+    return None if row is None else agent_run_authorization_row_to_dict(row)
+
+
 def fetch_agent_run_authorization_by_session_for_connection(
     connection: sqlite3.Connection,
     session_id: str,
@@ -249,6 +260,7 @@ __all__ = [
     "AgentRunAuthorizationStorageNotFoundError",
     "agent_run_authorization_row_to_dict",
     "count_agent_run_authorizations_for_connection",
+    "fetch_agent_run_authorization_by_id_for_connection",
     "fetch_agent_run_authorization_by_idempotency_for_connection",
     "fetch_agent_run_authorization_by_run_for_connection",
     "fetch_agent_run_authorization_by_session_for_connection",

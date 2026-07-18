@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 from collections.abc import Mapping
 from typing import Literal
 
@@ -15,6 +16,9 @@ from .agent_session import AgentSessionModel, assert_agent_session_json_safe
 AGENT_RUN_AUTHORIZATION_CONTRACT_VERSION = "agent-run-authorization.v1"
 AGENT_RUN_AUTHORIZATION_REQUEST_SCHEMA = "agent-run-authorization-request.v1"
 AGENT_RUN_AUTHORIZATION_READ_CONTRACT_VERSION = "agent-run-authorization-read.v1"
+AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN = (
+    "agent-run-authorization-run-idempotency.v1"
+)
 
 _COMMAND_HASH_DOMAIN = AGENT_RUN_AUTHORIZATION_REQUEST_SCHEMA
 _RECEIPT_HASH_DOMAIN = AGENT_RUN_AUTHORIZATION_CONTRACT_VERSION
@@ -75,7 +79,9 @@ class AgentRunAuthorizationRequest(AgentSessionModel):
 
     @model_validator(mode="after")
     def reject_secret_like_values(self) -> "AgentRunAuthorizationRequest":
-        assert_agent_session_json_safe(self.runtime_payload(), path="runAuthorization.request")
+        assert_agent_session_json_safe(
+            self.runtime_payload(), path="runAuthorization.request"
+        )
         return self
 
 
@@ -168,7 +174,9 @@ def agent_run_authorization_command_hash(
     return agent_contract_hash(
         _COMMAND_HASH_DOMAIN,
         {
-            "sessionId": _required_text(session_id, "AGENT_RUN_AUTHORIZATION_SESSION_ID_REQUIRED"),
+            "sessionId": _required_text(
+                session_id, "AGENT_RUN_AUTHORIZATION_SESSION_ID_REQUIRED"
+            ),
             "actor": _required_text(actor, "AGENT_RUN_AUTHORIZATION_ACTOR_REQUIRED"),
             "expectedStateVersion": payload["expectedStateVersion"],
             "expectedPlanRevisionId": payload["expectedPlanRevisionId"],
@@ -198,8 +206,39 @@ def agent_run_authorization_receipt_hash(payload: Mapping[str, object]) -> str:
     )
 
 
+def agent_run_authorization_run_idempotency_key(
+    session_id: str,
+    authorization_id: str,
+    command_hash: str,
+) -> str:
+    """Derive the internal run key for one immutable authorization command."""
+
+    normalized_session_id = _required_text(
+        session_id,
+        "AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_SESSION_ID_REQUIRED",
+    )
+    normalized_authorization_id = _required_text(
+        authorization_id,
+        "AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_AUTHORIZATION_ID_REQUIRED",
+    )
+    if (
+        not isinstance(command_hash, str)
+        or re.fullmatch(_HEX_SHA256, command_hash) is None
+    ):
+        raise ValueError("AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_COMMAND_HASH_INVALID")
+    digest = agent_contract_hash(
+        AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN,
+        {
+            "sessionId": normalized_session_id,
+            "authorizationId": normalized_authorization_id,
+            "commandHash": command_hash,
+        },
+    )
+    return f"agrunidem_v1_{digest}"
+
+
 def _required_text(value: str, code: str) -> str:
-    if not value.strip():
+    if not isinstance(value, str) or not value.strip():
         raise ValueError(code)
     return value
 
@@ -208,9 +247,11 @@ __all__ = [
     "AGENT_RUN_AUTHORIZATION_CONTRACT_VERSION",
     "AGENT_RUN_AUTHORIZATION_READ_CONTRACT_VERSION",
     "AGENT_RUN_AUTHORIZATION_REQUEST_SCHEMA",
+    "AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN",
     "AgentRunAuthorizationRead",
     "AgentRunAuthorizationReceipt",
     "AgentRunAuthorizationRequest",
     "agent_run_authorization_command_hash",
     "agent_run_authorization_receipt_hash",
+    "agent_run_authorization_run_idempotency_key",
 ]

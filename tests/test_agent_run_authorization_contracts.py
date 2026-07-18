@@ -8,12 +8,15 @@ import pytest
 from pydantic import ValidationError
 
 from core.contracts.agent_run_authorization import (
+    AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN,
     AgentRunAuthorizationRead,
     AgentRunAuthorizationReceipt,
     AgentRunAuthorizationRequest,
     agent_run_authorization_command_hash,
     agent_run_authorization_receipt_hash,
+    agent_run_authorization_run_idempotency_key,
 )
+from core.contracts.agent_contract_hash import agent_contract_hash
 
 
 def _request_payload() -> dict[str, Any]:
@@ -129,7 +132,9 @@ def test_run_authorization_contracts_have_exact_runtime_payloads_and_hashes() ->
         "file",
     ],
 )
-def test_run_authorization_request_rejects_caller_authored_effect_fields(field: str) -> None:
+def test_run_authorization_request_rejects_caller_authored_effect_fields(
+    field: str,
+) -> None:
     payload = _request_payload()
     payload[field] = {"unexpected": True}
 
@@ -161,7 +166,9 @@ def test_run_authorization_request_rejects_integer_coercion(
         AgentRunAuthorizationRequest.model_validate(payload)
 
 
-def test_run_authorization_request_rejects_unsafe_integer_and_secret_like_value() -> None:
+def test_run_authorization_request_rejects_unsafe_integer_and_secret_like_value() -> (
+    None
+):
     unsafe = _request_payload()
     unsafe["expectedPlanGeneration"] = 9_007_199_254_740_993
     with pytest.raises(ValidationError, match="JSON_INTEGER_OUT_OF_SAFE_RANGE"):
@@ -169,7 +176,9 @@ def test_run_authorization_request_rejects_unsafe_integer_and_secret_like_value(
 
     secret = _request_payload()
     secret["requestId"] = "sk-abcdefghijklmnopqrstuvwxyz"
-    with pytest.raises(ValidationError, match="AGENT_SESSION_SECRET_LIKE_VALUE_FORBIDDEN"):
+    with pytest.raises(
+        ValidationError, match="AGENT_SESSION_SECRET_LIKE_VALUE_FORBIDDEN"
+    ):
         AgentRunAuthorizationRequest.model_validate(secret)
 
     with pytest.raises(ValueError, match="AGENT_SESSION_SECRET_LIKE_VALUE_FORBIDDEN"):
@@ -230,6 +239,89 @@ def test_run_authorization_command_hash_binds_session_actor_and_every_request() 
     )
 
 
+def test_run_authorization_run_idempotency_key_is_exact_and_deterministic() -> None:
+    expected_digest = agent_contract_hash(
+        "agent-run-authorization-run-idempotency.v1",
+        {
+            "sessionId": "ags_authorize_1",
+            "authorizationId": "agra_1",
+            "commandHash": "a" * 64,
+        },
+    )
+
+    first = agent_run_authorization_run_idempotency_key(
+        "ags_authorize_1",
+        "agra_1",
+        "a" * 64,
+    )
+    second = agent_run_authorization_run_idempotency_key(
+        "ags_authorize_1",
+        "agra_1",
+        "a" * 64,
+    )
+
+    assert AGENT_RUN_AUTHORIZATION_RUN_IDEMPOTENCY_DOMAIN == (
+        "agent-run-authorization-run-idempotency.v1"
+    )
+    assert first == f"agrunidem_v1_{expected_digest}"
+    assert second == first
+    assert re.fullmatch(r"agrunidem_v1_[0-9a-f]{64}", first)
+
+
+@pytest.mark.parametrize(
+    ("session_id", "authorization_id", "command_hash"),
+    [
+        ("ags_authorize_2", "agra_1", "a" * 64),
+        ("ags_authorize_1", "agra_2", "a" * 64),
+        ("ags_authorize_1", "agra_1", "b" * 64),
+    ],
+)
+def test_run_authorization_run_idempotency_key_binds_every_field(
+    session_id: str,
+    authorization_id: str,
+    command_hash: str,
+) -> None:
+    original = agent_run_authorization_run_idempotency_key(
+        "ags_authorize_1",
+        "agra_1",
+        "a" * 64,
+    )
+
+    assert original != agent_run_authorization_run_idempotency_key(
+        session_id,
+        authorization_id,
+        command_hash,
+    )
+
+
+@pytest.mark.parametrize(
+    ("session_id", "authorization_id", "command_hash", "code"),
+    [
+        ("", "agra_1", "a" * 64, "SESSION_ID_REQUIRED"),
+        (" \t", "agra_1", "a" * 64, "SESSION_ID_REQUIRED"),
+        ("ags_authorize_1", "", "a" * 64, "AUTHORIZATION_ID_REQUIRED"),
+        ("ags_authorize_1", "\n", "a" * 64, "AUTHORIZATION_ID_REQUIRED"),
+        ("ags_authorize_1", "agra_1", "", "COMMAND_HASH_INVALID"),
+        ("ags_authorize_1", "agra_1", "A" * 64, "COMMAND_HASH_INVALID"),
+        ("ags_authorize_1", "agra_1", "sha256:" + "a" * 64, "COMMAND_HASH_INVALID"),
+        ("ags_authorize_1", "agra_1", "a" * 63, "COMMAND_HASH_INVALID"),
+        ("ags_authorize_1", "agra_1", "g" * 64, "COMMAND_HASH_INVALID"),
+    ],
+)
+def test_run_authorization_run_idempotency_key_rejects_invalid_inputs(
+    session_id: str,
+    authorization_id: str,
+    command_hash: str,
+    code: str,
+) -> None:
+    with pytest.raises(ValueError, match=code):
+        agent_run_authorization_run_idempotency_key(
+            session_id,
+            authorization_id,
+            command_hash,
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "replacement"),
     [
@@ -263,7 +355,9 @@ def test_run_authorization_receipt_rejects_single_field_tampering(
     payload = copy.deepcopy(_receipt_payload())
     payload[field] = replacement
 
-    with pytest.raises(ValidationError, match="AGENT_RUN_AUTHORIZATION_RECEIPT_HASH_MISMATCH"):
+    with pytest.raises(
+        ValidationError, match="AGENT_RUN_AUTHORIZATION_RECEIPT_HASH_MISMATCH"
+    ):
         AgentRunAuthorizationReceipt.model_validate(payload)
 
 
@@ -287,7 +381,9 @@ def test_run_authorization_receipt_rejects_fixed_or_malformed_fields(
         AgentRunAuthorizationReceipt.model_validate(payload)
 
 
-def test_run_authorization_read_rejects_inconsistent_state_identity_and_extras() -> None:
+def test_run_authorization_read_rejects_inconsistent_state_identity_and_extras() -> (
+    None
+):
     receipt = _receipt_payload()
     with pytest.raises(ValidationError, match="ABSENT_HAS_RECEIPT"):
         AgentRunAuthorizationRead.model_validate(
