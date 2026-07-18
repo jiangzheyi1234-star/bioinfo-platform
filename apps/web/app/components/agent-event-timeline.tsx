@@ -184,7 +184,7 @@ function EventRow({ event, first, last }: { event: AgentEvent; first: boolean; l
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-2.5 py-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300">
             <span className="flex items-center gap-1.5 font-medium text-slate-700">
               <ShieldCheck strokeWidth={1.5} className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-              Hash-chain 字段（未在浏览器验证）
+              公开 Hash-chain 字段（浏览器不重算 eventHash）
             </span>
             <code className="text-[11px] text-slate-500">{shortAgentIdentity(event.eventHash, 16)}</code>
           </summary>

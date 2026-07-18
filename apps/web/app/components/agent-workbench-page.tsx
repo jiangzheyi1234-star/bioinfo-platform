@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import {
   Bot,
   CircleDot,
@@ -19,6 +20,7 @@ import { AgentApprovalPanel, type AgentApprovalAction } from "./agent-approval-p
 import { AgentEventTimeline } from "./agent-event-timeline";
 import { AgentGoalComposer } from "./agent-goal-composer";
 import { AgentPlanCard } from "./agent-plan-card";
+import { AgentSessionObservationPanel } from "./agent-session-observation-panel";
 import { AgentSessionList } from "./agent-session-list";
 import {
   agentStatusLabel,
@@ -32,6 +34,10 @@ import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
 export function AgentWorkbenchPage() {
   const state = useAgentWorkbenchState();
+  const observationFrame = useMemo(
+    () => ({ observedAtEpochMs: Date.now(), snapshot: state.snapshot }),
+    [state.snapshot]
+  );
   const approvalBusy = approvalBusyAction(state.busyAction);
   const commandBusy = Boolean(
     state.busyAction && state.busyAction !== "bootstrap" && state.busyAction !== "refresh"
@@ -173,7 +179,13 @@ export function AgentWorkbenchPage() {
             )}
           </section>
 
-          <div className="min-w-0 xl:sticky xl:top-4">
+          <div className="min-w-0 space-y-4 xl:sticky xl:top-4">
+            {observationFrame.snapshot ? (
+              <AgentSessionObservationPanel
+                observedAtEpochMs={observationFrame.observedAtEpochMs}
+                snapshot={observationFrame.snapshot}
+              />
+            ) : null}
             <AgentEventTimeline
               events={state.snapshot?.events || []}
               loading={state.loading && Boolean(state.selectedSession)}
