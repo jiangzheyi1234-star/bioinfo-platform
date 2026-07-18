@@ -7,6 +7,7 @@ from typing import Any, Callable
 import pytest
 from fastapi.testclient import TestClient
 
+import apps.remote_runner.agent_run_authorization_authority as authority
 import apps.remote_runner.agent_run_authorization_preview_service as preview_service
 from apps.remote_runner.errors import (
     RemoteRunnerAuthorizationError,
@@ -142,7 +143,7 @@ def test_preview_admission_fails_closed_before_candidate_build(
 ) -> None:
     cfg = candidate_case["cfg"]
     session_id = candidate_case["session"]["sessionId"]
-    snapshot = preview_service._read_preview_authority_snapshot(cfg, session_id)
+    snapshot = authority.read_agent_run_authorization_authority(cfg, session_id)
     if change == "missing-budget":
         changed = replace(snapshot, effect_budget=None)
     elif change == "wrong-budget-owner":
@@ -154,12 +155,12 @@ def test_preview_admission_fails_closed_before_candidate_build(
     else:
         changed = replace(snapshot, used_authorization_count=1)
     monkeypatch.setattr(
-        preview_service,
-        "_read_preview_authority_snapshot",
+        authority,
+        "read_agent_run_authorization_authority",
         lambda _cfg, _session_id: changed,
     )
     monkeypatch.setattr(
-        preview_service,
+        authority,
         "build_agent_fastq_qc_execution_candidate",
         lambda *_args, **_kwargs: pytest.fail("candidate must not be built"),
     )
@@ -188,14 +189,14 @@ def test_preview_rejects_owner_and_authority_drift(
             actor="different-owner",
         )
 
-    original_read = preview_service._read_preview_authority_snapshot
+    original_read = authority.read_agent_run_authorization_authority
     first = original_read(cfg, session_id)
     drifted_session = dict(first.session)
     drifted_session["stateVersion"] += 1
     snapshots = iter((first, replace(first, session=drifted_session)))
     monkeypatch.setattr(
-        preview_service,
-        "_read_preview_authority_snapshot",
+        authority,
+        "read_agent_run_authorization_authority",
         lambda _cfg, _session_id: next(snapshots),
     )
     with pytest.raises(
