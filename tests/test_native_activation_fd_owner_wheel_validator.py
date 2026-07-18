@@ -8,9 +8,13 @@ import pytest
 
 from scripts.validate_native_activation_fd_owner_wheel import (
     EXPECTED_PRODUCTION_EXTENSION,
+    EXPECTED_PRODUCTION_INIT_SYMBOL,
+    EXPECTED_PRODUCTION_METHODS,
     EXPECTED_PRODUCTION_MODULE,
     EXPECTED_PRODUCTION_WHEEL,
     EXPECTED_PROOF_EXTENSION,
+    EXPECTED_PROOF_HOOKS,
+    EXPECTED_PROOF_INIT_SYMBOL,
     EXPECTED_PROOF_MODULE,
     EXPECTED_PROOF_WHEEL,
     _safe_wheel_members,
@@ -36,6 +40,22 @@ def test_production_and_proof_wheels_have_distinct_identities() -> None:
     assert not EXPECTED_PROOF_WHEEL.fullmatch(production)
     assert EXPECTED_PRODUCTION_EXTENSION != EXPECTED_PROOF_EXTENSION
     assert EXPECTED_PRODUCTION_MODULE != EXPECTED_PROOF_MODULE
+    assert EXPECTED_PRODUCTION_INIT_SYMBOL != EXPECTED_PROOF_INIT_SYMBOL
+    assert EXPECTED_PRODUCTION_METHODS == {
+        "_open_child",
+        "_require_live",
+        "_close",
+    }
+    assert EXPECTED_PRODUCTION_METHODS.isdisjoint(EXPECTED_PROOF_HOOKS)
+    assert EXPECTED_PROOF_HOOKS == {
+        "_test_duplicate_directory",
+        "_test_set_openat2_errnos",
+        "_test_set_close_report_errno",
+        "_test_raise_sigint_after_adopt",
+        "_test_snapshot",
+        "_test_attempt_snapshot",
+        "_test_reset",
+    }
 
 
 @pytest.mark.parametrize(

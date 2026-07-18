@@ -87,7 +87,24 @@ def private_parent(
 def test_native_owner_exposes_capsule_only_production_api(
     native_owner: ModuleType,
 ) -> None:
-    assert {"_open_child", "_require_live", "_close"} <= set(dir(native_owner))
+    private_methods = {
+        name
+        for name in vars(native_owner)
+        if not name.startswith("__")
+    }
+
+    assert private_methods == {
+        "_open_child",
+        "_require_live",
+        "_close",
+        "_test_duplicate_directory",
+        "_test_set_openat2_errnos",
+        "_test_set_close_report_errno",
+        "_test_raise_sigint_after_adopt",
+        "_test_snapshot",
+        "_test_attempt_snapshot",
+        "_test_reset",
+    }
     assert not hasattr(native_owner, "fileno")
     with pytest.raises(TypeError, match="invalid directory capability"):
         native_owner._close(object())

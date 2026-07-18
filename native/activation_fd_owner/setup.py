@@ -13,7 +13,11 @@ if sys.platform != "linux" or platform.machine().lower() != "x86_64":
 
 extension = Extension(
     "remote_runner._activation_release_dir_owner",
-    sources=["src/activation_release_dir_owner.c"],
+    sources=[
+        "src/activation_release_dir_owner_core.c",
+        "src/activation_release_dir_owner_module.c",
+    ],
+    depends=["src/activation_release_dir_owner_internal.h"],
     py_limited_api=True,
     extra_compile_args=[
         "-std=c11",

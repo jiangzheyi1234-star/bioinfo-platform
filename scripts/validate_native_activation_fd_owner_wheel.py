@@ -26,6 +26,20 @@ EXPECTED_PRODUCTION_INIT_SYMBOL = "PyInit__activation_release_dir_owner"
 EXPECTED_PROOF_INIT_SYMBOL = "PyInit__activation_release_dir_owner_proof"
 EXPECTED_PRODUCTION_MODULE = "remote_runner._activation_release_dir_owner"
 EXPECTED_PROOF_MODULE = "remote_runner._activation_release_dir_owner_proof"
+EXPECTED_PRODUCTION_METHODS = frozenset(
+    {"_open_child", "_require_live", "_close"}
+)
+EXPECTED_PROOF_HOOKS = frozenset(
+    {
+        "_test_duplicate_directory",
+        "_test_set_openat2_errnos",
+        "_test_set_close_report_errno",
+        "_test_raise_sigint_after_adopt",
+        "_test_snapshot",
+        "_test_attempt_snapshot",
+        "_test_reset",
+    }
+)
 EXPECTED_TAG = "Tag: cp312-abi3-linux_x86_64"
 ALLOWED_UNDERSCORE_STABLE_ABI_SYMBOLS = frozenset(
     {
@@ -207,17 +221,22 @@ def _validate_symbols(extension: Path, *, testing: bool) -> None:
 
 
 def _validate_import(python: str, site: Path, *, testing: bool) -> None:
-    expected_testing = "True" if testing else "False"
     module_name = EXPECTED_PROOF_MODULE if testing else EXPECTED_PRODUCTION_MODULE
+    expected_methods = EXPECTED_PRODUCTION_METHODS | (
+        EXPECTED_PROOF_HOOKS if testing else frozenset()
+    )
     script = f"""
 import importlib
 import sys
 sys.path.insert(0, sys.argv[1])
 module = importlib.import_module({module_name!r})
-required = {{'_open_child', '_require_live', '_close'}}
-assert required <= set(dir(module))
-hooks = {{name for name in dir(module) if name.startswith('_test_')}}
-assert bool(hooks) is {expected_testing}, hooks
+expected_methods = set({tuple(sorted(expected_methods))!r})
+actual_methods = {{
+    name
+    for name in vars(module)
+    if not name.startswith('__')
+}}
+assert actual_methods == expected_methods, (actual_methods, expected_methods)
 try:
     module._close(object())
 except TypeError as exc:
