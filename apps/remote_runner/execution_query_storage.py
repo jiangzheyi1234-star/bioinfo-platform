@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from .artifact_output_labels import safe_artifact_output_label
@@ -12,9 +13,17 @@ from .storage_core import get_connection
 
 def fetch_run(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any] | None:
     with get_connection(cfg) as connection:
-        row = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        return fetch_run_for_connection(connection, run_id)
+
+
+def fetch_run_for_connection(connection: sqlite3.Connection, run_id: str) -> dict[str, Any] | None:
+    row = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         return None
+    return _run_row_to_dict(row)
+
+
+def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     last_error = json.loads(row["last_error_json"]) if row["last_error_json"] else None
     return {
         "runId": row["run_id"],
