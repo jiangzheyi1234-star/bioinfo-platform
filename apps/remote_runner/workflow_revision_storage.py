@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .errors import WorkflowDesignRevisionConflictError
 from .storage_core import get_connection, now_iso
 
 
@@ -75,12 +77,19 @@ def create_or_fetch_workflow_revision(
 
 
 def fetch_workflow_revision(cfg: RemoteRunnerConfig, workflow_revision_id: str) -> dict[str, Any] | None:
-    revision_id = _required_text(workflow_revision_id, "WORKFLOW_REVISION_ID_REQUIRED")
     with get_connection(cfg) as connection:
-        row = connection.execute(
-            "SELECT * FROM workflow_revisions WHERE workflow_revision_id = ?",
-            (revision_id,),
-        ).fetchone()
+        return fetch_workflow_revision_for_connection(connection, workflow_revision_id)
+
+
+def fetch_workflow_revision_for_connection(
+    connection: sqlite3.Connection,
+    workflow_revision_id: str,
+) -> dict[str, Any] | None:
+    revision_id = _required_text(workflow_revision_id, "WORKFLOW_REVISION_ID_REQUIRED")
+    row = connection.execute(
+        "SELECT * FROM workflow_revisions WHERE workflow_revision_id = ?",
+        (revision_id,),
+    ).fetchone()
     return _row_to_dict(row) if row is not None else None
 
 
@@ -109,18 +118,38 @@ def _sha256_hex(payload: dict[str, Any]) -> str:
 
 
 def _row_to_dict(row) -> dict[str, Any]:
-    return {
-        "workflowRevisionId": row["workflow_revision_id"],
-        "draftId": row["draft_id"],
-        "draftRevision": int(row["draft_revision"]) if row["draft_revision"] is not None else None,
-        "contentHash": row["content_hash"],
-        "manifest": json.loads(row["manifest_json"]),
-        "graphSnapshot": json.loads(row["graph_snapshot_json"]),
-        "runtimeLock": json.loads(row["runtime_lock_json"]),
-        "compiler": json.loads(row["compiler_json"]),
-        "createdBy": row["created_by"],
-        "createdAt": row["created_at"],
-    }
+    try:
+        payload = {
+            "workflowRevisionId": row["workflow_revision_id"],
+            "draftId": row["draft_id"],
+            "draftRevision": int(row["draft_revision"]) if row["draft_revision"] is not None else None,
+            "contentHash": row["content_hash"],
+            "manifest": json.loads(row["manifest_json"]),
+            "graphSnapshot": json.loads(row["graph_snapshot_json"]),
+            "runtimeLock": json.loads(row["runtime_lock_json"]),
+            "compiler": json.loads(row["compiler_json"]),
+            "createdBy": row["created_by"],
+            "createdAt": row["created_at"],
+        }
+        expected_hash = _sha256_hex(
+            _content_payload(
+                draft_id=payload["draftId"],
+                draft_revision=payload["draftRevision"],
+                manifest=payload["manifest"],
+                graph_snapshot=payload["graphSnapshot"],
+                runtime_lock=payload["runtimeLock"],
+                compiler=payload["compiler"],
+            )
+        )
+    except (json.JSONDecodeError, TypeError, ValueError, OverflowError) as exc:
+        raise WorkflowDesignRevisionConflictError(
+            "WORKFLOW_REVISION_STORED_PAYLOAD_INVALID"
+        ) from exc
+    if payload["contentHash"] != expected_hash:
+        raise WorkflowDesignRevisionConflictError("WORKFLOW_REVISION_STORED_HASH_MISMATCH")
+    if payload["workflowRevisionId"] != f"wfrev_{expected_hash[:24]}":
+        raise WorkflowDesignRevisionConflictError("WORKFLOW_REVISION_STORED_ID_MISMATCH")
+    return payload
 
 
 def _stable_json(value: dict[str, Any]) -> str:

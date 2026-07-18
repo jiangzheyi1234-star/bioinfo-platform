@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from apps.remote_runner.workflow_revision_read_service import _public_workflow_revision
+from apps.remote_runner.errors import WorkflowDesignRevisionConflictError
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.workflow_revision_read_service import _public_workflow_revision
 from apps.remote_runner.workflow_revision_storage import (
     create_or_fetch_workflow_revision,
     fetch_workflow_revision,
+    fetch_workflow_revision_for_connection,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -75,6 +77,41 @@ def _compiler() -> dict:
     }
 
 
+def _tamper_workflow_revision(cfg, statement: str, parameters: tuple) -> None:
+    with get_connection(cfg) as connection:
+        trigger = connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'trigger' AND name = 'workflow_revisions_no_update'
+            """
+        ).fetchone()
+        assert trigger is not None
+        trigger_sql = str(trigger["sql"])
+        connection.execute("DROP TRIGGER workflow_revisions_no_update")
+        try:
+            connection.execute(statement, parameters)
+        finally:
+            connection.execute(trigger_sql)
+            connection.commit()
+        restored = connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'trigger' AND name = 'workflow_revisions_no_update'
+            """
+        ).fetchone()
+        assert restored is not None
+        assert restored["sql"] == trigger_sql
+        with pytest.raises(sqlite3.IntegrityError, match="WORKFLOW_REVISION_IMMUTABLE"):
+            connection.execute(
+                """
+                UPDATE workflow_revisions SET created_at = created_at
+                WHERE workflow_revision_id = (
+                    SELECT workflow_revision_id FROM workflow_revisions LIMIT 1
+                )
+                """
+            )
+
+
 def test_create_or_fetch_workflow_revision_is_deterministic_and_immutable(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
 
@@ -122,6 +159,8 @@ def test_create_or_fetch_workflow_revision_is_deterministic_and_immutable(tmp_pa
 
     fetched = fetch_workflow_revision(cfg, first["workflowRevisionId"])
     assert fetched == {key: value for key, value in first.items() if key != "created"}
+    with get_connection(cfg) as connection:
+        assert fetch_workflow_revision_for_connection(connection, first["workflowRevisionId"]) == fetched
 
     with get_connection(cfg) as connection:
         with pytest.raises(sqlite3.IntegrityError, match="WORKFLOW_REVISION_IMMUTABLE"):
@@ -155,6 +194,83 @@ def test_workflow_revision_content_hash_includes_draft_revision(tmp_path) -> Non
 
     assert second["workflowRevisionId"] != first["workflowRevisionId"]
     assert second["contentHash"] != first["contentHash"]
+
+
+def test_fetch_workflow_revision_rejects_stored_content_hash_mismatch(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = create_or_fetch_workflow_revision(
+        cfg,
+        draft_id="wfd_demo",
+        draft_revision=3,
+        manifest=_manifest(),
+        graph_snapshot=_graph_snapshot(),
+        runtime_lock=_runtime_lock(),
+        compiler=_compiler(),
+    )
+    _tamper_workflow_revision(
+        cfg,
+        "UPDATE workflow_revisions SET manifest_json = ? WHERE workflow_revision_id = ?",
+        (json.dumps(_manifest("sha256:tampered")), revision["workflowRevisionId"]),
+    )
+
+    with pytest.raises(
+        WorkflowDesignRevisionConflictError,
+        match="WORKFLOW_REVISION_STORED_HASH_MISMATCH",
+    ):
+        fetch_workflow_revision(cfg, revision["workflowRevisionId"])
+
+
+def test_fetch_workflow_revision_rejects_stored_identity_mismatch(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = create_or_fetch_workflow_revision(
+        cfg,
+        draft_id="wfd_demo",
+        draft_revision=3,
+        manifest=_manifest(),
+        graph_snapshot=_graph_snapshot(),
+        runtime_lock=_runtime_lock(),
+        compiler=_compiler(),
+    )
+    tampered_id = "wfrev_000000000000000000000000"
+    _tamper_workflow_revision(
+        cfg,
+        "UPDATE workflow_revisions SET workflow_revision_id = ? WHERE workflow_revision_id = ?",
+        (tampered_id, revision["workflowRevisionId"]),
+    )
+
+    with pytest.raises(
+        WorkflowDesignRevisionConflictError,
+        match="WORKFLOW_REVISION_STORED_ID_MISMATCH",
+    ):
+        fetch_workflow_revision(cfg, tampered_id)
+
+
+@pytest.mark.parametrize("stored_manifest", ["{", "[]"])
+def test_fetch_workflow_revision_rejects_invalid_stored_payload(
+    tmp_path,
+    stored_manifest: str,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = create_or_fetch_workflow_revision(
+        cfg,
+        draft_id="wfd_demo",
+        draft_revision=3,
+        manifest=_manifest(),
+        graph_snapshot=_graph_snapshot(),
+        runtime_lock=_runtime_lock(),
+        compiler=_compiler(),
+    )
+    _tamper_workflow_revision(
+        cfg,
+        "UPDATE workflow_revisions SET manifest_json = ? WHERE workflow_revision_id = ?",
+        (stored_manifest, revision["workflowRevisionId"]),
+    )
+
+    with pytest.raises(
+        WorkflowDesignRevisionConflictError,
+        match="WORKFLOW_REVISION_STORED_PAYLOAD_INVALID",
+    ):
+        fetch_workflow_revision(cfg, revision["workflowRevisionId"])
 
 
 def test_public_workflow_revision_redacts_runtime_paths_and_hashes_original_lock() -> None:
