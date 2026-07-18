@@ -90,6 +90,7 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
         def trace(frame, event, arg):
             del arg
             if event == "call" and frame.f_code is acquire_child.__code__:
+                frame.f_trace = trace
                 frame.f_trace_opcodes = True
                 return trace
             if (

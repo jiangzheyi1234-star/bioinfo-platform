@@ -12,6 +12,7 @@ PROOF_PROJECT = PROJECT / "proof"
 PROOF_SETUP = PROOF_PROJECT / "setup.py"
 CONSTRAINTS = PROJECT / "build-constraints.txt"
 LINUX_TEST = Path("tests/test_native_activation_fd_owner_linux.py")
+BOUNDARY_PROBE = Path("tests/native_activation_fd_owner_boundary_probe.py")
 
 
 def test_native_owner_is_an_independent_private_build_project() -> None:
@@ -144,6 +145,11 @@ def test_native_owner_source_and_tests_remain_import_safe_on_windows() -> None:
     prefix = test_source.split("@pytest.fixture", maxsplit=1)[0]
     assert "remote_runner._activation_release_dir_owner" not in prefix
     assert _REQUIRED_ENV_LITERAL in test_source
+
+    probe_source = BOUNDARY_PROBE.read_text(encoding="utf-8")
+    assert probe_source.index("frame.f_trace = trace") < probe_source.index(
+        "frame.f_trace_opcodes = True"
+    )
 
 
 _REQUIRED_ENV_LITERAL = "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS"
