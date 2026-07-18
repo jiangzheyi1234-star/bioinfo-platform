@@ -147,9 +147,10 @@ def test_native_owner_source_and_tests_remain_import_safe_on_windows() -> None:
     assert _REQUIRED_ENV_LITERAL in test_source
 
     probe_source = BOUNDARY_PROBE.read_text(encoding="utf-8")
-    assert probe_source.index("frame.f_trace = trace") < probe_source.index(
-        "frame.f_trace_opcodes = True"
-    )
+    assert "sys.settrace" not in probe_source
+    assert "monitoring.events.INSTRUCTION" in probe_source
+    assert "monitoring.set_local_events" in probe_source
+    assert "instruction_offset == store_offset" in probe_source
 
 
 _REQUIRED_ENV_LITERAL = "H2OMETA_REQUIRE_NATIVE_ACTIVATION_FD_OWNER_TESTS"

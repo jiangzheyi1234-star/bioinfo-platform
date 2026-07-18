@@ -87,51 +87,67 @@ def _run_probe(*, site: Path, scenario: str, loops: int) -> None:
             raise AssertionError(f"unexpected STORE_FAST shape: {store_offsets}")
         store_offset = next(iter(store_offsets))
 
-        def trace(frame, event, arg):
-            del arg
-            if event == "call" and frame.f_code is acquire_child.__code__:
-                frame.f_trace = trace
-                frame.f_trace_opcodes = True
-                return trace
-            if (
-                event == "opcode"
-                and frame.f_code is acquire_child.__code__
-                and frame.f_lasti == store_offset
-            ):
+        def monitor_instruction(code, instruction_offset):
+            if code is acquire_child.__code__ and instruction_offset == store_offset:
                 raise ReturnBoundaryError("raised before STORE_FAST")
-            return trace
 
-        for _index in range(loops):
-            if scenario == "sigint":
-                module._test_raise_sigint_after_adopt(True)
-                try:
-                    leaked = acquire_child()
-                except KeyboardInterrupt:
-                    pass
+        monitoring = sys.monitoring
+        monitor_tool_id = monitoring.DEBUGGER_ID
+        if scenario == "opcode":
+            monitoring.use_tool_id(monitor_tool_id, "h2ometa-native-owner-boundary")
+            monitoring.register_callback(
+                monitor_tool_id,
+                monitoring.events.INSTRUCTION,
+                monitor_instruction,
+            )
+            monitoring.set_local_events(
+                monitor_tool_id,
+                acquire_child.__code__,
+                monitoring.events.INSTRUCTION,
+            )
+
+        try:
+            for _index in range(loops):
+                if scenario == "sigint":
+                    module._test_raise_sigint_after_adopt(True)
+                    try:
+                        leaked = acquire_child()
+                    except KeyboardInterrupt:
+                        pass
+                    else:
+                        module._close(leaked)
+                        raise AssertionError("pending SIGINT did not interrupt the return")
+                    finally:
+                        module._test_raise_sigint_after_adopt(False)
+                elif scenario == "opcode":
+                    try:
+                        leaked = acquire_child()
+                    except ReturnBoundaryError:
+                        pass
+                    else:
+                        module._close(leaked)
+                        raise AssertionError("monitor did not interrupt STORE_FAST")
                 else:
-                    module._close(leaked)
-                    raise AssertionError("pending SIGINT did not interrupt the return")
-                finally:
-                    module._test_raise_sigint_after_adopt(False)
-            elif scenario == "opcode":
-                sys.settrace(trace)
-                try:
-                    leaked = acquire_child()
-                except ReturnBoundaryError:
-                    pass
-                else:
-                    module._close(leaked)
-                    raise AssertionError("opcode trace did not interrupt STORE_FAST")
-                finally:
-                    sys.settrace(None)
-            else:
-                raise AssertionError(scenario)
-            gc.collect()
-            if _fd_set() != baseline:
-                raise AssertionError("descriptor set changed across return boundary")
-            if _matching_fds(*child_identity):
-                raise AssertionError("child descriptor leaked across return boundary")
-        module._close(parent)
+                    raise AssertionError(scenario)
+                gc.collect()
+                if _fd_set() != baseline:
+                    raise AssertionError("descriptor set changed across return boundary")
+                if _matching_fds(*child_identity):
+                    raise AssertionError("child descriptor leaked across return boundary")
+        finally:
+            if scenario == "opcode":
+                monitoring.set_local_events(
+                    monitor_tool_id,
+                    acquire_child.__code__,
+                    monitoring.events.NO_EVENTS,
+                )
+                monitoring.register_callback(
+                    monitor_tool_id,
+                    monitoring.events.INSTRUCTION,
+                    None,
+                )
+                monitoring.free_tool_id(monitor_tool_id)
+            module._close(parent)
 
 
 def parse_args() -> argparse.Namespace:
