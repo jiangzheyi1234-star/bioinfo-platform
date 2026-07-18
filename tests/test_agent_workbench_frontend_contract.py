@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -15,6 +16,7 @@ FILES = {
     "decode": COMPONENTS / "agent-workbench-decode.ts",
     "integrity": COMPONENTS / "agent-workbench-integrity.ts",
     "durable_proof": COMPONENTS / "agent-workbench-durable-proof.ts",
+    "observation": COMPONENTS / "agent-session-observation.ts",
     "state": COMPONENTS / "use-agent-workbench-state.ts",
     "state_helpers": COMPONENTS / "agent-workbench-state-helpers.ts",
     "pending": COMPONENTS / "agent-workbench-pending.ts",
@@ -626,4 +628,120 @@ def test_invalid_or_changed_server_identity_clears_stale_workspace_state() -> No
         "replaceIdentity(selectedServer.serverId)",
         "sameIdentity(identityRef.current, completionIdentity)",
         'setBusyAction("")',
+    )
+
+
+def test_agent_session_observation_is_a_pure_atomic_snapshot_derivation() -> None:
+    source = _source("observation")
+    signature_match = re.search(
+        r"export function deriveAgentSessionObservation\((.*?)\)\s*"
+        r":\s*AgentSessionObservationV1\s*\{",
+        source,
+        re.DOTALL,
+    )
+
+    assert signature_match is not None
+    signature = signature_match.group(1)
+    _assert_contains(
+        source,
+        "import type {",
+        "AgentSessionSnapshot",
+        'contractVersion: "agent-session-observation.v1"',
+        "const events = snapshot.events",
+        "const { session } = snapshot",
+        "plans: snapshot.plans.length",
+        "approvals: snapshot.approvals.length",
+    )
+    _assert_contains(
+        signature, "snapshot: AgentSessionSnapshot", "observedAtEpochMs: number"
+    )
+    _assert_not_contains(
+        signature, "serverId:", "sessionId:", "events:", "plans:", "approvals:"
+    )
+    _assert_not_contains(
+        source,
+        '"use client"',
+        "fetch(",
+        "XMLHttpRequest",
+        "axios",
+        "createAgentSession(",
+        "planAgentSession(",
+        "decideAgentPlan(",
+        "cancelAgentSession(",
+        "fetchAgentSessionSnapshot(",
+        "useEffect(",
+        "useState(",
+        "window.",
+        "document.",
+        "localStorage",
+        "sessionStorage",
+        "Date.now(",
+        "Math.random(",
+        "crypto.randomUUID(",
+    )
+    assert re.search(r"^import (?!type\b)", source, re.MULTILINE) is None
+    assert re.search(r"\basync\b|\bPromise\s*<", source) is None
+    assert (
+        re.search(
+            r"\bsnapshot(?:\.[A-Za-z_$][\w$]*|\[[^\]]+\])+\s*"
+            r"(?:=(?!=)|\+=|-=|\+\+|--)",
+            source,
+        )
+        is None
+    )
+    assert (
+        re.search(
+            r"snapshot\.(?:events|plans|approvals)\."
+            r"(?:copyWithin|fill|pop|push|reverse|shift|sort|splice|unshift)\(",
+            source,
+        )
+        is None
+    )
+
+
+def test_agent_session_observation_has_fixed_redaction_and_stable_error_codes() -> None:
+    source = _source("observation")
+    policy = _between(
+        source,
+        "const REDACTION_POLICY = Object.freeze({",
+        "} as const);",
+    )
+    expected_redactions = {
+        "eventPayloadsDisplayed",
+        "commandHashesExposed",
+        "requestIdentitiesDisplayed",
+        "actorsDisplayed",
+        "pathsOrUrisDisplayed",
+        "rawModelOutputDisplayed",
+        "credentialsDisplayed",
+    }
+    actual_redactions = set(
+        re.findall(r"^\s*([A-Za-z]+): false,?$", policy, re.MULTILINE)
+    )
+
+    assert actual_redactions == expected_redactions
+    _assert_not_contains(policy, "true", "snapshot")
+    _assert_contains(
+        source,
+        "export const AGENT_SESSION_OBSERVATION_ERRORS = Object.freeze({",
+        "} as const);",
+        "code: (typeof AGENT_SESSION_OBSERVATION_ERRORS)",
+        "throw new Error(code)",
+        "redactionPolicy: { ...REDACTION_POLICY }",
+    )
+    assert re.search(r"\bevent\s*(?:\.|\[)\s*[\"']?payload\b", source) is None
+    assert re.search(r"\bpayload\b", source) is None
+    error_values = re.findall(
+        r'"(AGENT_SESSION_OBSERVATION_[A-Z0-9_]+)"',
+        _between(
+            source,
+            "export const AGENT_SESSION_OBSERVATION_ERRORS = Object.freeze({",
+            "} as const);",
+        ),
+    )
+    assert len(error_values) >= 10
+    assert len(error_values) == len(set(error_values))
+    assert re.findall(r"throw new Error\((.*?)\)", source, re.DOTALL) == ["code"]
+    _assert_not_contains(
+        source, "JSON.stringify(snapshot)", "new Error(`", "new Error(message)"
     )
