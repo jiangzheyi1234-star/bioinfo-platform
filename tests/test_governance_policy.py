@@ -16,6 +16,7 @@ def _tracked_policy_sources() -> list[Path]:
         {
             ROOT / "apps" / "remote_runner" / "audit_service.py",
             ROOT / "apps" / "remote_runner" / "agent_session_service.py",
+            ROOT / "apps" / "remote_runner" / "agent_run_authorization_preview_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control_route_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_policy.py",
@@ -106,6 +107,7 @@ def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist(
         for path in _tracked_policy_sources()
         if path.relative_to(ROOT).as_posix().startswith("apps/remote_runner/")
     )
+    compact_implementation_source = "".join(implementation_source.split())
     for policy in HIGH_RISK_API_POLICIES:
         route_source = (ROOT / policy.route_source).read_text(encoding="utf-8")
         route_decorator = "websocket" if policy.method == "WEBSOCKET" else policy.method.lower()
@@ -117,9 +119,10 @@ def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist(
                 assert (
                     f'action="{policy.action}"' in implementation_source
                     and (
-                        f'authorized_config(authorization, action="{policy.action}")' in implementation_source
-                        or f'_authorized_config_from_request(authorization, action="{policy.action}")'
-                        in implementation_source
+                        f'authorized_config(authorization,action="{policy.action}"'
+                        in compact_implementation_source
+                        or f'_authorized_config_from_request(authorization,action="{policy.action}"'
+                        in compact_implementation_source
                     )
                 )
 

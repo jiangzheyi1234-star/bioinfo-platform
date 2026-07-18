@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from core.contracts.agent_remote_endpoints import (
     AGENT_PRINCIPAL_CONTEXT_READ,
+    AGENT_RUN_AUTHORIZATION_PREVIEW_READ,
     AGENT_SESSION_APPROVAL,
     AGENT_SESSION_APPROVALS_READ,
     AGENT_SESSION_CANCEL,
@@ -42,6 +43,9 @@ from .agent_session_service import (
     list_agent_sessions_from_http,
     plan_agent_session_from_http,
     replan_agent_session_from_http,
+)
+from .agent_run_authorization_preview_service import (
+    get_agent_run_authorization_preview_from_http,
 )
 from .route_headers import AuthorizationHeader
 
@@ -96,6 +100,20 @@ async def get_agent_session_snapshot_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_agent_session_snapshot_from_http(session_id, authorization)
+
+
+@router.get(
+    "/api/v1/agent-sessions/{session_id}/run-authorization-preview",
+    operation_id=REMOTE_ENDPOINTS[AGENT_RUN_AUTHORIZATION_PREVIEW_READ].operation_id,
+)
+async def get_agent_run_authorization_preview_api(
+    session_id: str,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_agent_run_authorization_preview_from_http(
+        session_id,
+        authorization,
+    )
 
 
 @router.get(
