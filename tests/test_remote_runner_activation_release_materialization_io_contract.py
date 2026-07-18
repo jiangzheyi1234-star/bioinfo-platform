@@ -149,6 +149,7 @@ def test_release_tree_openat2_exhausts_eagain_without_fallback(
         errno.EOPNOTSUPP,
         errno.EXDEV,
         errno.ELOOP,
+        errno.ENOTDIR,
         errno.EINTR,
     ],
 )

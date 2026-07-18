@@ -521,9 +521,12 @@ cross-mount, symlink, and interrupted calls fail immediately without a path or
 The contract suite proves the validation, call shape, retry budget, post-open
 checks, and no-fallback behavior against an injected syscall boundary. The
 required Ubuntu activation-storage job now separately proves a real dynamic
-child identity and non-inheritance, final-symlink `ELOOP`, and bind-mount
-`EXDEV`. This is kernel evidence on the required CI platform, not proof for an
-untested architecture, kernel, mount, or production runner host.
+child identity and non-inheritance, fail-closed final-symlink refusal, and
+bind-mount `EXDEV`. Current supported kernels may report either `ELOOP` from
+`RESOLVE_NO_SYMLINKS` or `ENOTDIR` from the combined `O_DIRECTORY | O_NOFOLLOW`
+check; neither result opens the target. This is kernel evidence on the required
+CI platform, not proof for an untested architecture, kernel, mount, or
+production runner host.
 
 That Python boundary intentionally says `raw_fd` and is not a production
 capability. `O_CLOEXEC` prevents inheritance across `execve`, but does not close

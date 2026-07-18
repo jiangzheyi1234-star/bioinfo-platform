@@ -415,13 +415,15 @@ link，原地完成 conda relocation，然后 seal/fsync/fresh-walk/marker-last�
 首个 fd-relative 实现切片只共享 release-tree entry component validator，并增加 dormant dynamic-directory
 `openat2` contract boundary。它固定使用 directory-only flags 与
 `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`；只有 `EAGAIN`
-允许最多三次完全相同的调用，`ENOSYS`、`EINVAL`、`E2BIG`、`EOPNOTSUPP`、`EXDEV`、`ELOOP` 与
-`EINTR` 均立即失败，绝不回退到 path check、`open` 或 `openat`。
+允许最多三次完全相同的调用，`ENOSYS`、`EINVAL`、`E2BIG`、`EOPNOTSUPP`、`EXDEV`、`ELOOP`、
+`ENOTDIR` 与 `EINTR` 均立即失败，绝不回退到 path check、`open` 或 `openat`。
 
 Contract suite 通过 injected syscall boundary 证明 validation、call shape、retry budget、post-open check 与
 no-fallback；required Ubuntu activation-storage job 另以真实 syscall 证明 dynamic child identity、
-non-inheritance、final-symlink `ELOOP` 与 bind-mount `EXDEV`。这只构成 required CI platform 的 kernel
-evidence，不外推到未经测试的 architecture、kernel、mount 或 production runner host。
+non-inheritance、final-symlink fail-closed refusal 与 bind-mount `EXDEV`。受支持 kernel 可能由
+`RESOLVE_NO_SYMLINKS` 返回 `ELOOP`，也可能由组合的 `O_DIRECTORY | O_NOFOLLOW` 检查返回 `ENOTDIR`；
+两者均未打开 target。这只构成 required CI platform 的 kernel evidence，不外推到未经测试的
+architecture、kernel、mount 或 production runner host。
 
 该 Python 入口刻意命名为 `raw_fd`，不构成 production capability。`O_CLOEXEC` 只防 `execve` 继承，
 不能回收当前进程内在 syscall/return handoff 被异步异常遗弃的 descriptor；CPython `_io.FileIO` 又会拒绝

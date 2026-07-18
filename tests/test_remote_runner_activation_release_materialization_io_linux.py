@@ -77,7 +77,7 @@ def test_linux_dynamic_component_never_follows_a_final_symlink(
     try:
         with pytest.raises(OSError) as captured:
             unexpected_fd = open_release_tree_directory_raw_fd(parent_fd, "A_B")
-        assert captured.value.errno == errno.ELOOP
+        assert captured.value.errno in {errno.ELOOP, errno.ENOTDIR}
     finally:
         if unexpected_fd >= 0:
             os.close(unexpected_fd)
