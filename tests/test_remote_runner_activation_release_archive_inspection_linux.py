@@ -381,8 +381,11 @@ def test_linux_path_replacement_between_passes_never_rebinds_the_held_inode(
 ) -> None:
     archive = build_valid_archive()
     manifest, intent = _manifest_and_intent(archive)
-    path = tmp_path / "candidate.tar.gz"
-    detached = tmp_path / "detached.tar.gz"
+    live_dir = tmp_path / "candidate"
+    detached_dir = tmp_path / "detached"
+    live_dir.mkdir(mode=0o700)
+    path = live_dir / "archive.tar.gz"
+    detached = detached_dir / "archive.tar.gz"
     _write_archive(path, archive)
     descriptor = _open_readonly(path)
     real_inspect = archive_inspection._inspect_archive_content
@@ -397,7 +400,8 @@ def test_linux_path_replacement_between_passes_never_rebinds_the_held_inode(
     ):
         def replace_path() -> None:
             nonlocal replaced
-            path.rename(detached)
+            live_dir.rename(detached_dir)
+            live_dir.mkdir(mode=0o700)
             _write_archive(path, b"replacement is never inspected")
             replaced = True
             between_passes()
@@ -417,13 +421,65 @@ def test_linux_path_replacement_between_passes_never_rebinds_the_held_inode(
     try:
         with archive_inspection.inspect_runner_activation_release_archive_fd(
             descriptor,
-            expected_device=detached.parent.stat().st_dev,
+            expected_device=tmp_path.stat().st_dev,
             publication_intent=intent,
         ) as capability:
             assert replaced is True
             assert capability.archive_manifest == manifest
             assert path.read_bytes() == b"replacement is never inspected"
             assert detached.read_bytes() == archive
+    finally:
+        os.close(descriptor)
+
+
+def test_linux_leaf_rename_between_passes_is_a_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = build_valid_archive()
+    _manifest, intent = _manifest_and_intent(archive)
+    path = tmp_path / "candidate.tar.gz"
+    detached = tmp_path / "detached.tar.gz"
+    _write_archive(path, archive)
+    descriptor = _open_readonly(path)
+    real_inspect = archive_inspection._inspect_archive_content
+    renamed = False
+
+    def inspect_with_leaf_rename(
+        read_at,
+        *,
+        archive_size,
+        expected_archive_sha256,
+        between_passes,
+    ):
+        def rename_leaf() -> None:
+            nonlocal renamed
+            path.rename(detached)
+            renamed = True
+            between_passes()
+
+        return real_inspect(
+            read_at,
+            archive_size=archive_size,
+            expected_archive_sha256=expected_archive_sha256,
+            between_passes=rename_leaf,
+        )
+
+    monkeypatch.setattr(
+        archive_inspection,
+        "_inspect_archive_content",
+        inspect_with_leaf_rename,
+    )
+    try:
+        with pytest.raises(ActivationStorageConflict):
+            archive_inspection.inspect_runner_activation_release_archive_fd(
+                descriptor,
+                expected_device=tmp_path.stat().st_dev,
+                publication_intent=intent,
+            )
+        assert renamed is True
+        assert not path.exists()
+        assert detached.read_bytes() == archive
     finally:
         os.close(descriptor)
 
