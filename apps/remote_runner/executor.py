@@ -6,22 +6,43 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .agent_run_launch_gate import (
+    AgentRunLaunchAuthorization,
+    AgentRunLaunchGateError,
+    revalidate_agent_run_launch_authorization,
+)
 from .config import RemoteRunnerConfig
 from .artifact_input_lineage import record_run_input_artifact_lineage
 from .executor_artifacts import _collect_artifacts
 from .executor_cache import try_complete_from_artifact_cache
 from .executor_execution_options import (
-    _finalize_run_after_artifact_collection, _scoped_artifact_collection,
+    _finalize_run_after_artifact_collection,
+    _scoped_artifact_collection,
     _snakemake_execution_options,
     _target_paths_from_output_keys,
 )
 from .executor_error_handling import mark_workflow_startup_exception
-from .executor_inputs import _build_run_outputs, _resolve_run_inputs
+from .executor_inputs import (
+    _build_run_outputs,
+    _resolve_run_inputs,
+    require_verified_run_inputs,
+)
 from .executor_outcomes import _mark_cancelled, _mark_failed
-from .executor_paths import _process_group_recorder, _resolve_execution_result_dir, _resolve_execution_work_dir
+from .executor_paths import (
+    _process_group_recorder,
+    _resolve_execution_result_dir,
+    _resolve_execution_work_dir,
+)
 from .executor_rule_events import run_snakemake_with_rule_events
-from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
-from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
+from .generated_workflow import (
+    GENERATED_TOOL_RUN_PIPELINE_ID,
+    prepare_generated_tool_workflow,
+)
+from .pipeline import (
+    PipelineRegistryError,
+    get_pipeline,
+    validate_run_spec_for_pipeline,
+)
 from .rule_execution_projection import (
     mark_run_rules_failed,
     mark_run_rules_running,
@@ -37,7 +58,10 @@ from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
 )
+
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
+
+
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
     *,
@@ -52,6 +76,8 @@ def run_snakemake_execution(
     should_cancel_attempt: Callable[[], bool] | None = None,
     resource_pool: ResourcePool | None = None,
     resource_request: ResourceRequest | None = None,
+    agent_launch_authorization: AgentRunLaunchAuthorization | None = None,
+    verified_inputs: list[dict[str, Any]] | None = None,
 ) -> None:
     pool = resource_pool or get_default_resource_pool()
     task_id = attempt_id or run_id
@@ -69,9 +95,12 @@ def run_snakemake_execution(
             attempt_work_dir=attempt_work_dir,
             execution_options=execution_options,
             should_cancel_attempt=should_cancel_attempt,
+            agent_launch_authorization=agent_launch_authorization,
+            verified_inputs=verified_inputs,
         )
     finally:
         pool.release(task_id)
+
 
 def _execute_snakemake_workflow(
     cfg: RemoteRunnerConfig,
@@ -85,7 +114,14 @@ def _execute_snakemake_workflow(
     attempt_work_dir: str | None = None,
     execution_options: dict | None = None,
     should_cancel_attempt: Callable[[], bool] | None = None,
+    agent_launch_authorization: AgentRunLaunchAuthorization | None = None,
+    verified_inputs: list[dict[str, Any]] | None = None,
 ) -> None:
+    _require_agent_executor_authority(
+        authorization=agent_launch_authorization,
+        run_spec=run_spec,
+        verified_inputs=verified_inputs,
+    )
     result_dir = _resolve_execution_result_dir(
         cfg,
         run_id=run_id,
@@ -109,13 +145,29 @@ def _execute_snakemake_workflow(
     output_schema: dict | None = None
     run_outputs: dict[str, str] | None = None
     try:
+        agent_inputs = (
+            require_verified_run_inputs(cfg, run_spec, verified_inputs)
+            if verified_inputs is not None
+            else None
+        )
         snakemake_execution_options = _snakemake_execution_options(execution_options)
         output_adoption_scope = snakemake_execution_options.pop("output_adoption_scope")
         resume_scope = snakemake_execution_options.pop("resume_scope")
+        if agent_launch_authorization is not None and resume_scope is not None:
+            raise AgentRunLaunchGateError("resume_workspace")
         engine = SnakemakeEngineAdapter(
             cfg,
-            run_command=subprocess.run if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN else None,
+            run_command=subprocess.run
+            if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN
+            else None,
             should_cancel=should_cancel_attempt,
+            before_process_start=_agent_process_launch_guard(
+                cfg,
+                authorization=agent_launch_authorization,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+            ),
             on_process_started=_process_group_recorder(
                 cfg,
                 attempt_id=attempt_id,
@@ -172,8 +224,16 @@ def _execute_snakemake_workflow(
                     graph=dict(resume_context.get("graph") or {}),
                 )
         elif pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
-            resolved_inputs = _resolve_run_inputs(cfg, run_spec, input_work_dir=work_dir / "inputs")
-            record_run_input_artifact_lineage(cfg, run_id=run_id, resolved_inputs=resolved_inputs, attempt_id=attempt_id)
+            resolved_inputs = agent_inputs or _resolve_run_inputs(
+                cfg, run_spec, input_work_dir=work_dir / "inputs"
+            )
+            if agent_inputs is None:
+                record_run_input_artifact_lineage(
+                    cfg,
+                    run_id=run_id,
+                    resolved_inputs=resolved_inputs,
+                    attempt_id=attempt_id,
+                )
             generated = prepare_generated_tool_workflow(
                 cfg,
                 run_id=run_id,
@@ -199,8 +259,16 @@ def _execute_snakemake_workflow(
         else:
             pipeline = get_pipeline(cfg, pipeline_id)
             validate_run_spec_for_pipeline(pipeline, run_spec)
-            resolved_inputs = _resolve_run_inputs(cfg, run_spec, input_work_dir=work_dir / "inputs")
-            record_run_input_artifact_lineage(cfg, run_id=run_id, resolved_inputs=resolved_inputs, attempt_id=attempt_id)
+            resolved_inputs = agent_inputs or _resolve_run_inputs(
+                cfg, run_spec, input_work_dir=work_dir / "inputs"
+            )
+            if agent_inputs is None:
+                record_run_input_artifact_lineage(
+                    cfg,
+                    run_id=run_id,
+                    resolved_inputs=resolved_inputs,
+                    attempt_id=attempt_id,
+                )
             workflow_resource_config = build_workflow_resource_config(
                 cfg,
                 workflow_resource_spec=pipeline.resource_schema,
@@ -257,8 +325,18 @@ def _execute_snakemake_workflow(
             config_path=config_path,
             **snakemake_execution_options,
         )
-        append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
-        append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
+        append_log_lines(
+            cfg,
+            run_id,
+            "stdout",
+            [line for line in dry_run.stdout.splitlines() if line],
+        )
+        append_log_lines(
+            cfg,
+            run_id,
+            "stderr",
+            [line for line in dry_run.stderr.splitlines() if line],
+        )
         if dry_run.returncode != 0:
             if should_cancel_attempt is not None and should_cancel_attempt():
                 _mark_cancelled(
@@ -437,6 +515,69 @@ def _execute_snakemake_workflow(
         )
 
 
+def _agent_process_launch_guard(
+    cfg: RemoteRunnerConfig,
+    *,
+    authorization: AgentRunLaunchAuthorization | None,
+    run_id: str,
+    attempt_id: str | None,
+    lease_generation: int | None,
+) -> Callable[[], None] | None:
+    if authorization is None:
+        return None
+    if attempt_id is None or lease_generation is None:
+        raise ValueError("AGENT_RUN_LAUNCH_ATTEMPT_REQUIRED")
+
+    def revalidate() -> None:
+        revalidate_agent_run_launch_authorization(
+            cfg,
+            expected=authorization,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        )
+
+    return revalidate
+
+
+def _require_agent_executor_authority(
+    *,
+    authorization: AgentRunLaunchAuthorization | None,
+    run_spec: dict[str, Any],
+    verified_inputs: list[dict[str, Any]] | None,
+) -> None:
+    if authorization is None and verified_inputs is None:
+        return
+    if authorization is None or verified_inputs is None:
+        raise AgentRunLaunchGateError("executor_authority")
+    if not _strict_json_equal(
+        run_spec, authorization.run_spec
+    ) or not _strict_json_equal(
+        verified_inputs,
+        [dict(item) for item in authorization.verified_inputs],
+    ):
+        raise AgentRunLaunchGateError("executor_authority")
+
+
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    try:
+        return json.dumps(
+            left,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ) == json.dumps(
+            right,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _prepare_run_resume_workflow_context(
     cfg: RemoteRunnerConfig,
     *,
@@ -450,7 +591,9 @@ def _prepare_run_resume_workflow_context(
     if not config_path.is_file():
         raise WorkflowRuntimeCommandError("RUN_RESUME_RUN_CONFIG_NOT_FOUND")
     config = _read_run_resume_config(config_path)
-    outputs = _run_resume_outputs(config, result_dir=result_dir, resume_scope=resume_scope)
+    outputs = _run_resume_outputs(
+        config, result_dir=result_dir, resume_scope=resume_scope
+    )
     pipeline_id = str(run_spec.get("pipelineId") or "")
     if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
         snakefile = work_dir / "workflow" / "Snakefile"
@@ -505,7 +648,9 @@ def _run_resume_outputs(
             path = result_dir / path
         resolved = path.resolve(strict=False)
         if not _is_relative_to(resolved, result_root):
-            raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_PATH_OUTSIDE_RESULT_DIR")
+            raise WorkflowRuntimeCommandError(
+                "RUN_RESUME_OUTPUT_PATH_OUTSIDE_RESULT_DIR"
+            )
         outputs[output_key] = str(resolved)
     missing_keys = required_keys - set(outputs)
     if missing_keys:
@@ -513,12 +658,22 @@ def _run_resume_outputs(
     return outputs
 
 
-def _generated_run_resume_output_schema(config: dict[str, Any], outputs: dict[str, str]) -> dict[str, Any]:
-    workflow = config.get("workflow") if isinstance(config.get("workflow"), dict) else {}
-    workflow_outputs = workflow.get("outputs") if isinstance(workflow.get("outputs"), dict) else {}
+def _generated_run_resume_output_schema(
+    config: dict[str, Any], outputs: dict[str, str]
+) -> dict[str, Any]:
+    workflow = (
+        config.get("workflow") if isinstance(config.get("workflow"), dict) else {}
+    )
+    workflow_outputs = (
+        workflow.get("outputs") if isinstance(workflow.get("outputs"), dict) else {}
+    )
     artifacts: list[dict[str, Any]] = []
     for key, output_path in outputs.items():
-        spec = workflow_outputs.get(key) if isinstance(workflow_outputs.get(key), dict) else {}
+        spec = (
+            workflow_outputs.get(key)
+            if isinstance(workflow_outputs.get(key), dict)
+            else {}
+        )
         artifact = {
             "key": key,
             "name": Path(output_path).name,

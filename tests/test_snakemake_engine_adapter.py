@@ -3,11 +3,18 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.workflow_engine_adapter import SnakemakeEngineAdapter, WorkflowRuntimeCommandError
+from apps.remote_runner.workflow_engine_adapter import (
+    SnakemakeEngineAdapter,
+    WorkflowRuntimeCommandError,
+)
 
 
-def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_path: Path) -> None:
+def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(
+    tmp_path: Path,
+) -> None:
     snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(
         token="phase2-token",
@@ -62,7 +69,9 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_p
     assert str(Path(cfg.release_dir)) in envs[1]["PYTHONPATH"].split(os.pathsep)
 
 
-def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(tmp_path: Path) -> None:
+def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(
+    tmp_path: Path,
+) -> None:
     cfg = RemoteRunnerConfig(
         token="phase2-token",
         data_root=str(tmp_path / "shared"),
@@ -120,7 +129,9 @@ def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(tmp_path: 
     assert "--logger-h2ometa-event-path" in calls[1]
 
 
-def test_snakemake_engine_adapter_rejects_unsafe_forcerun_rule_names(tmp_path: Path) -> None:
+def test_snakemake_engine_adapter_rejects_unsafe_forcerun_rule_names(
+    tmp_path: Path,
+) -> None:
     cfg = RemoteRunnerConfig(
         token="phase2-token",
         data_root=str(tmp_path / "shared"),
@@ -178,7 +189,9 @@ def test_snakemake_engine_adapter_rejects_flag_like_targets(tmp_path: Path) -> N
         raise AssertionError("Flag-like target path was accepted")
 
 
-def test_snakemake_engine_adapter_passes_live_poll_callback_to_process_runner(monkeypatch, tmp_path: Path) -> None:
+def test_snakemake_engine_adapter_passes_live_poll_callback_to_process_runner(
+    monkeypatch, tmp_path: Path
+) -> None:
     snakemake_command = tmp_path / "snakemake"
     cfg = RemoteRunnerConfig(
         token="phase2-token",
@@ -209,7 +222,9 @@ def test_snakemake_engine_adapter_passes_live_poll_callback_to_process_runner(mo
             callback()
         return Result()
 
-    monkeypatch.setattr("apps.remote_runner.workflow_engine_adapter.run_process", fake_run_process)
+    monkeypatch.setattr(
+        "apps.remote_runner.workflow_engine_adapter.run_process", fake_run_process
+    )
 
     adapter = SnakemakeEngineAdapter(cfg)
     adapter.run(
@@ -223,3 +238,80 @@ def test_snakemake_engine_adapter_passes_live_poll_callback_to_process_runner(mo
     assert captured["on_poll"] is not None
     assert poll_calls == ["poll"]
     assert "--logger-h2ometa-event-path" in captured["command"]
+
+
+def test_snakemake_engine_adapter_runs_launch_guard_before_command(
+    tmp_path: Path,
+) -> None:
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(tmp_path / "snakemake"),
+    )
+    (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
+    ensure_runtime_layout(cfg)
+    order: list[str] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    def fake_run(*_args, **_kwargs):
+        order.append("command")
+        return Result()
+
+    adapter = SnakemakeEngineAdapter(
+        cfg,
+        run_command=fake_run,
+        before_process_start=lambda: order.append("guard"),
+    )
+    adapter.dry_run(
+        snakefile=tmp_path / "workflow" / "Snakefile",
+        work_dir=tmp_path / "work",
+        config_path=tmp_path / "work" / "run-config.json",
+    )
+
+    assert order == ["guard", "command"]
+
+
+def test_snakemake_engine_adapter_guard_failure_prevents_command(
+    tmp_path: Path,
+) -> None:
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(tmp_path / "snakemake"),
+    )
+    (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
+    ensure_runtime_layout(cfg)
+
+    def fail_command(*_args, **_kwargs):
+        raise AssertionError("command must not run after launch guard failure")
+
+    def fail_guard() -> None:
+        raise RuntimeError("launch authority changed")
+
+    adapter = SnakemakeEngineAdapter(
+        cfg,
+        run_command=fail_command,
+        before_process_start=fail_guard,
+    )
+    with pytest.raises(RuntimeError, match="launch authority changed"):
+        adapter.dry_run(
+            snakefile=tmp_path / "workflow" / "Snakefile",
+            work_dir=tmp_path / "work",
+            config_path=tmp_path / "work" / "run-config.json",
+        )

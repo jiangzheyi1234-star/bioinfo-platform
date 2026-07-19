@@ -7,6 +7,11 @@ from typing import Any
 
 from core.logging_config import clear_log_context, set_log_context
 
+from .agent_run_launch_gate import (
+    AgentRunLaunchGateError,
+    revalidate_agent_run_launch_authorization,
+    require_agent_run_launch_authorization,
+)
 from .config import RemoteRunnerConfig
 from .executor import run_snakemake_execution
 from .resource_pool import ResourcePool, ResourceRequest
@@ -120,17 +125,36 @@ def process_next_run_job(
         )
         execution_error = ""
         try:
+            launch_authorization = require_agent_run_launch_authorization(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+            )
             executor = execute_run or run_snakemake_execution
             executor_kwargs: dict[str, Any] = {
                 "run_id": run_id,
                 "request_id": str(run["requestId"]),
-                "run_spec": dict(run["runSpec"] or {}),
+                "run_spec": (
+                    launch_authorization.run_spec
+                    if launch_authorization is not None
+                    else dict(run["runSpec"] or {})
+                ),
                 "attempt_id": attempt_id,
                 "lease_generation": lease_generation,
                 "attempt_work_dir": str(claim["attempt"]["workDir"]),
             }
             execution_options = dict(claim["job"].get("executionOptions") or {})
+            if launch_authorization is not None:
+                executor_kwargs["verified_inputs"] = [
+                    dict(item) for item in launch_authorization.verified_inputs
+                ]
             if execution_options:
+                if (
+                    launch_authorization is not None
+                    and run_resume_execution_options_requested(execution_options)
+                ):
+                    raise AgentRunLaunchGateError("resume_workspace")
                 if rule_partial_rerun_execution_options_requested(execution_options):
                     validate_rule_partial_rerun_claim_state(
                         cfg,
@@ -149,6 +173,7 @@ def process_next_run_job(
                     )
                 executor_kwargs["execution_options"] = execution_options
             if execute_run is None:
+
                 def should_cancel_attempt() -> bool:
                     return stop_heartbeat.is_set() or run_attempt_cancel_requested(
                         cfg,
@@ -157,10 +182,20 @@ def process_next_run_job(
                     )
 
                 executor_kwargs["should_cancel_attempt"] = should_cancel_attempt
+                if launch_authorization is not None:
+                    executor_kwargs["agent_launch_authorization"] = launch_authorization
                 if resource_pool is not None:
                     executor_kwargs["resource_pool"] = resource_pool
                 if resource_request is not None:
                     executor_kwargs["resource_request"] = resource_request
+            elif launch_authorization is not None:
+                revalidate_agent_run_launch_authorization(
+                    cfg,
+                    expected=launch_authorization,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                )
             executor(
                 cfg,
                 **executor_kwargs,
@@ -169,19 +204,28 @@ def process_next_run_job(
             execution_error = str(exc) or exc.__class__.__name__
         except Exception as exc:  # noqa: BLE001 - worker must persist failure before returning.
             execution_error = str(exc) or exc.__class__.__name__
+            gate_failure = exc if isinstance(exc, AgentRunLaunchGateError) else None
             try:
                 update_run_state(
                     cfg,
                     run_id=run_id,
                     status="failed",
-                    stage="worker",
-                    message="Run worker execution failed.",
+                    stage=(gate_failure.stage if gate_failure else "worker"),
+                    message=(
+                        "Agent run launch gate failed."
+                        if gate_failure
+                        else "Run worker execution failed."
+                    ),
                     request_id=str(run["requestId"]),
                     last_error={
-                        "code": "RUN_WORKER_EXECUTION_FAILED",
+                        "code": (
+                            gate_failure.code
+                            if gate_failure
+                            else "RUN_WORKER_EXECUTION_FAILED"
+                        ),
                         "message": execution_error,
-                        "scope": "worker",
-                        "stage": "worker",
+                        "scope": gate_failure.scope if gate_failure else "worker",
+                        "stage": gate_failure.stage if gate_failure else "worker",
                     },
                     attempt_id=attempt_id,
                     lease_generation=lease_generation,
@@ -195,7 +239,9 @@ def process_next_run_job(
 
         final_run = fetch_run(cfg, run_id)
         final_status = str(final_run.get("status") if final_run else "")
-        attempt_state = RunExecutionStateMachine.attempt_state_for_run_status(final_status)
+        attempt_state = RunExecutionStateMachine.attempt_state_for_run_status(
+            final_status
+        )
         completion = complete_run_attempt(
             cfg,
             attempt_id,
@@ -235,6 +281,7 @@ def process_next_run_job(
         return result
     finally:
         clear_log_context()
+
 
 def _exit_code_for_attempt_state(state: str) -> int:
     if state == "succeeded":

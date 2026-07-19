@@ -37,6 +37,7 @@ def mark_workflow_startup_exception(
         elif engine_stage == "run":
             message = "Failed to launch Snakemake execution."
             code = "SNAKEMAKE_EXECUTION_LAUNCH_FAILED"
+    persisted_detail = code or "RUN_EXECUTOR_CRASHED"
     _mark_failed(
         cfg,
         run_id=run_id,
@@ -44,7 +45,7 @@ def mark_workflow_startup_exception(
         message=message,
         scope="startup",
         code=code,
-        stderr=detail or "Run executor crashed during startup.",
+        stderr=persisted_detail,
         result_dir=str(result_dir),
         attempt_id=attempt_id,
         lease_generation=lease_generation,

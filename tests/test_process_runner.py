@@ -41,8 +41,10 @@ def test_process_runner_terminates_process_group_when_cancelled(monkeypatch) -> 
     result = process_runner.run_process(
         ["snakemake"],
         env={"PATH": "/tmp/bin"},
-        should_cancel=lambda: process_ref.get("process") is not None
-        and process_ref["process"].poll_count > 0,
+        should_cancel=lambda: (
+            process_ref.get("process") is not None
+            and process_ref["process"].poll_count > 0
+        ),
         poll_interval_seconds=0,
     )
 
@@ -54,7 +56,9 @@ def test_process_runner_terminates_process_group_when_cancelled(monkeypatch) -> 
     assert "terminated after stale lease" in result.stderr
 
 
-def test_process_runner_terminates_process_group_when_poll_callback_fails(monkeypatch) -> None:
+def test_process_runner_terminates_process_group_when_poll_callback_fails(
+    monkeypatch,
+) -> None:
     from apps.remote_runner import process_runner
 
     kill_calls: list[tuple[int, int]] = []
@@ -92,3 +96,52 @@ def test_process_runner_terminates_process_group_when_poll_callback_fails(monkey
         )
 
     assert kill_calls == [(5252, signal.SIGTERM)]
+
+
+def test_process_runner_rechecks_cancellation_after_pre_start_guard(
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import process_runner
+
+    state = {"cancelled": False}
+    calls: list[str] = []
+
+    def guard() -> None:
+        calls.append("guard")
+        state["cancelled"] = True
+
+    monkeypatch.setattr(
+        process_runner.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("Popen must not run after fencing"),
+    )
+
+    result = process_runner.run_process(
+        ["snakemake"],
+        env={"PATH": "/tmp/bin"},
+        should_cancel=lambda: state["cancelled"],
+        before_process_start=guard,
+    )
+
+    assert calls == ["guard"]
+    assert result.returncode == 130
+    assert "not started" in result.stderr
+
+
+def test_process_runner_guard_failure_prevents_popen(monkeypatch) -> None:
+    from apps.remote_runner import process_runner
+
+    monkeypatch.setattr(
+        process_runner.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("Popen must follow a successful guard"),
+    )
+
+    with pytest.raises(RuntimeError, match="launch proof changed"):
+        process_runner.run_process(
+            ["snakemake"],
+            env={"PATH": "/tmp/bin"},
+            before_process_start=lambda: (_ for _ in ()).throw(
+                RuntimeError("launch proof changed")
+            ),
+        )

@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
-from .process_runner import ProcessPoll, ProcessStarted, ShouldCancel, run_process
+from .config import (
+    RemoteRunnerConfig,
+    build_workflow_runtime_environment,
+    get_workflow_profile_dir,
+)
+from .process_runner import (
+    BeforeProcessStart,
+    ProcessPoll,
+    ProcessStarted,
+    ShouldCancel,
+    run_process,
+)
 
 
 class WorkflowRuntimeCommandError(RuntimeError):
@@ -25,8 +36,7 @@ class WorkflowEngineAdapter(Protocol):
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
         target_paths: list[str] | None = None,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     def run(
         self,
@@ -39,8 +49,7 @@ class WorkflowEngineAdapter(Protocol):
         rerun_incomplete: bool = False,
         target_paths: list[str] | None = None,
         on_poll: ProcessPoll | None = None,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 class SnakemakeEngineAdapter:
@@ -50,12 +59,14 @@ class SnakemakeEngineAdapter:
         *,
         run_command: Callable[..., Any] | None = None,
         should_cancel: ShouldCancel | None = None,
+        before_process_start: BeforeProcessStart | None = None,
         on_process_started: ProcessStarted | None = None,
         poll_interval_seconds: float = 0.2,
     ) -> None:
         self._cfg = cfg
         self._run_command = run_command
         self._should_cancel = should_cancel
+        self._before_process_start = before_process_start
         self._on_process_started = on_process_started
         self._poll_interval_seconds = poll_interval_seconds
 
@@ -106,9 +117,17 @@ class SnakemakeEngineAdapter:
             on_poll=on_poll,
         )
 
-    def _execute(self, command: list[str], *, on_poll: ProcessPoll | None = None) -> Any:
+    def _execute(
+        self, command: list[str], *, on_poll: ProcessPoll | None = None
+    ) -> Any:
         env = build_workflow_runtime_environment(self._cfg)
         if self._run_command is not None:
+            if self._should_cancel is not None and self._should_cancel():
+                return _cancelled_before_process_start(command)
+            if self._before_process_start is not None:
+                self._before_process_start()
+            if self._should_cancel is not None and self._should_cancel():
+                return _cancelled_before_process_start(command)
             return self._run_command(
                 command,
                 capture_output=True,
@@ -119,6 +138,7 @@ class SnakemakeEngineAdapter:
             command,
             env=env,
             should_cancel=self._should_cancel,
+            before_process_start=self._before_process_start,
             on_process_started=self._on_process_started,
             on_poll=on_poll,
             poll_interval_seconds=self._poll_interval_seconds,
@@ -183,6 +203,17 @@ class SnakemakeEngineAdapter:
         return ["--workflow-profile", str(workflow_profile_dir)]
 
 
+def _cancelled_before_process_start(
+    command: list[str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        command,
+        130,
+        "",
+        "Snakemake process not started after stale lease or cancellation.",
+    )
+
+
 def normalize_forcerun_rules(rules: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -191,7 +222,9 @@ def normalize_forcerun_rules(rules: list[str] | None) -> list[str]:
         if not rule:
             raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULE_REQUIRED")
         if not RULE_RERUN_NAME_RE.fullmatch(rule):
-            raise WorkflowRuntimeCommandError(f"SNAKEMAKE_FORCERUN_RULE_INVALID: {rule}")
+            raise WorkflowRuntimeCommandError(
+                f"SNAKEMAKE_FORCERUN_RULE_INVALID: {rule}"
+            )
         if rule not in seen:
             normalized.append(rule)
             seen.add(rule)

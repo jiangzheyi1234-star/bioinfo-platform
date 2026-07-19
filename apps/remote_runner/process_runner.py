@@ -8,6 +8,7 @@ import time
 
 
 ShouldCancel = Callable[[], bool]
+BeforeProcessStart = Callable[[], None]
 ProcessStarted = Callable[[int], None]
 ProcessPoll = Callable[[], None]
 
@@ -17,11 +18,18 @@ def run_process(
     *,
     env: dict[str, str],
     should_cancel: ShouldCancel | None = None,
+    before_process_start: BeforeProcessStart | None = None,
     on_process_started: ProcessStarted | None = None,
     on_poll: ProcessPoll | None = None,
     poll_interval_seconds: float = 0.2,
     terminate_timeout_seconds: float = 5.0,
 ) -> subprocess.CompletedProcess[str]:
+    if should_cancel is not None and should_cancel():
+        return _cancelled_before_process_start(command)
+    if before_process_start is not None:
+        before_process_start()
+    if should_cancel is not None and should_cancel():
+        return _cancelled_before_process_start(command)
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -54,7 +62,9 @@ def run_process(
                 )
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
-                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+                return subprocess.CompletedProcess(
+                    command, process.returncode, stdout, stderr
+                )
             time.sleep(max(0.0, float(poll_interval_seconds)))
     except BaseException:
         _terminate_running_process(
@@ -125,3 +135,14 @@ def _append_reason(stderr: str | None, reason: str) -> str:
     if not existing:
         return reason
     return f"{existing}\n{reason}"
+
+
+def _cancelled_before_process_start(
+    command: list[str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        command,
+        130,
+        "",
+        "Snakemake process not started after stale lease or cancellation.",
+    )

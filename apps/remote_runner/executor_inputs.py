@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import os
+import stat
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +11,23 @@ from .artifact_io import restore_artifact_payload
 from .config import RemoteRunnerConfig
 from .storage import fetch_upload
 from .storage_core import get_connection
+
+
+_VERIFIED_AGENT_INPUT_KEYS = {
+    "agentInputSnapshot",
+    "filename",
+    "index",
+    "mimeType",
+    "name",
+    "path",
+    "role",
+    "sha256",
+    "sizeBytes",
+    "sourceId",
+    "sourceType",
+    "uploadId",
+}
+_WRITE_PERMISSION_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
 
 
 def _build_run_outputs(execution: dict, result_dir: Path) -> dict[str, str]:
@@ -41,8 +62,101 @@ def _resolve_run_inputs(
     for index, item in enumerate(raw_inputs):
         if not isinstance(item, dict):
             raise ValueError("INPUT_INVALID")
-        resolved.append(_resolve_run_input(cfg, item, index=index, input_work_dir=input_work_dir))
+        resolved.append(
+            _resolve_run_input(cfg, item, index=index, input_work_dir=input_work_dir)
+        )
     return resolved
+
+
+def require_verified_run_inputs(
+    cfg: RemoteRunnerConfig,
+    run_spec: dict[str, Any],
+    verified_inputs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Revalidate internal Agent snapshots before writing executor config."""
+
+    raw_inputs = run_spec.get("inputs")
+    if (
+        not isinstance(raw_inputs, list)
+        or not raw_inputs
+        or not isinstance(verified_inputs, list)
+        or len(raw_inputs) != len(verified_inputs)
+    ):
+        raise ValueError("AGENT_RUN_VERIFIED_INPUTS_MISMATCH")
+    normalized: list[dict[str, Any]] = []
+    for index, (declared, verified) in enumerate(
+        zip(raw_inputs, verified_inputs, strict=True)
+    ):
+        if (
+            not isinstance(declared, dict)
+            or not isinstance(verified, dict)
+            or set(verified) != _VERIFIED_AGENT_INPUT_KEYS
+            or verified.get("agentInputSnapshot") is not True
+            or verified.get("sourceType") != "upload"
+            or verified.get("sourceId") != declared.get("uploadId")
+            or verified.get("uploadId") != declared.get("uploadId")
+            or verified.get("filename") != declared.get("filename")
+            or verified.get("role") != declared.get("role")
+            or verified.get("name") != ""
+            or type(verified.get("index")) is not int
+            or verified["index"] != index
+            or type(verified.get("sizeBytes")) is not int
+            or verified["sizeBytes"] < 1
+        ):
+            raise ValueError("AGENT_RUN_VERIFIED_INPUTS_MISMATCH")
+        _require_verified_agent_input_path(
+            cfg,
+            raw_path=str(verified.get("path") or ""),
+            size_bytes=verified["sizeBytes"],
+            sha256=str(verified.get("sha256") or ""),
+        )
+        normalized.append(deepcopy(verified))
+    return normalized
+
+
+def _require_verified_agent_input_path(
+    cfg: RemoteRunnerConfig,
+    *,
+    raw_path: str,
+    size_bytes: int,
+    sha256: str,
+) -> Path:
+    try:
+        work_root = Path(cfg.work_dir).resolve(strict=False)
+        root = work_root / "agent-inputs"
+        declared = Path(raw_path).absolute()
+        if root.is_symlink() or root.resolve() != root or root not in declared.parents:
+            raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+        cursor = root
+        for component in declared.relative_to(root).parts:
+            cursor /= component
+            if cursor.is_symlink():
+                raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+        path = declared.resolve()
+        metadata = path.stat()
+        if (
+            root not in path.parents
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_mode & _WRITE_PERMISSION_BITS
+            or (
+                hasattr(os, "geteuid") and metadata.st_uid != os.geteuid()  # type: ignore[attr-defined]
+            )
+        ):
+            raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+        digest = hashlib.sha256()
+        size = 0
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                size += len(chunk)
+                digest.update(chunk)
+    except ValueError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("AGENT_RUN_VERIFIED_INPUT_IO_FAILED") from exc
+    if size != size_bytes or digest.hexdigest() != sha256:
+        raise ValueError("AGENT_RUN_VERIFIED_INPUT_DIGEST_MISMATCH")
+    return path
 
 
 def _resolve_run_input(
@@ -144,11 +258,17 @@ def _resolve_artifact_id_input(
             SELECT * FROM artifact_materializations
             WHERE artifact_blob_id = ? AND storage_backend = ? AND storage_uri = ?
             """,
-            (blob["artifact_blob_id"], artifact["storage_backend"], artifact["storage_uri"]),
+            (
+                blob["artifact_blob_id"],
+                artifact["storage_backend"],
+                artifact["storage_uri"],
+            ),
         ).fetchone()
         if materialization is None:
             raise ValueError("INPUT_ARTIFACT_MATERIALIZATION_NOT_FOUND")
-    upstream_run_id = _optional_text(item.get("upstreamRunId")) or str(artifact["run_id"])
+    upstream_run_id = _optional_text(item.get("upstreamRunId")) or str(
+        artifact["run_id"]
+    )
     if upstream_run_id != str(artifact["run_id"]):
         raise ValueError("INPUT_ARTIFACT_UPSTREAM_RUN_MISMATCH")
     restored = restore_artifact_payload(
@@ -203,7 +323,9 @@ def _resolve_artifact_materialization_input(
     materialization_dict = _row_to_dict(materialization)
     if str(materialization_dict.get("lifecycle_state") or "") != "active":
         raise ValueError("INPUT_ARTIFACT_MATERIALIZATION_NOT_ACTIVE")
-    filename_default = _materialization_filename(materialization_dict, fallback=artifact_blob_id)
+    filename_default = _materialization_filename(
+        materialization_dict, fallback=artifact_blob_id
+    )
     restored = restore_artifact_payload(
         cfg,
         _blob_materialization_record(blob, materialization),
@@ -298,14 +420,18 @@ def _require_input_work_dir(input_work_dir: Path | None) -> Path:
     return path
 
 
-def _input_restore_destination(input_work_dir: Path, *, index: int, filename: str) -> Path:
+def _input_restore_destination(
+    input_work_dir: Path, *, index: int, filename: str
+) -> Path:
     safe_name = _safe_filename(filename) or "artifact-input"
     return input_work_dir / f"{index + 1:03d}-{safe_name}"
 
 
 def _safe_filename(value: str) -> str:
     name = Path(str(value or "").strip()).name
-    return "".join(char if char.isalnum() or char in "._-" else "_" for char in name).strip("._-")
+    return "".join(
+        char if char.isalnum() or char in "._-" else "_" for char in name
+    ).strip("._-")
 
 
 def _materialization_filename(materialization: dict[str, Any], *, fallback: str) -> str:
