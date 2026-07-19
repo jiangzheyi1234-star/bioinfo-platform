@@ -162,7 +162,7 @@ def test_run_execution_context_reports_terminal_run_retry_eligibility(
     }
 
 
-def test_run_execution_context_previews_snakemake_resume_without_enabling_execution(tmp_path) -> None:
+def test_run_execution_context_reports_enabled_governed_snakemake_resume(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_workflow_revision(
         cfg,
@@ -222,21 +222,21 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
 
     context = fetch_run_execution_context(cfg, "run_resume_failed")
 
-    assert context["resumeSupported"] is False
+    assert context["resumeSupported"] is True
     assert context["resumeEligibility"] == {
-        "eligible": False,
-        "eligibleNow": False,
+        "eligible": True,
+        "eligibleNow": True,
         "reasonCode": "RUN_RESUME_PREVIEW_AVAILABLE",
         "message": context["resumePlan"]["message"],
     }
     assert context["resumePlan"]["schemaVersion"] == "run-resume-plan.v1"
     assert context["resumeActivationReadiness"] == context["resumePlan"]["activationReadiness"]
     assert context["resumeActivationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
-    assert context["resumeActivationReadiness"]["executionReady"] is False
-    assert context["resumeActivationReadiness"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+    assert context["resumeActivationReadiness"]["executionReady"] is True
+    assert context["resumeActivationReadiness"]["reasonCode"] == "ACTIVATION_READY"
     assert context["workdirReusePolicy"] == context["resumePlan"]["workdirEvidence"]
-    assert context["resumePlan"]["supported"] is False
-    assert context["resumePlan"]["executionEnabled"] is False
+    assert context["resumePlan"]["supported"] is True
+    assert context["resumePlan"]["executionEnabled"] is True
     assert context["resumePlan"]["commandPreviewAvailable"] is True
     assert context["resumePlan"]["latestAttempt"]["attemptId"] == claim["attemptId"]
     assert context["resumePlan"]["latestAttempt"]["state"] == "failed"
@@ -278,8 +278,8 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     )
     assert context["resumePlan"]["artifactAdoptionBoundary"]["pathExposed"] is False
     assert context["resumePlan"]["executorOrchestration"]["contractReady"] is True
-    assert context["resumePlan"]["executorOrchestration"]["executorReady"] is False
-    assert context["resumePlan"]["executorOrchestration"]["queueMutationAllowed"] is False
+    assert context["resumePlan"]["executorOrchestration"]["executorReady"] is True
+    assert context["resumePlan"]["executorOrchestration"]["queueMutationAllowed"] is True
     assert context["resumePlan"]["executorOrchestration"]["pathExposed"] is False
     assert context["resumePlan"]["snakemakeOptions"] == {
         "schemaVersion": "snakemake-run-resume-options.v1",
@@ -287,8 +287,7 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
         "argsPreview": ["--rerun-incomplete"],
         "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
     }
-    assert "RUN_RESUME_MUTATION_API_DISABLED" in context["resumePlan"]["blockedReasonCodes"]
-    assert "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN" in context["resumePlan"]["blockedReasonCodes"]
+    assert context["resumePlan"]["blockedReasonCodes"] == []
 
 
 def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(tmp_path) -> None:
