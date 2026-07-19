@@ -44,13 +44,13 @@ V19_TRIGGERS = frozenset(
 V19_OBJECTS = V19_TABLES | V19_INDEXES | V19_TRIGGERS
 
 
-def test_fresh_v19_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) -> None:
+def test_fresh_v20_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) -> None:
     cfg = make_remote_runner_config(tmp_path)
 
     initialize_or_migrate_runtime_db(cfg.db_path)
 
     with get_connection(cfg) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION == 20
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         ledger = connection.execute(
             "SELECT version, name FROM schema_migrations WHERE version IN (18, 19) ORDER BY version"
@@ -72,7 +72,7 @@ def test_fresh_v19_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) 
     assert objects == V19_OBJECTS
 
 
-def test_v18_to_v19_schema_matches_fresh_schema(tmp_path: Path) -> None:
+def test_v18_to_v20_schema_matches_fresh_schema(tmp_path: Path) -> None:
     fresh_cfg = make_remote_runner_config(tmp_path / "fresh")
     migrated_cfg = make_remote_runner_config(tmp_path / "migrated")
     initialize_or_migrate_runtime_db(fresh_cfg.db_path)
@@ -91,7 +91,7 @@ def test_v18_to_v19_schema_matches_fresh_schema(tmp_path: Path) -> None:
         ).fetchall()
 
     assert migrated == fresh
-    assert version == 19
+    assert version == CURRENT_SCHEMA_VERSION == 20
     assert ledger == [
         (18, AGENT_SESSION_MIGRATION_NAME),
         (19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME),
@@ -233,9 +233,11 @@ def test_current_schema_contract_detects_missing_v19_foreign_key(tmp_path: Path)
 
 def _downgrade_to_v18(db_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE agent_workspace_proofs")
         connection.execute("DROP TRIGGER agent_bound_runs_no_delete")
         connection.execute("DROP TABLE agent_run_authorizations")
         connection.execute("DROP TABLE agent_session_effect_budgets")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 20")
         connection.execute("DELETE FROM schema_migrations WHERE version = 19")
         connection.execute("PRAGMA user_version = 18")
 

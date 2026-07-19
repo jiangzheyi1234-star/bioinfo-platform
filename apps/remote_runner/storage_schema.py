@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .agent_session_schema import AGENT_SESSION_SCHEMA_SQL
+from .agent_workspace_proof_schema import AGENT_WORKSPACE_PROOF_SCHEMA_SQL
 from .artifact_cache_pin_schema import ARTIFACT_CACHE_PIN_SCHEMA_SQL
 from .artifact_lifecycle_policy_schema import ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL
 from .sqlite_trigger_readiness_watcher_migrations import WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
@@ -117,7 +118,6 @@ CREATE TABLE IF NOT EXISTS run_commands (
 );
 CREATE INDEX IF NOT EXISTS idx_run_commands_run
 ON run_commands(run_id, requested_at);
-
 CREATE TABLE IF NOT EXISTS workflow_triggers (
     trigger_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -823,4 +823,4 @@ CREATE TABLE IF NOT EXISTS reconcile_queue (
     updated_at TEXT NOT NULL,
     UNIQUE(dedup_key)
 );
-""" + AGENT_SESSION_SCHEMA_SQL + ARTIFACT_CACHE_PIN_SCHEMA_SQL + ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL + WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
+""" + AGENT_SESSION_SCHEMA_SQL + AGENT_WORKSPACE_PROOF_SCHEMA_SQL + ARTIFACT_CACHE_PIN_SCHEMA_SQL + ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL + WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL

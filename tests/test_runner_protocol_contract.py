@@ -123,7 +123,7 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
                 "h2ometa.tool-prepare-process-marker.v1"
             ),
         },
-        "databaseSchemaVersion": 18,
+        "databaseSchemaVersion": 20,
         "protocolVersion": "runner-protocol.v5",
         "schemaVersion": "h2ometa.runner-protocol-descriptor.v5",
         "writerScopes": [

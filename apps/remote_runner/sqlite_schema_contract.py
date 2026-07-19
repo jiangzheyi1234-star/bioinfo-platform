@@ -10,6 +10,7 @@ REQUIRED_TABLES = {
     "agent_run_authorizations",
     "agent_session_effect_budgets",
     "agent_sessions",
+    "agent_workspace_proofs",
     "artifact_blobs",
     "artifact_cache_entries",
     "artifact_cache_pins",
@@ -72,6 +73,8 @@ REQUIRED_INDEXES = {
     "idx_agent_session_effect_budgets_session_idempotency",
     "idx_agent_sessions_project_updated",
     "idx_agent_sessions_status_updated",
+    "idx_agent_workspace_proofs_authorization",
+    "idx_agent_workspace_proofs_run_boundary",
     "idx_artifact_materializations_lifecycle",
     "idx_artifact_cache_entries_blob",
     "idx_artifact_cache_entries_revision",
@@ -138,6 +141,8 @@ REQUIRED_TRIGGERS = {
     "agent_run_authorizations_no_update",
     "agent_session_effect_budgets_no_delete",
     "agent_session_effect_budgets_no_update",
+    "agent_workspace_proofs_no_delete",
+    "agent_workspace_proofs_no_update",
     "workflow_revisions_no_update",
 }
 
@@ -153,6 +158,35 @@ REQUIRED_FOREIGN_KEYS = {
         "RESTRICT",
     ),
     ("agent_session_effect_budgets", "session_id", "agent_sessions", "session_id", "RESTRICT"),
+    (
+        "agent_workspace_proofs",
+        "attempt_id",
+        "run_attempts",
+        "attempt_id",
+        "RESTRICT",
+    ),
+    (
+        "agent_workspace_proofs",
+        "authorization_id",
+        "agent_run_authorizations",
+        "authorization_id",
+        "RESTRICT",
+    ),
+    ("agent_workspace_proofs", "run_id", "runs", "run_id", "RESTRICT"),
+    (
+        "agent_workspace_proofs",
+        "source_attempt_id",
+        "run_attempts",
+        "attempt_id",
+        "RESTRICT",
+    ),
+    (
+        "agent_workspace_proofs",
+        "workflow_revision_id",
+        "workflow_revisions",
+        "workflow_revision_id",
+        "RESTRICT",
+    ),
 }
 
 
