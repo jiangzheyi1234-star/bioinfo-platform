@@ -3,9 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from apps.remote_runner.execution_resume_claim_preflight import build_run_resume_execution_options
+from apps.remote_runner.execution_resume_claim_preflight import (
+    build_run_resume_execution_options,
+)
+from apps.remote_runner.execution_retry_storage import request_run_resume
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
-from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
+from apps.remote_runner.run_execution_storage import (
+    claim_next_run_job,
+    complete_run_attempt,
+)
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -22,12 +28,13 @@ class FakeClock:
         return f"2099-06-07T10:01:{self.tick:02d}Z"
 
 
-def test_run_worker_executes_run_resume_after_claim_reuses_source_workdir(tmp_path: Path, monkeypatch) -> None:
+def test_run_worker_executes_run_resume_after_claim_reuses_source_workdir(
+    tmp_path: Path, monkeypatch
+) -> None:
     from apps.remote_runner import run_worker
 
     cfg, run_id = _failed_resumable_run(tmp_path)
-    options = build_run_resume_execution_options(fetch_run_execution_context(cfg, run_id)["resumePlan"])
-    _requeue_with_execution_options(cfg, run_id, options)
+    options = _request_governed_resume(cfg, run_id)
     source_attempt_id = options["resumeScope"]["sourceAttempt"]["attemptId"]
     with get_connection(cfg) as connection:
         source_work_dir = connection.execute(
@@ -68,15 +75,19 @@ def test_run_worker_executes_run_resume_after_claim_reuses_source_workdir(tmp_pa
     assert captured["attempt_work_dir"] == source_work_dir
 
 
-def test_run_worker_revalidates_persisted_run_resume_options_after_claim(tmp_path: Path, monkeypatch) -> None:
+def test_run_worker_revalidates_persisted_run_resume_options_after_claim(
+    tmp_path: Path, monkeypatch
+) -> None:
     from apps.remote_runner import run_worker
 
     cfg, run_id = _failed_resumable_run(tmp_path)
-    options = build_run_resume_execution_options(fetch_run_execution_context(cfg, run_id)["resumePlan"])
-    _requeue_with_execution_options(cfg, run_id, options)
+    options = _request_governed_resume(cfg, run_id)
 
     def tamper_persisted_options(_claim: dict) -> None:
-        tampered = {**options, "resumeScope": {**options["resumeScope"], "outputKeys": ["other"]}}
+        tampered = {
+            **options,
+            "resumeScope": {**options["resumeScope"], "outputKeys": ["other"]},
+        }
         with get_connection(cfg) as connection:
             connection.execute(
                 "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
@@ -85,7 +96,9 @@ def test_run_worker_revalidates_persisted_run_resume_options_after_claim(tmp_pat
             connection.commit()
 
     def fail_executor(*_args, **_kwargs) -> None:
-        raise AssertionError("executor must not run when persisted resume options changed after claim")
+        raise AssertionError(
+            "executor must not run when persisted resume options changed after claim"
+        )
 
     monkeypatch.setattr(run_worker, "run_snakemake_execution", fail_executor)
 
@@ -133,7 +146,14 @@ def _failed_resumable_run(tmp_path: Path):
     present.write_text("ok\n", encoding="utf-8")
     source_work_dir.mkdir(parents=True, exist_ok=True)
     (source_work_dir / "run-config.json").write_text(
-        json.dumps({"outputs": {"present": str(present), "missing": str(result_dir / "missing.txt")}}),
+        json.dumps(
+            {
+                "outputs": {
+                    "present": str(present),
+                    "missing": str(result_dir / "missing.txt"),
+                }
+            }
+        ),
         encoding="utf-8",
     )
     update_run_state(
@@ -163,19 +183,19 @@ def _failed_resumable_run(tmp_path: Path):
     return cfg, run_id
 
 
-def _requeue_with_execution_options(cfg, run_id: str, options: dict) -> None:
-    with get_connection(cfg) as connection:
-        connection.execute(
-            """
-            UPDATE run_jobs
-            SET state = 'queued', execution_options_json = ?, available_at = ?, updated_at = ?
-            WHERE run_id = ?
-            """,
-            (
-                json.dumps(options, sort_keys=True, separators=(",", ":")),
-                "2099-06-07T10:01:00Z",
-                "2099-06-07T10:01:00Z",
-                run_id,
-            ),
-        )
-        connection.commit()
+def _request_governed_resume(cfg, run_id: str) -> dict:
+    plan = fetch_run_execution_context(cfg, run_id)["resumePlan"]
+    expected_options = build_run_resume_execution_options(plan)
+    result = request_run_resume(
+        cfg,
+        run_id,
+        actor="operator",
+        reason="worker preflight test",
+        resume_plan=plan,
+        now="2099-06-07T10:01:00Z",
+    )
+    assert result["runId"] == run_id
+    assert result["status"] == "queued"
+    assert result["stage"] == "retry"
+    assert result["executionOptions"] == expected_options
+    return expected_options
