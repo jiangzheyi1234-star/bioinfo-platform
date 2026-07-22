@@ -8,6 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.contracts.remote_runner_sqlite_runtime import (
+    REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+    collect_remote_runner_sqlite_runtime_evidence,
+)
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
@@ -109,26 +113,51 @@ def ensure_execution_admission_ready(cfg: RemoteRunnerConfig) -> None:
             "blockingReasons": readiness.get("blockingReasons", []),
         },
     )
-    raise RemoteRunnerReadinessError(f"{reason_code}: execution control plane is not ready")
+    raise RemoteRunnerReadinessError(
+        f"{reason_code}: execution control plane is not ready"
+    )
 
 
-def _build_health_payload(status: str, checks: dict[str, bool], cfg: RemoteRunnerConfig) -> dict[str, Any]:
+def _build_health_payload(
+    status: str, checks: dict[str, bool], cfg: RemoteRunnerConfig
+) -> dict[str, Any]:
+    sqlite_runtime = _sqlite_runtime_inspection()
+    checks["sqlite_runtime"] = sqlite_runtime["ok"] is True
     return {
-        "status": status,
+        "status": "ok" if status == "ok" and all(checks.values()) else "failed",
         "service": "h2ometa-remote",
         "version": cfg.version,
         "startedAt": _STARTED_AT,
         "mode": cfg.mode,
         "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+        "sqliteRuntime": sqlite_runtime,
         "checks": checks,
     }
+
+
+def _sqlite_runtime_inspection() -> dict[str, object]:
+    try:
+        return dict(
+            collect_remote_runner_sqlite_runtime_evidence(
+                make_error=RuntimeError,
+            )
+        )
+    except RuntimeError:
+        return {
+            "minimumVersion": REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+            "loadedVersion": "",
+            "sqlVersion": "",
+            "ok": False,
+        }
 
 
 def _workflow_runtime_inspection(cfg: RemoteRunnerConfig) -> WorkflowRuntimeInspection:
     return WorkflowRuntimeInspection.model_validate(inspect_workflow_runtime(cfg))
 
 
-def _pipeline_registry_inspection(cfg: RemoteRunnerConfig) -> PipelineRegistryInspection:
+def _pipeline_registry_inspection(
+    cfg: RemoteRunnerConfig,
+) -> PipelineRegistryInspection:
     return PipelineRegistryInspection.model_validate(inspect_pipeline_registry(cfg))
 
 
@@ -147,14 +176,25 @@ def _workflow_runtime_payload(
         "workflowProfileConfigured": workflow.workflowProfileConfigured,
         "workflowProfileOk": workflow.workflowProfileOk,
         "workflowProfileMessage": workflow.workflowProfileMessage,
-        "workflowProfileDir": workflow.workflowProfileDir or cfg.workflow_profile_dir or "",
-        "workflowProfileName": workflow.workflowProfileName or cfg.workflow_profile_name or "",
+        "workflowProfileDir": workflow.workflowProfileDir
+        or cfg.workflow_profile_dir
+        or "",
+        "workflowProfileName": workflow.workflowProfileName
+        or cfg.workflow_profile_name
+        or "",
         "workflowProfilePath": workflow.workflowProfilePath,
     }
 
 
-def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerConfig) -> None:
-    from .metrics import collect_disk_metrics, collect_queue_metrics, collect_sqlite_metrics, get_metrics
+def _enrich_with_operational_metrics(
+    payload: dict[str, Any], cfg: RemoteRunnerConfig
+) -> None:
+    from .metrics import (
+        collect_disk_metrics,
+        collect_queue_metrics,
+        collect_sqlite_metrics,
+        get_metrics,
+    )
     from .run_worker_storage import build_run_worker_health
 
     if Path(cfg.db_path).is_file():
@@ -188,7 +228,9 @@ def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerC
         payload["metrics"] = {"error": "metrics_snapshot_failed"}
 
 
-def _enrich_with_execution_readiness(payload: dict[str, Any], cfg: RemoteRunnerConfig) -> None:
+def _enrich_with_execution_readiness(
+    payload: dict[str, Any], cfg: RemoteRunnerConfig
+) -> None:
     if not Path(cfg.db_path).is_file():
         payload["executionReadiness"] = {
             "schemaVersion": "execution-readiness-policy.v1",
@@ -196,7 +238,10 @@ def _enrich_with_execution_readiness(payload: dict[str, Any], cfg: RemoteRunnerC
             "status": "failed",
             "reasonCode": "RUNTIME_DATABASE_MISSING",
             "blockingReasons": [
-                {"code": "RUNTIME_DATABASE_MISSING", "message": "Runtime database is missing."}
+                {
+                    "code": "RUNTIME_DATABASE_MISSING",
+                    "message": "Runtime database is missing.",
+                }
             ],
             "degradedReasons": [],
             "checks": {
@@ -255,8 +300,14 @@ def _operational_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
 
 
 def _execution_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
-    readiness = payload.get("executionReadiness") if isinstance(payload.get("executionReadiness"), dict) else {}
-    checks = readiness.get("checks") if isinstance(readiness.get("checks"), dict) else {}
+    readiness = (
+        payload.get("executionReadiness")
+        if isinstance(payload.get("executionReadiness"), dict)
+        else {}
+    )
+    checks = (
+        readiness.get("checks") if isinstance(readiness.get("checks"), dict) else {}
+    )
     return {
         "execution_ready": bool(readiness.get("ok")),
         "execution_invariants": bool(checks.get("executionInvariants")),

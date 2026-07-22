@@ -7,6 +7,7 @@ import shutil
 
 import pytest
 
+import apps.remote_runner.runner_protocol_startup as startup_module
 from apps.remote_runner.process_lifetime_lock import (
     get_runner_process_lifetime_lock_path,
 )
@@ -23,6 +24,20 @@ from core.contracts.runner_protocol_runtime import (
     CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
 )
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
+
+
+@pytest.fixture(autouse=True)
+def _supported_sqlite_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        startup_module,
+        "require_remote_runner_sqlite_runtime",
+        lambda **_kwargs: {
+            "minimumVersion": "3.51.3",
+            "loadedVersion": "3.53.0",
+            "sqlVersion": "3.53.0",
+            "ok": True,
+        },
+    )
 
 
 def _startup_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
@@ -51,16 +66,18 @@ def _startup_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
         "results_dir": str(data_root / "results"),
         "work_dir": str(data_root / "work"),
         "logs_dir": str(data_root / "logs"),
-        "workflow_profile_dir": str(
-            data_root / "config" / "snakemake" / "default"
-        ),
+        "workflow_profile_dir": str(data_root / "config" / "snakemake" / "default"),
         "workflow_profile_name": "profile.v9+.yaml",
     }
     manifest = {
         "service": "h2ometa-remote",
         "version": "runtime-layout-test",
         "platform": "linux-64",
-        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        "runtime": {
+            "provider": "bundled",
+            "python": "runtime/bin/python",
+            "sqlite": {"minimumVersion": "3.51.3"},
+        },
         **build_runner_protocol_manifest_fields(),
     }
     config_path.write_text(json.dumps(config), encoding="utf-8")

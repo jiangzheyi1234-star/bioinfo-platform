@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -70,6 +71,8 @@ def test_bootstrap_service_runtime_bundle_deployment_runs_expected_remote_steps(
             self.uploads.append((local_path, remote_path))
 
     class Deployer(RemoteRunnerBootstrapBundleMixin):
+        _manager_error = RuntimeError
+
         def __init__(self) -> None:
             self.checked_steps: list[tuple[str, str, int]] = []
             self.writes: list[tuple[str, str, str, int]] = []
@@ -91,7 +94,9 @@ def test_bootstrap_service_runtime_bundle_deployment_runs_expected_remote_steps(
         artifact_sha="/opt/h2o/current/artifact.sha256",
         remote_directories=lambda: ["/opt/h2o/root", "/opt/h2o/releases/v1 with space"],
     )
-    artifact = SimpleNamespace(archive_path="C:/tmp/remote-runner.tar.gz", sha256="abc123")
+    archive_path = Path(__file__)
+    artifact_sha = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    artifact = SimpleNamespace(archive_path=archive_path, sha256=artifact_sha)
     ssh_service = FakeSshService()
     deployer = Deployer()
 
@@ -103,14 +108,20 @@ def test_bootstrap_service_runtime_bundle_deployment_runs_expected_remote_steps(
 
     assert [step for step, _command, _timeout in deployer.checked_steps] == [
         "prepare remote runner directories",
+        "verify and publish remote runner bundle",
         "clear previous remote runner service",
         "extract remote runner bundle",
     ]
-    assert ssh_service.uploads == [("C:/tmp/remote-runner.tar.gz", "/opt/h2o/current/bundle.tar.gz")]
+    assert len(ssh_service.uploads) == 1
+    assert ssh_service.uploads[0][0] == str(archive_path)
+    assert ssh_service.uploads[0][1].startswith(
+        "/opt/h2o/current/bundle.tar.gz.upload-"
+    )
+    assert ssh_service.uploads[0][1].endswith(".tmp")
     assert deployer.writes == [
         (
             "/opt/h2o/current/artifact.sha256",
-            "abc123",
+            artifact_sha,
             "write remote runner artifact marker",
             10,
         )
@@ -119,7 +130,8 @@ def test_bootstrap_service_runtime_bundle_deployment_runs_expected_remote_steps(
         ("/opt/h2o/current/bundle.tar.gz", "cleanup remote runner bundle"),
     ]
     assert "'/opt/h2o/releases/v1 with space'" in deployer.checked_steps[0][1]
-    assert "tar -xzf /opt/h2o/current/bundle.tar.gz -C '/opt/h2o/releases/v1 with space'" in deployer.checked_steps[2][1]
+    assert artifact_sha in deployer.checked_steps[1][1]
+    assert "tar -xzf /opt/h2o/current/bundle.tar.gz -C '/opt/h2o/releases/v1 with space'" in deployer.checked_steps[3][1]
 
 
 def test_remote_runner_manager_stays_below_source_line_budget() -> None:

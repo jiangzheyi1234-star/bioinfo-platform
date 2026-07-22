@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass
@@ -15,9 +16,19 @@ from core.contracts.runner_process_lifetime import (
 from core.contracts.runner_process_owner import (
     RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS,
 )
+from core.contracts.remote_runner_sqlite_runtime import (
+    REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+    require_remote_runner_sqlite_runtime_evidence,
+)
+from core.contracts.runner_activation_release_bootstrap_manifest import (
+    require_runner_activation_release_bootstrap_manifest,
+)
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
-from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
+from core.remote_runner.release_manifest import (
+    REMOTE_RUNNER_ARTIFACT,
+    REMOTE_RUNNER_VERSION,
+)
 from core.remote_runner.release_source_policy import (
     require_approved_remote_runner_release_tree,
     require_approved_remote_runner_release_worktree_file,
@@ -50,10 +61,14 @@ class RemoteRunnerBundleBuilder:
         runtime_dir: Path,
     ) -> BuiltBootstrapBundle:
         if not runtime_dir.exists():
-            raise FileNotFoundError(f"remote runner runtime directory not found: {runtime_dir}")
-        runtime_python = runtime_dir / "bin" / "python"
-        if not runtime_python.exists():
-            raise FileNotFoundError(f"remote runner runtime python not found: {runtime_python}")
+            raise FileNotFoundError(
+                f"remote runner runtime directory not found: {runtime_dir}"
+            )
+        source_runtime_python = runtime_dir / "bin" / "python"
+        if not source_runtime_python.exists():
+            raise FileNotFoundError(
+                f"remote runner runtime python not found: {source_runtime_python}"
+            )
 
         root = Path(tempfile.mkdtemp(prefix="h2ometa-remote-bundle-"))
         bundle_dir = root / "bundle"
@@ -89,18 +104,26 @@ class RemoteRunnerBundleBuilder:
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
         shutil.copytree(runtime_dir, bundle_dir / "runtime", symlinks=True)
+        _require_bundled_sqlite_runtime(bundle_dir / "runtime" / "bin" / "python")
 
-        manifest = {
-            "service": REMOTE_RUNNER_ARTIFACT.service,
-            "version": version,
-            "platform": platform,
-            "runtime": {
-                "provider": "bundled",
-                "python": "runtime/bin/python",
-            },
-            **build_runner_protocol_manifest_fields(),
-        }
-        self._write_text_lf(bundle_dir / "bootstrap_manifest.json", json.dumps(manifest, indent=2))
+        manifest = require_runner_activation_release_bootstrap_manifest(
+            {
+                "service": REMOTE_RUNNER_ARTIFACT.service,
+                "version": version,
+                "platform": platform,
+                "runtime": {
+                    "provider": "bundled",
+                    "python": "runtime/bin/python",
+                    "sqlite": {
+                        "minimumVersion": REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+                    },
+                },
+                **build_runner_protocol_manifest_fields(),
+            }
+        )
+        self._write_text_lf(
+            bundle_dir / "bootstrap_manifest.json", json.dumps(manifest, indent=2)
+        )
         self._write_text_lf(
             bundle_dir / "start_service.sh",
             "#!/usr/bin/env bash\n"
@@ -153,7 +176,7 @@ class RemoteRunnerBundleBuilder:
             "      break\n"
             "    fi\n"
             "    sleep 1\n"
-            '    i=$((i + 1))\n'
+            "    i=$((i + 1))\n"
             "  done\n"
             '  if kill -0 "$PID" >/dev/null 2>&1; then\n'
             '    kill -9 "$PID"\n'
@@ -191,12 +214,54 @@ class RemoteRunnerBundleBuilder:
         for path in bundle_dir.glob("*.sh"):
             path.chmod(0o755)
 
-        archive_path = root / f"{REMOTE_RUNNER_ARTIFACT.name}-{version}-{platform}.tar.gz"
+        archive_path = (
+            root / f"{REMOTE_RUNNER_ARTIFACT.name}-{version}-{platform}.tar.gz"
+        )
         with tarfile.open(archive_path, "w:gz") as archive:
             archive.add(bundle_dir, arcname=".")
 
-        return BuiltBootstrapBundle(version=version, platform=platform, bundle_dir=bundle_dir, archive_path=archive_path)
+        return BuiltBootstrapBundle(
+            version=version,
+            platform=platform,
+            bundle_dir=bundle_dir,
+            archive_path=archive_path,
+        )
 
     @staticmethod
     def _write_text_lf(path: Path, content: str) -> None:
         path.write_text(content, encoding="utf-8", newline="\n")
+
+
+def _require_bundled_sqlite_runtime(runtime_python: Path) -> dict[str, object]:
+    script = (
+        "import json,sqlite3;"
+        "loaded='.'.join(map(str,sqlite3.sqlite_version_info));"
+        "connection=sqlite3.connect(':memory:');"
+        "sql=str(connection.execute('SELECT sqlite_version()').fetchone()[0]);"
+        "connection.close();"
+        f"minimum={REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT!r};"
+        "ok=tuple(map(int,loaded.split('.')))>=tuple(map(int,minimum.split('.')));"
+        "print(json.dumps({'minimumVersion':minimum,'loadedVersion':loaded,"
+        "'sqlVersion':sql,'ok':ok},sort_keys=True,separators=(',',':')))"
+    )
+    try:
+        result = subprocess.run(
+            [str(runtime_python), "-I", "-B", "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        payload = json.loads(result.stdout)
+        return require_remote_runner_sqlite_runtime_evidence(
+            payload,
+            make_error=RuntimeError,
+        )
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        UnicodeError,
+        ValueError,
+        RuntimeError,
+    ):
+        raise RuntimeError("REMOTE_RUNNER_BUNDLED_SQLITE_RUNTIME_UNSAFE") from None

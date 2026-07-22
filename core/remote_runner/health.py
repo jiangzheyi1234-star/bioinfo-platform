@@ -3,6 +3,9 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
+from core.contracts.remote_runner_sqlite_runtime import (
+    require_remote_runner_sqlite_runtime_evidence,
+)
 from core.contracts.runner_protocol_runtime import (
     require_runner_protocol_runtime_self_attestation,
 )
@@ -18,8 +21,7 @@ from core.remote_runner.client import RemoteRunnerClientError
 class RemoteRunnerHealthClient(Protocol):
     def get_json(
         self, path: str, *, accepted_statuses: set[int] | None = None
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
 
 def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
@@ -29,7 +31,19 @@ def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
         live.get("runnerProtocol"),
         make_error=RemoteRunnerClientError,
     )
+    live_sqlite_runtime = require_remote_runner_sqlite_runtime_evidence(
+        live.get("sqliteRuntime"),
+        make_error=RemoteRunnerClientError,
+    )
     ready = call_remote_endpoint(client, RUNNER_HEALTH_READY, path_values={})
+    ready_sqlite_runtime = require_remote_runner_sqlite_runtime_evidence(
+        ready.get("sqliteRuntime"),
+        make_error=RemoteRunnerClientError,
+    )
+    if ready_sqlite_runtime != live_sqlite_runtime:
+        raise RemoteRunnerClientError(
+            "remote runner SQLite runtime evidence changed between live and ready probes"
+        )
     workflow = (
         ready.get("workflowRuntime")
         if isinstance(ready.get("workflowRuntime"), dict)
@@ -46,9 +60,7 @@ def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
     workflow_message = str(workflow.get("message") or "")
     pipeline_message = str(pipeline_registry.get("message") or "")
     normalized_workflow_ok = bool(workflow_ok) if workflow_ok is not None else ready_ok
-    normalized_pipeline_ok = (
-        bool(pipeline_ok) if pipeline_ok is not None else ready_ok
-    )
+    normalized_pipeline_ok = bool(pipeline_ok) if pipeline_ok is not None else ready_ok
     ready_message = "Remote runner control plane is ready."
     reason_code = ""
     if not ready_ok:
@@ -87,6 +99,7 @@ def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
             ),
         },
         "runnerProtocol": runner_protocol,
+        "sqliteRuntime": live_sqlite_runtime,
         "ready": {
             "ok": ready_ok,
             "message": ready_message,
@@ -94,13 +107,19 @@ def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
         "workflowRuntime": {
             "ok": normalized_workflow_ok,
             "message": workflow_message
-            or ("Workflow runtime is ready." if ready_ok else "Workflow runtime is not ready."),
+            or (
+                "Workflow runtime is ready."
+                if ready_ok
+                else "Workflow runtime is not ready."
+            ),
             "provider": str(workflow.get("provider") or ""),
             "source": str(workflow.get("source") or ""),
             "version": str(workflow.get("version") or ""),
             "snakemakeCommand": str(workflow.get("snakemakeCommand") or ""),
             "snakemakeVersion": str(workflow.get("snakemakeVersion") or ""),
-            "workflowProfileConfigured": bool(workflow.get("workflowProfileConfigured")),
+            "workflowProfileConfigured": bool(
+                workflow.get("workflowProfileConfigured")
+            ),
             "workflowProfileOk": bool(workflow.get("workflowProfileOk")),
             "workflowProfileMessage": str(workflow.get("workflowProfileMessage") or ""),
             "workflowProfileDir": str(workflow.get("workflowProfileDir") or ""),

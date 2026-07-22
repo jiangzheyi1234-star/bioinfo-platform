@@ -3,40 +3,40 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
+from core.contracts.runner_activation_release_bootstrap_manifest import (
+    require_runner_activation_release_bootstrap_manifest,
+)
 
 
 class RemoteRunnerEnvironmentMixin:
     _manager_error: type[Exception]
 
     @classmethod
-    def _verify_remote_manifest(cls, manifest: dict[str, Any], *, version: str, platform: str) -> None:
+    def _verify_remote_manifest(
+        cls, manifest: dict[str, Any], *, version: str, platform: str
+    ) -> None:
         if str(manifest.get("service") or "") != "h2ometa-remote":
             raise cls._manager_error("remote runner manifest has unexpected service")
         if str(manifest.get("version") or "") != version:
             raise cls._manager_error("remote runner manifest version mismatch")
         if str(manifest.get("platform") or "") != platform:
             raise cls._manager_error("remote runner manifest platform mismatch")
-        runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
-        if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
-            raise cls._manager_error("remote runner manifest does not declare bundled runtime")
-        require_current_runner_protocol_manifest(
+        require_runner_activation_release_bootstrap_manifest(
             manifest,
             make_error=cls._manager_error,
         )
 
     @classmethod
-    def _verify_remote_manifest_for_reuse(cls, manifest: dict[str, Any], *, version: str, platform: str) -> None:
+    def _verify_remote_manifest_for_reuse(
+        cls, manifest: dict[str, Any], *, version: str, platform: str
+    ) -> None:
         if str(manifest.get("service") or "") != "h2ometa-remote":
             raise cls._manager_error("remote runner manifest has unexpected service")
         if str(manifest.get("version") or "") != version:
             raise cls._manager_error("remote runner manifest version mismatch")
         if platform and str(manifest.get("platform") or "") != platform:
             raise cls._manager_error("remote runner manifest platform mismatch")
-        runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
-        if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
-            raise cls._manager_error("remote runner manifest does not declare bundled runtime")
-        require_current_runner_protocol_manifest(
+        require_runner_activation_release_bootstrap_manifest(
             manifest,
             make_error=cls._manager_error,
         )
@@ -49,7 +49,9 @@ class RemoteRunnerEnvironmentMixin:
         remote_config: str,
         expected: dict[str, Any],
     ) -> None:
-        actual = cls._read_remote_json(ssh_service, remote_config, "remote runner config")
+        actual = cls._read_remote_json(
+            ssh_service, remote_config, "remote runner config"
+        )
         required_keys = (
             "version",
             "mode",
@@ -76,7 +78,9 @@ class RemoteRunnerEnvironmentMixin:
         )
         for key in required_keys:
             if actual.get(key) != expected.get(key):
-                raise cls._manager_error(f"remote runner config verification failed: {key}")
+                raise cls._manager_error(
+                    f"remote runner config verification failed: {key}"
+                )
 
     @classmethod
     def _verify_remote_protocol_config_for_reuse(
@@ -87,22 +91,24 @@ class RemoteRunnerEnvironmentMixin:
         remote_release: str,
         manifest: dict[str, Any],
     ) -> None:
-        descriptor = require_current_runner_protocol_manifest(
+        normalized = require_runner_activation_release_bootstrap_manifest(
             manifest,
             make_error=cls._manager_error,
         )
+        descriptor = normalized["runnerProtocol"]
+        assert isinstance(descriptor, dict)
         actual = cls._read_remote_json(
             ssh_service,
             remote_config,
             "remote runner config",
         )
         expected = {
-            "service_name": manifest["service"],
-            "version": manifest["version"],
+            "service_name": normalized["service"],
+            "version": normalized["version"],
             "release_dir": f"{remote_release}/remote_runner",
             "runner_python": f"{remote_release}/runtime/bin/python",
             "runner_protocol_version": descriptor["protocolVersion"],
-            "runner_protocol_fingerprint": manifest["runnerProtocolFingerprint"],
+            "runner_protocol_fingerprint": normalized["runnerProtocolFingerprint"],
         }
         for key, value in expected.items():
             if actual.get(key) != value:
@@ -137,7 +143,9 @@ class RemoteRunnerEnvironmentMixin:
 
     @classmethod
     def _detect_remote_platform(cls, ssh_service) -> str:
-        exit_code, stdout, stderr = ssh_service.run('printf "%s:%s" "$(uname -s)" "$(uname -m)"', timeout=10)
+        exit_code, stdout, stderr = ssh_service.run(
+            'printf "%s:%s" "$(uname -s)" "$(uname -m)"', timeout=10
+        )
         if exit_code != 0:
             raise cls._manager_error(
                 stderr.strip() or stdout.strip() or "failed to detect remote platform"
@@ -150,7 +158,9 @@ class RemoteRunnerEnvironmentMixin:
         }
         signature = stdout.strip()
         if signature not in mapping:
-            raise cls._manager_error(f"unsupported remote platform: {signature or 'unknown'}")
+            raise cls._manager_error(
+                f"unsupported remote platform: {signature or 'unknown'}"
+            )
         return mapping[signature]
 
     @classmethod
@@ -167,7 +177,9 @@ class RemoteRunnerEnvironmentMixin:
 
     @staticmethod
     def _read_current_release_target(ssh_service, remote_current: str) -> str:
-        exit_code, stdout, _stderr = ssh_service.run(f"readlink -f {shlex.quote(remote_current)}", timeout=10)
+        exit_code, stdout, _stderr = ssh_service.run(
+            f"readlink -f {shlex.quote(remote_current)}", timeout=10
+        )
         if exit_code != 0:
             return ""
         return stdout.strip()

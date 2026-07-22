@@ -138,6 +138,24 @@ runner startup/readiness、install/reuse、activation 与 rollback 全路径对 
 不能替代目标机实际加载库的运行时检查。接线必须发布新 artifact version，并让安全门结果进入可审计
 readiness/activation evidence；未知版本、解析失败或回滚到不安全 artifact 都必须拒绝启动。
 
+### Stage 9c2a 完成状态（2026-07-22）
+
+Stage 9c2a 已把 SQLite 下限落实到构建、artifact、启动与生命周期边界：bootstrap manifest v2
+精确绑定 `runtime.sqlite.minimumVersion=3.51.3`；manifest 以唯一、regular、最大 1 MiB 的原始
+JSON bytes 校验，拒绝重复 key/member、链接 member 与非 POSIX tar 路径；artifact 同时要求唯一的
+`runtime/conda-meta/libsqlite-*.json` 静态证据。bundled runtime 在复制后由其自身 Python 执行
+`sqlite3.sqlite_version_info` 与 `SELECT sqlite_version()` 双观测，startup、live/ready、install、reuse、
+activation 与 rollback 都只接受一致且不低于 3.51.3 的运行时证据。
+
+部署路径在上传前重新计算本地 SHA-256，上传到唯一临时名，并在远端校验 SHA-256 后原子发布；
+校验通过前不会停止旧服务、解包或写 artifact marker。快速复用元数据始终重绑定本轮已解析 artifact
+的 SQLite 证据，CI/SSH builder 在生成发布元数据前也会重新校验实际 candidate tar。
+
+真实 Windows 运行时验收分别观察到 SQLite 3.45.3 与 3.50.4，二者都被生产门按预期拒绝。
+本任务未获准向未确认的 SSH 目标上传未提交源码，因此没有执行远端 Linux staging build，也没有发布
+或切换生产 runner。现有 0.1.5/v1 artifact 会被新门有意拒绝；正式 rollout 必须另外构建、验证并发布
+新的不可变 v2 artifact，这一部署工作不属于本 goal 的完成声明。
+
 ## 恢复规则
 
 - 只有 prepared intent：`launch_unknown`，禁止盲目重启；
@@ -164,6 +182,8 @@ readiness/activation evidence；未知版本、解析失败或回滚到不安全
 - [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 - [OpenAI Agents SDK human-in-the-loop](https://openai.github.io/openai-agents-python/human_in_the_loop/)
 - [SQLite WAL-reset bug](https://sqlite.org/wal.html#the_wal_reset_bug)
+- [SQLite change log](https://sqlite.org/changes.html)
+- [Python `sqlite3.sqlite_version`](https://docs.python.org/3/library/sqlite3.html#sqlite3.sqlite_version)
 - [Microsoft CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)
 - [Microsoft GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes)
 - [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)

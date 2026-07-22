@@ -35,7 +35,7 @@ def test_remote_manifest_rejects_legacy_runner_without_protocol() -> None:
     manifest = _remote_runner_manifest(version="protocol-test")
     manifest.pop("runnerProtocol")
 
-    with pytest.raises(RuntimeError, match="descriptor must be an object"):
+    with pytest.raises(RuntimeError, match="fields must match exactly"):
         _Environment._verify_remote_manifest(
             manifest,
             version="protocol-test",

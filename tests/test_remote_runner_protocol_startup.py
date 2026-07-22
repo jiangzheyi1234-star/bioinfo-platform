@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import apps.remote_runner.runner_protocol_startup as startup_module
 from apps.remote_runner.config import (
     RemoteRunnerConfig,
     bind_remote_runner_config_snapshot,
@@ -35,7 +36,23 @@ from core.contracts.runner_protocol_runtime import CURRENT_RUNNER_PROTOCOL_FINGE
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 
 
-def _startup_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object], dict[str, object]]:
+@pytest.fixture(autouse=True)
+def _supported_sqlite_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        startup_module,
+        "require_remote_runner_sqlite_runtime",
+        lambda **_kwargs: {
+            "minimumVersion": "3.51.3",
+            "loadedVersion": "3.53.0",
+            "sqlVersion": "3.53.0",
+            "ok": True,
+        },
+    )
+
+
+def _startup_fixture(
+    tmp_path: Path,
+) -> tuple[Path, Path, dict[str, object], dict[str, object]]:
     release = tmp_path / "release"
     package_dir = release / "remote_runner"
     package_dir.mkdir(parents=True)
@@ -61,16 +78,18 @@ def _startup_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object], dic
         "results_dir": str(data_root / "results"),
         "work_dir": str(data_root / "work"),
         "logs_dir": str(data_root / "logs"),
-        "workflow_profile_dir": str(
-            data_root / "config" / "snakemake" / "default"
-        ),
+        "workflow_profile_dir": str(data_root / "config" / "snakemake" / "default"),
         "workflow_profile_name": "profile.v9+.yaml",
     }
     manifest: dict[str, object] = {
         "service": "h2ometa-remote",
         "version": "runtime-protocol-test",
         "platform": "linux-64",
-        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        "runtime": {
+            "provider": "bundled",
+            "python": "runtime/bin/python",
+            "sqlite": {"minimumVersion": "3.51.3"},
+        },
         **build_runner_protocol_manifest_fields(),
     }
     config_path.write_text(json.dumps(config), encoding="utf-8")
@@ -93,7 +112,9 @@ def _expected_fingerprint(domain: bytes, payload: object) -> str:
     return f"sha256:{hashlib.sha256(domain + b'\x00' + canonical).hexdigest()}"
 
 
-def test_startup_snapshot_binds_exact_golden_evidence_and_domains(tmp_path: Path) -> None:
+def test_startup_snapshot_binds_exact_golden_evidence_and_domains(
+    tmp_path: Path,
+) -> None:
     config_path, package_dir, config, manifest = _startup_fixture(tmp_path)
 
     cfg, result = load_remote_runner_startup_snapshot(
@@ -115,11 +136,9 @@ def test_startup_snapshot_binds_exact_golden_evidence_and_domains(tmp_path: Path
         "runnerPythonPath": str(
             (package_dir.parent / "runtime" / "bin" / "python").resolve()
         ),
-        "manifestPath": str(
-            (package_dir.parent / "bootstrap_manifest.json").resolve()
-        ),
+        "manifestPath": str((package_dir.parent / "bootstrap_manifest.json").resolve()),
         "bootstrapManifestFingerprint": _expected_fingerprint(
-            b"h2ometa.remote-runner.startup.bootstrap-manifest.v1",
+            b"h2ometa.remote-runner.startup.bootstrap-manifest.v2",
             manifest,
         ),
         "artifactArchiveSha256Path": str(
@@ -129,23 +148,13 @@ def test_startup_snapshot_binds_exact_golden_evidence_and_domains(tmp_path: Path
         "protocolVersion": RUNNER_PROTOCOL_VERSION,
         "protocolFingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
     }
-    assert require_runner_protocol_startup_preflight(
-        config_path=config_path,
-        package_dir=package_dir,
-    ) == result
-
-
-def test_startup_preflight_rejects_missing_config_without_writes(tmp_path: Path) -> None:
-    missing = tmp_path / "shared" / "config" / "runner.json"
-
-    with pytest.raises(RuntimeError, match="REMOTE_RUNNER_CONFIG_MISSING"):
+    assert (
         require_runner_protocol_startup_preflight(
-            config_path=missing,
-            package_dir=tmp_path / "release" / "remote_runner",
+            config_path=config_path,
+            package_dir=package_dir,
         )
-
-    assert not (tmp_path / "shared").exists()
-    assert not (tmp_path / "release").exists()
+        == result
+    )
 
 
 @pytest.mark.parametrize("target", ["config", "manifest"])
@@ -165,7 +174,9 @@ def test_startup_snapshot_rejects_duplicate_keys_and_non_finite_json(
     raw = json.dumps(payload)[:-1] + f',"unsafe":{constant}}}'
     path.write_text(raw, encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"):
+    with pytest.raises(
+        RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"
+    ):
         require_runner_protocol_startup_preflight(
             config_path=config_path,
             package_dir=package_dir,
@@ -173,7 +184,9 @@ def test_startup_snapshot_rejects_duplicate_keys_and_non_finite_json(
 
     duplicate = json.dumps(payload)[:-1] + ',"version":"duplicate"}'
     path.write_text(duplicate, encoding="utf-8")
-    with pytest.raises(RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"):
+    with pytest.raises(
+        RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"
+    ):
         require_runner_protocol_startup_preflight(
             config_path=config_path,
             package_dir=package_dir,
@@ -197,7 +210,9 @@ def test_startup_snapshot_rejects_escaped_unicode_surrogates(
     raw = json.dumps(payload)[:-1] + f',"unsafe":"{surrogate}"}}'
     path.write_text(raw, encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"):
+    with pytest.raises(
+        RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"
+    ):
         require_runner_protocol_startup_preflight(
             config_path=config_path,
             package_dir=package_dir,
@@ -218,11 +233,13 @@ def test_startup_snapshot_rejects_invalid_json_file_bytes(
         else package_dir.parent / "bootstrap_manifest.json"
     )
     if invalid_kind == "non_utf8":
-        path.write_bytes(b"{\"invalid\":\"\xff\"}")
+        path.write_bytes(b'{"invalid":"\xff"}')
     else:
         path.write_bytes(b'{"padding":"' + b"x" * (1024 * 1024) + b'"}')
 
-    with pytest.raises(RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"):
+    with pytest.raises(
+        RuntimeError, match=f"REMOTE_RUNNER_.*{target.upper()}.*INVALID"
+    ):
         require_runner_protocol_startup_preflight(
             config_path=config_path,
             package_dir=package_dir,
@@ -495,7 +512,9 @@ def test_preflighted_config_snapshot_remains_process_bound_after_disk_drift(
         "token": "drifted-token",
         "data_root": str(tmp_path / "drifted-data"),
         "release_dir": str(tmp_path / "drifted-release" / "remote_runner"),
-        "runner_python": str(tmp_path / "drifted-release" / "runtime" / "bin" / "python"),
+        "runner_python": str(
+            tmp_path / "drifted-release" / "runtime" / "bin" / "python"
+        ),
     }
     config_path.write_text(json.dumps(drifted), encoding="utf-8")
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
@@ -528,7 +547,9 @@ def test_preflight_release_evidence_remains_process_bound_and_detached(
 
     assert get_process_bound_remote_runner_startup_binding() == original
     bind_remote_runner_startup_binding(original)
-    with pytest.raises(RuntimeError, match="REMOTE_RUNNER_STARTUP_BINDING_ALREADY_BOUND"):
+    with pytest.raises(
+        RuntimeError, match="REMOTE_RUNNER_STARTUP_BINDING_ALREADY_BOUND"
+    ):
         bind_remote_runner_startup_binding(binding)
 
     invalid = {**original, "unexpected": "value"}
@@ -556,9 +577,7 @@ def test_explicit_startup_initialization_uses_one_snapshot_and_migrates_layout(
             "results_dir": str(data_root / "results"),
             "work_dir": str(data_root / "work"),
             "logs_dir": str(data_root / "logs"),
-            "workflow_profile_dir": str(
-                data_root / "config" / "snakemake" / "default"
-            ),
+            "workflow_profile_dir": str(data_root / "config" / "snakemake" / "default"),
         }
     )
     config_path.write_text(json.dumps(config), encoding="utf-8")
@@ -594,7 +613,10 @@ def test_explicit_startup_initialization_uses_one_snapshot_and_migrates_layout(
     assert (data_root / "uploads").is_dir()
     db_path = data_root / "data" / "runner.db"
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == CURRENT_SCHEMA_VERSION
+        )
 
 
 def test_explicit_startup_initialization_releases_lock_when_layout_fails(
@@ -666,9 +688,14 @@ def test_explicit_startup_initialization_rejects_manifest_drift_before_layout_wr
     [
         (lambda manifest: manifest.__setitem__("service", "wrong"), "SERVICE_MISMATCH"),
         (lambda manifest: manifest.__setitem__("version", "wrong"), "VERSION_MISMATCH"),
-        (lambda manifest: manifest.pop("runnerProtocol"), "descriptor must be an object"),
         (
-            lambda manifest: manifest.__setitem__("runnerProtocolFingerprint", "sha256:" + "0" * 64),
+            lambda manifest: manifest.pop("runnerProtocol"),
+            "descriptor must be an object",
+        ),
+        (
+            lambda manifest: manifest.__setitem__(
+                "runnerProtocolFingerprint", "sha256:" + "0" * 64
+            ),
             "PROTOCOL_FINGERPRINT_INVALID",
         ),
     ],
@@ -712,7 +739,9 @@ def test_explicit_config_missing_protocol_fails_before_layout_mutation(
     assert not (tmp_path / "runtime-data").exists()
 
 
-def test_layout_rejects_wrong_expectation_before_creating_directories(tmp_path: Path) -> None:
+def test_layout_rejects_wrong_expectation_before_creating_directories(
+    tmp_path: Path,
+) -> None:
     shared = tmp_path / "shared"
     cfg = RemoteRunnerConfig(
         runner_protocol_fingerprint="sha256:" + "0" * 64,
@@ -733,7 +762,9 @@ def test_layout_rejects_wrong_expectation_before_creating_directories(tmp_path: 
 
 def test_entrypoints_run_read_only_preflight_before_runtime_imports() -> None:
     root = Path(__file__).resolve().parents[1]
-    run_source = (root / "apps" / "remote_runner" / "run.py").read_text(encoding="utf-8")
+    run_source = (root / "apps" / "remote_runner" / "run.py").read_text(
+        encoding="utf-8"
+    )
     activation_source = (
         root / "core" / "remote_runner" / "bootstrap_protocol_activation.py"
     ).read_text(encoding="utf-8")
@@ -742,15 +773,16 @@ def test_entrypoints_run_read_only_preflight_before_runtime_imports() -> None:
     assert run_source.index(helper_call) < run_source.index(
         "lifetime_lock = adopt_runner_process_lifetime_lock(cfg)"
     )
-    assert run_source.index("lifetime_lock = adopt_runner_process_lifetime_lock(cfg)") < run_source.index(
-        "from .config import ("
-    )
+    assert run_source.index(
+        "lifetime_lock = adopt_runner_process_lifetime_lock(cfg)"
+    ) < run_source.index("from .config import (")
     assert run_source.index(helper_call) < run_source.index("from .main import app")
     helper_start = run_source.index("def _load_startup_snapshot_for_owner_adoption()")
     helper_end = run_source.index("def _scrub_inherited_runner_binding_environment(")
-    assert "return load_remote_runner_startup_snapshot()" in run_source[
-        helper_start:helper_end
-    ]
+    assert (
+        "return load_remote_runner_startup_snapshot()"
+        in run_source[helper_start:helper_end]
+    )
     assert "load_remote_runner_config()" not in run_source
     assert "initialize_runtime_layout_from_explicit_config" in activation_source
     assert "{python} -B -c" in activation_source

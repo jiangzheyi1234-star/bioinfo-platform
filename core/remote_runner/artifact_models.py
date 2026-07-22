@@ -16,6 +16,7 @@ class RemoteRunnerArtifact:
     archive_path: Path
     sha256: str
     manifest: dict[str, Any]
+    sqlite_evidence: dict[str, Any]
 
 
 @dataclass(frozen=True)

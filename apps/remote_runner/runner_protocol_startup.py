@@ -30,6 +30,10 @@ from core.contracts.runner_activation_release_bootstrap_manifest import (
     require_runner_activation_release_bootstrap_manifest,
     runner_activation_release_bootstrap_manifest_fingerprint,
 )
+from core.contracts.remote_runner_sqlite_runtime import (
+    REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+    require_remote_runner_sqlite_runtime,
+)
 
 from .runtime_state import RUNNER_RUNTIME_STATE_FILENAME
 from .workflow_runtime_config import DEFAULT_WORKFLOW_PROFILE_NAME
@@ -145,6 +149,9 @@ def load_remote_runner_startup_snapshot(
         config_payload=config_payload,
         expectation=expectation,
     )
+    require_remote_runner_sqlite_runtime(
+        make_error=lambda _message: RuntimeError("REMOTE_RUNNER_SQLITE_RUNTIME_UNSAFE")
+    )
 
     artifact_sha256_path = actual_package_dir.parent / "artifact.sha256"
     artifact_sha256 = _read_regular_file_snapshot(
@@ -208,20 +215,15 @@ def _require_exact_mutable_runtime_layout(
     )
     missing = sorted(required_fields.difference(config_payload))
     if missing:
-        raise RuntimeError(
-            "REMOTE_RUNNER_MUTABLE_LAYOUT_MISSING: " + ",".join(missing)
-        )
+        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_MISSING: " + ",".join(missing))
 
     if cfg.service_name != RUNNER_PROCESS_OWNER_SERVICE:
-        raise RuntimeError(
-            "REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: service_name"
-        )
+        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: service_name")
     if cfg.mode not in RUNNER_PROCESS_OWNER_CONFIGURED_MODES:
         raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: mode")
     _require_mutable_layout_artifact_version(cfg.version)
     if (
-        config_payload.get("workflow_profile_name")
-        != DEFAULT_WORKFLOW_PROFILE_NAME
+        config_payload.get("workflow_profile_name") != DEFAULT_WORKFLOW_PROFILE_NAME
         or cfg.workflow_profile_name != DEFAULT_WORKFLOW_PROFILE_NAME
     ):
         raise RuntimeError(
@@ -252,9 +254,7 @@ def _require_exact_mutable_runtime_layout(
 
     expected_config_path = data_root / "config" / "runner.json"
     if config_path != expected_config_path:
-        raise RuntimeError(
-            "REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: config_path"
-        )
+        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: config_path")
 
     try:
         physical_data_root = data_root.resolve(strict=False)
@@ -272,9 +272,7 @@ def _require_exact_mutable_runtime_layout(
             "REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: release_shared_overlap"
         )
     if physical_config_path != physical_data_root / "config" / "runner.json":
-        raise RuntimeError(
-            "REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: config_path_alias"
-        )
+        raise RuntimeError("REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: config_path_alias")
     for field, configured_path in configured.items():
         relative_path = expected[field].relative_to(data_root)
         expected_physical_path = physical_data_root / relative_path
@@ -285,9 +283,7 @@ def _require_exact_mutable_runtime_layout(
                 f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}_alias"
             ) from exc
         if physical_path != expected_physical_path:
-            raise RuntimeError(
-                f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}_alias"
-            )
+            raise RuntimeError(f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}_alias")
         if _is_relative_to(physical_path, physical_release_root):
             raise RuntimeError(
                 f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}_release_overlap"
@@ -301,9 +297,7 @@ def _require_canonical_absolute_path(value: object, *, field: str) -> Path:
         path = Path(value)
         normalized = Path(os.path.abspath(value))
     except (OSError, TypeError, ValueError) as exc:
-        raise RuntimeError(
-            f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}"
-        ) from exc
+        raise RuntimeError(f"REMOTE_RUNNER_MUTABLE_LAYOUT_INVALID: {field}") from exc
     if (
         not path.is_absolute()
         or path != normalized
@@ -331,9 +325,7 @@ def _require_safe_runner_python_entrypoint(
         entrypoint_stat = entrypoint.stat()
         target_stat = physical_entrypoint.stat()
     except (OSError, RuntimeError) as exc:
-        raise RuntimeError(
-            f"REMOTE_RUNNER_PYTHON_INVALID: {entrypoint}"
-        ) from exc
+        raise RuntimeError(f"REMOTE_RUNNER_PYTHON_INVALID: {entrypoint}") from exc
 
     if (
         physical_release_root != release_root
@@ -346,9 +338,7 @@ def _require_safe_runner_python_entrypoint(
         != (target_stat.st_dev, target_stat.st_ino)
         or (
             os.name == "posix"
-            and target_stat.st_mode
-            & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            == 0
+            and target_stat.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH) == 0
         )
     ):
         raise RuntimeError(f"REMOTE_RUNNER_PYTHON_INVALID: {entrypoint}")
@@ -423,7 +413,11 @@ def _require_bootstrap_manifest_matches_config(
     if manifest.get("version") != config_payload.get("version"):
         raise RuntimeError("REMOTE_RUNNER_ARTIFACT_MANIFEST_VERSION_MISMATCH")
     runtime = manifest.get("runtime")
-    if runtime != {"provider": "bundled", "python": "runtime/bin/python"}:
+    if runtime != {
+        "provider": "bundled",
+        "python": "runtime/bin/python",
+        "sqlite": {"minimumVersion": REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT},
+    }:
         raise RuntimeError("REMOTE_RUNNER_ARTIFACT_RUNTIME_MISMATCH")
 
     descriptor = require_runner_protocol_descriptor(

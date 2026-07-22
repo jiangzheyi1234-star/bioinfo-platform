@@ -110,6 +110,7 @@ class RemoteRunnerManager(
                 server_record=server_record,
                 version=version,
                 remote_service_python=paths.service_python,
+                sqlite_evidence=dict(getattr(artifact, "sqlite_evidence", {}) or {}),
             )
             self._guard_upgrade_reuse(server_id=server_id, ssh_service=ssh_service, server_record=server_record, bootstrap_metadata=fast_reuse_metadata, bootstrap_action=bootstrap_action, previous_release=previous_release)
             reuse_result = self._try_reuse_existing_runner_fast(

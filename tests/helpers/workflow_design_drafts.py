@@ -41,7 +41,11 @@ def workflow_design_config(tmp_path: Path) -> RemoteRunnerConfig:
                 "service": "h2ometa-remote",
                 "version": cfg.version,
                 "platform": "linux-64",
-                "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+                "runtime": {
+                    "provider": "bundled",
+                    "python": "runtime/bin/python",
+                    "sqlite": {"minimumVersion": "3.51.3"},
+                },
                 **build_runner_protocol_manifest_fields(),
             },
             indent=2,
@@ -174,7 +178,9 @@ def workflow_design_draft(tool_id: str = "bioconda::qc=1.0") -> dict[str, Any]:
                 "params": {"min_len": 80},
                 "runtime": {"threads": 2, "schedulerResources": {"mem_mb": 256}},
                 "resources": {},
-                "outputs": {"report": {"expose": True, "metadata": {"panel": "summary"}}},
+                "outputs": {
+                    "report": {"expose": True, "metadata": {"panel": "summary"}}
+                },
                 "metadata": {"uiGroup": "qc"},
                 "provenance": {"source": "builder"},
             }

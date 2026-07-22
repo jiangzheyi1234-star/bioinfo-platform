@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from apps.remote_runner.config import RemoteRunnerConfig, dump_public_config, write_runtime_state
+import apps.remote_runner.health_service as health_service_module
+from apps.remote_runner.config import (
+    RemoteRunnerConfig,
+    dump_public_config,
+    write_runtime_state,
+)
 from apps.remote_runner.health_service import (
     build_health_live_payload,
     build_health_ready_payload,
@@ -31,9 +36,21 @@ from core.contracts.runner_process_owner import (
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.health import build_runner_health
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from tests.helpers.remote_runner_control_plane import (
+    safe_remote_runner_sqlite_runtime_evidence,
+)
 
 
 _BOOT_ID = "11111111-2222-3333-4444-555555555555"
+
+
+@pytest.fixture(autouse=True)
+def _supported_sqlite_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        health_service_module,
+        "collect_remote_runner_sqlite_runtime_evidence",
+        lambda **_kwargs: safe_remote_runner_sqlite_runtime_evidence(),
+    )
 
 
 def _process_incarnation(*, pid: int = 123) -> dict[str, object]:
@@ -143,7 +160,10 @@ def test_control_plane_accepts_exact_runtime_state_attestation() -> None:
         version="runtime-attestation-test",
     )
 
-    assert state["runnerProtocol"]["protocolFingerprint"] == CURRENT_RUNNER_PROTOCOL_FINGERPRINT
+    assert (
+        state["runnerProtocol"]["protocolFingerprint"]
+        == CURRENT_RUNNER_PROTOCOL_FINGERPRINT
+    )
 
 
 @pytest.mark.parametrize("mutation", ["missing", "extra", "pid-mismatch"])
@@ -262,7 +282,9 @@ def test_control_plane_rejects_invalid_runtime_process_owner_reference(
 def test_control_plane_rejects_missing_or_drifted_runtime_state_attestation(
     protocol: object,
 ) -> None:
-    with pytest.raises(RemoteRunnerManagerError, match="runtime protocol self-attestation"):
+    with pytest.raises(
+        RemoteRunnerManagerError, match="runtime protocol self-attestation"
+    ):
         RemoteRunnerManager._parse_runtime_state(
             _runtime_state(protocol=protocol),
             version="runtime-attestation-test",
@@ -270,8 +292,17 @@ def test_control_plane_rejects_missing_or_drifted_runtime_state_attestation(
 
 
 class _HealthClient:
-    def __init__(self, live_protocol: object) -> None:
+    def __init__(
+        self,
+        live_protocol: object,
+        sqlite_runtime: object | None = None,
+    ) -> None:
         self.live_protocol = live_protocol
+        self.sqlite_runtime = (
+            safe_remote_runner_sqlite_runtime_evidence()
+            if sqlite_runtime is None
+            else sqlite_runtime
+        )
 
     def get_json(
         self,
@@ -286,9 +317,13 @@ class _HealthClient:
                 "status": "ok",
                 "service": "h2ometa-remote",
                 "runnerProtocol": self.live_protocol,
+                "sqliteRuntime": self.sqlite_runtime,
             }
         if path == "/health/ready":
-            return {"status": "ok"}
+            return {
+                "status": "ok",
+                "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
+            }
         raise AssertionError(path)
 
 
@@ -297,7 +332,10 @@ def test_control_plane_health_accepts_exact_runtime_attestation() -> None:
         _HealthClient(build_runner_protocol_runtime_self_attestation())
     )
 
-    assert health["runnerProtocol"]["protocolFingerprint"] == CURRENT_RUNNER_PROTOCOL_FINGERPRINT
+    assert (
+        health["runnerProtocol"]["protocolFingerprint"]
+        == CURRENT_RUNNER_PROTOCOL_FINGERPRINT
+    )
 
 
 def test_control_plane_health_rejects_missing_runtime_attestation() -> None:
@@ -314,6 +352,32 @@ def test_control_plane_health_rejects_drifted_runtime_attestation() -> None:
 
 
 @pytest.mark.parametrize(
+    "sqlite_runtime",
+    [
+        {},
+        {
+            "minimumVersion": "3.51.3",
+            "loadedVersion": "3.51.2",
+            "sqlVersion": "3.51.2",
+            "ok": False,
+        },
+    ],
+)
+def test_live_wait_rejects_missing_or_unsafe_sqlite_runtime(
+    sqlite_runtime: object,
+) -> None:
+    with pytest.raises(RemoteRunnerManagerError, match="SQLite runtime"):
+        RemoteRunnerManager._wait_for_runner_live(
+            _HealthClient(
+                build_runner_protocol_runtime_self_attestation(),
+                sqlite_runtime,
+            ),
+            attempts=1,
+            delay_seconds=0,
+        )
+
+
+@pytest.mark.parametrize(
     "protocol",
     [
         None,
@@ -323,7 +387,9 @@ def test_control_plane_health_rejects_drifted_runtime_attestation() -> None:
         },
     ],
 )
-def test_live_wait_fails_closed_on_missing_or_drifted_attestation(protocol: object) -> None:
+def test_live_wait_fails_closed_on_missing_or_drifted_attestation(
+    protocol: object,
+) -> None:
     with pytest.raises(RemoteRunnerManagerError, match="self-attestation"):
         RemoteRunnerManager._wait_for_runner_live(
             _HealthClient(protocol),

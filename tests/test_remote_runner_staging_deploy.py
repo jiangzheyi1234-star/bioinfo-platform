@@ -12,7 +12,14 @@ from tests.helpers.remote_runner_control_plane import _fake_runtime_dir
 from tests.test_remote_runner_artifact import _write_artifact
 
 
-def test_staging_artifact_validation_reports_exact_runner_protocol(tmp_path: Path) -> None:
+def test_staging_artifact_validation_reports_exact_runner_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "core.remote_runner.bundle._require_bundled_sqlite_runtime",
+        lambda _runtime_python: {"ok": True},
+    )
     bundle = RemoteRunnerBundleBuilder().build(
         version="staging-protocol",
         platform="linux-64",

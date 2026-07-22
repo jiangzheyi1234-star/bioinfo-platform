@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Build release artifacts on a controlled Linux CI builder.
-
-This script is intentionally separate from the SSH builder scripts. The SSH
-builders are useful for development and repair; production release artifacts
-should be produced by CI from an immutable source ref.
-"""
+"""Build immutable-source release artifacts; SSH builders remain for development."""
 
 from __future__ import annotations
 
@@ -112,7 +107,9 @@ def source_ref_is_immutable(source_ref: str) -> bool:
 
 def ensure_source_ref_checked_out(source_ref: str) -> str:
     if not source_ref:
-        raise SystemExit("CI release artifact builds require --source-ref or GITHUB_SHA.")
+        raise SystemExit(
+            "CI release artifact builds require --source-ref or GITHUB_SHA."
+        )
     if not source_ref_is_immutable(source_ref):
         raise SystemExit(
             "CI release artifact builds require an immutable --source-ref: "
@@ -137,9 +134,7 @@ def copy_git_file(
     tree_entry_validated: bool = False,
 ) -> None:
     if not tree_entry_validated:
-        result = run_git(
-            ["ls-tree", "-z", source_ref, "--", repo_relative_path]
-        )
+        result = run_git(["ls-tree", "-z", source_ref, "--", repo_relative_path])
         entries = _validated_git_release_files(str(result))
         if entries != [repo_relative_path]:
             raise RuntimeError(
@@ -176,9 +171,7 @@ def _validated_git_release_files(result: str) -> list[str]:
                 "remote runner release source contains an unapproved git tree entry: "
                 f"{repo_relative_path}"
             )
-        require_approved_remote_runner_release_source(
-            PurePosixPath(repo_relative_path)
-        )
+        require_approved_remote_runner_release_source(PurePosixPath(repo_relative_path))
         files.append(repo_relative_path)
     return files
 
@@ -207,9 +200,13 @@ def copy_remote_runner_sources(build_root: Path, *, source_ref: str) -> None:
         build_root / "bundle" / "remote_runner",
         source_ref=source_ref,
     )
-    copy_git_file(source_ref, "core/__init__.py", build_root / "bundle" / "core" / "__init__.py")
+    copy_git_file(
+        source_ref, "core/__init__.py", build_root / "bundle" / "core" / "__init__.py"
+    )
     for filename in CORE_RUNTIME_HELPER_FILES:
-        copy_git_file(source_ref, f"core/{filename}", build_root / "bundle" / "core" / filename)
+        copy_git_file(
+            source_ref, f"core/{filename}", build_root / "bundle" / "core" / filename
+        )
     copy_git_tree(
         REPO_ROOT / "core" / "contracts",
         build_root / "bundle" / "core" / "contracts",
@@ -217,14 +214,20 @@ def copy_remote_runner_sources(build_root: Path, *, source_ref: str) -> None:
     )
 
 
-def materialize_lock_file(spec, *, platform: str, source_ref: str, build_root: Path) -> Path:
+def materialize_lock_file(
+    spec, *, platform: str, source_ref: str, build_root: Path
+) -> Path:
     relative = spec.conda_explicit_specs.get(platform)
     if not relative:
-        raise SystemExit(f"{spec.key} manifest has no explicit conda spec for {platform}")
+        raise SystemExit(
+            f"{spec.key} manifest has no explicit conda spec for {platform}"
+        )
     text = git_file_text(source_ref, relative)
     first_line = text.splitlines()[0:1]
     if first_line != ["@EXPLICIT"]:
-        raise SystemExit(f"{spec.key} explicit conda spec must start with @EXPLICIT: {relative}")
+        raise SystemExit(
+            f"{spec.key} explicit conda spec must start with @EXPLICIT: {relative}"
+        )
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     declared = str(spec.lock_sha256.get(platform) or "").strip().lower()
     if declared and declared != digest:
@@ -240,7 +243,9 @@ def materialize_lock_file(spec, *, platform: str, source_ref: str, build_root: P
 
 def run_bash(script: str, *, build_root: Path | None = None) -> str:
     if os.name == "nt":
-        raise SystemExit("CI release artifact builds must run on a Linux builder, not Windows.")
+        raise SystemExit(
+            "CI release artifact builds must run on a Linux builder, not Windows."
+        )
     env = dict(os.environ)
     if build_root is not None:
         env["BUILD_ROOT"] = str(build_root)
@@ -256,7 +261,9 @@ def run_bash(script: str, *, build_root: Path | None = None) -> str:
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     if result.returncode != 0:
-        raise RuntimeError(f"release artifact build script failed with exit code {result.returncode}")
+        raise RuntimeError(
+            f"release artifact build script failed with exit code {result.returncode}"
+        )
     return result.stdout
 
 
@@ -297,7 +304,9 @@ def conda_lock_packages(lock_path: Path) -> list[dict[str, str]]:
     return packages
 
 
-def write_spdx_sbom(*, artifact: dict[str, Any], output_dir: Path, source_ref: str) -> dict[str, str]:
+def write_spdx_sbom(
+    *, artifact: dict[str, Any], output_dir: Path, source_ref: str
+) -> dict[str, str]:
     artifact_path = Path(str(artifact["path"]))
     lock_path = Path(str((artifact.get("lock") or {}).get("path") or ""))
     dependency_packages = conda_lock_packages(lock_path) if lock_path.exists() else []
@@ -360,7 +369,9 @@ def write_spdx_sbom(*, artifact: dict[str, Any], output_dir: Path, source_ref: s
         "packages": packages,
         "relationships": relationships,
     }
-    sbom_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    sbom_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return {
         "path": str(sbom_path),
         "sha256": sha256_file(sbom_path),
@@ -379,7 +390,13 @@ def build_remote_runner_artifact(
     build_root = work_root / "remote-runner"
     build_root.mkdir(parents=True, exist_ok=True)
     copy_remote_runner_sources(build_root, source_ref=source_ref)
-    lock_file = materialize_lock_file(REMOTE_RUNNER_ARTIFACT, platform=platform, source_ref=source_ref, build_root=build_root)
+    lock_file = materialize_lock_file(
+        REMOTE_RUNNER_ARTIFACT,
+        platform=platform,
+        source_ref=source_ref,
+        build_root=build_root,
+    )
+    runner_builder.validate_explicit_lock(lock_file, platform=platform)
     shutil.copy2(lock_file, build_root / "explicit.txt")
     lock_sha256 = sha256_text(lock_file)
     plan = runner_builder.build_remote_script_plan(
@@ -392,6 +409,7 @@ def build_remote_runner_artifact(
     output = run_bash(plan["remoteScript"], build_root=build_root)
     built_path = Path(output.strip().splitlines()[-1].strip())
     artifact = copy_built_artifact(built_path, output_dir)
+    runner_builder.validate_built_remote_runner_candidate(artifact_path=Path(artifact["path"]), version=version, platform=platform)
     artifact.update(
         {
             "artifactKey": REMOTE_RUNNER_ARTIFACT.key,
@@ -402,7 +420,9 @@ def build_remote_runner_artifact(
             "sourceCommit": source_commit,
         }
     )
-    artifact["sbom"] = write_spdx_sbom(artifact=artifact, output_dir=output_dir, source_ref=source_ref)
+    artifact["sbom"] = write_spdx_sbom(
+        artifact=artifact, output_dir=output_dir, source_ref=source_ref
+    )
     return artifact
 
 
@@ -459,11 +479,17 @@ def build_workflow_runtime_artifact(
     return artifact
 
 
-def build_metadata(*, artifacts: list[dict[str, Any]], source_ref: str, source_commit: str) -> dict[str, Any]:
+def build_metadata(
+    *, artifacts: list[dict[str, Any]], source_ref: str, source_commit: str
+) -> dict[str, Any]:
     server_url = str(os.environ.get("GITHUB_SERVER_URL", "") or "").strip()
     repository = str(os.environ.get("GITHUB_REPOSITORY", "") or "").strip()
     run_id = str(os.environ.get("GITHUB_RUN_ID", "") or "").strip()
-    run_url = f"{server_url}/{repository}/actions/runs/{run_id}" if server_url and repository and run_id else ""
+    run_url = (
+        f"{server_url}/{repository}/actions/runs/{run_id}"
+        if server_url and repository and run_id
+        else ""
+    )
     builder_id = str(os.environ.get("GITHUB_WORKFLOW_REF", "") or "").strip()
     return {
         "schemaVersion": "h2ometa-release-artifacts-ci.v1",
@@ -501,18 +527,26 @@ def write_local_attestation_bundle(
         "predicateType": predicate_type,
         "predicate": predicate,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return {
         "path": str(path),
         "sha256": sha256_file(path),
     }
 
 
-def write_release_attestations(*, metadata: dict[str, Any], output_dir: Path) -> dict[str, Any]:
-    builder = metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+def write_release_attestations(
+    *, metadata: dict[str, Any], output_dir: Path
+) -> dict[str, Any]:
+    builder = (
+        metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+    )
     source_ref = str(metadata.get("sourceRef") or "").strip()
     source_commit = str(metadata.get("sourceCommit") or "").strip()
-    artifacts = [item for item in metadata.get("artifacts") or [] if isinstance(item, dict)]
+    artifacts = [
+        item for item in metadata.get("artifacts") or [] if isinstance(item, dict)
+    ]
     subjects = [
         {
             "name": Path(str(item.get("path") or "")).name,
@@ -524,7 +558,10 @@ def write_release_attestations(*, metadata: dict[str, Any], output_dir: Path) ->
         output_dir=output_dir,
         filename=ATTESTATION_BUNDLE_FILENAMES["provenance"],
         predicate_type="https://slsa.dev/provenance/v1",
-        subject={"name": "h2ometa-remote-runner-release", "sha256": sha256_text(output_dir / "release-artifacts-metadata.json")},
+        subject={
+            "name": "h2ometa-remote-runner-release",
+            "sha256": sha256_text(output_dir / "release-artifacts-metadata.json"),
+        },
         predicate={
             "buildType": "https://github.com/jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml",
             "builder": builder,
@@ -581,12 +618,16 @@ def write_release_attestations(*, metadata: dict[str, Any], output_dir: Path) ->
         "sbom": sbom_entries,
     }
     path = output_dir / "release-attestations.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return payload
 
 
 def release_manifest_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    builder = metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+    builder = (
+        metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+    )
     builder_id = str(builder.get("id") or "").strip()
     result: dict[str, Any] = {
         "schemaVersion": "h2ometa-release-manifest-metadata.v1",
@@ -620,8 +661,12 @@ def release_manifest_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             "attestationUrl": "",
             "signatureUrl": "",
             "builderId": builder_id,
-            "sourceRef": str(artifact.get("sourceRef") or metadata.get("sourceRef") or "").strip(),
-            "sourceCommit": str(artifact.get("sourceCommit") or metadata.get("sourceCommit") or "").strip(),
+            "sourceRef": str(
+                artifact.get("sourceRef") or metadata.get("sourceRef") or ""
+            ).strip(),
+            "sourceCommit": str(
+                artifact.get("sourceCommit") or metadata.get("sourceCommit") or ""
+            ).strip(),
         }
     return result
 
@@ -645,12 +690,14 @@ def validate_version_bump_for_changed_artifacts(
         if built_version != manifest_version:
             continue
         built_sha = str(artifact.get("sha256") or "").strip().lower()
-        manifest_sha = str((getattr(spec, "sha256", {}) or {}).get(platform) or "").strip().lower()
+        manifest_sha = (
+            str((getattr(spec, "sha256", {}) or {}).get(platform) or "").strip().lower()
+        )
         built_size = int(artifact.get("sizeBytes") or 0)
         manifest_size = int((getattr(spec, "size_bytes", {}) or {}).get(platform) or 0)
-        changed = bool(manifest_sha and built_sha and built_sha != manifest_sha) or bool(
-            manifest_size and built_size and built_size != manifest_size
-        )
+        changed = bool(
+            manifest_sha and built_sha and built_sha != manifest_sha
+        ) or bool(manifest_size and built_size and built_size != manifest_size)
         if changed:
             raise SystemExit(
                 f"{artifact_key}/{platform} changed but still uses artifact version {built_version}; "
@@ -659,9 +706,15 @@ def validate_version_bump_for_changed_artifacts(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build H2OMeta release artifacts on Linux CI.")
-    parser.add_argument("--platform", default="linux-64", choices=("linux-64", "linux-aarch64"))
-    parser.add_argument("--source-ref", default=str(os.environ.get("GITHUB_SHA", "") or ""))
+    parser = argparse.ArgumentParser(
+        description="Build H2OMeta release artifacts on Linux CI."
+    )
+    parser.add_argument(
+        "--platform", default="linux-64", choices=("linux-64", "linux-aarch64")
+    )
+    parser.add_argument(
+        "--source-ref", default=str(os.environ.get("GITHUB_SHA", "") or "")
+    )
     parser.add_argument("--output-dir", default=str(Path("dist") / "remote-runner"))
     parser.add_argument(
         "--remote-runner-version",
@@ -674,7 +727,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Version string to embed in the workflow-runtime artifact filename and manifest.",
     )
     parser.add_argument("--metadata-name", default="release-artifacts-metadata.json")
-    parser.add_argument("--manifest-metadata-name", default="release-manifest-metadata.json")
+    parser.add_argument(
+        "--manifest-metadata-name", default="release-manifest-metadata.json"
+    )
     parser.add_argument(
         "--enforce-version-bump-for-changed-artifacts",
         action="store_true",
@@ -694,7 +749,9 @@ def main(argv: list[str] | None = None) -> int:
     if not workflow_runtime_version:
         raise SystemExit("--workflow-runtime-version must not be empty")
     source_commit = ensure_source_ref_checked_out(source_ref)
-    with tempfile.TemporaryDirectory(prefix="h2ometa-release-artifacts-") as raw_work_root:
+    with tempfile.TemporaryDirectory(
+        prefix="h2ometa-release-artifacts-"
+    ) as raw_work_root:
         work_root = Path(raw_work_root)
         artifacts = [
             build_remote_runner_artifact(
@@ -714,16 +771,23 @@ def main(argv: list[str] | None = None) -> int:
                 version=workflow_runtime_version,
             ),
         ]
-    metadata = build_metadata(artifacts=artifacts, source_ref=source_ref, source_commit=source_commit)
+    metadata = build_metadata(
+        artifacts=artifacts, source_ref=source_ref, source_commit=source_commit
+    )
     if args.enforce_version_bump_for_changed_artifacts:
         validate_version_bump_for_changed_artifacts(metadata)
     metadata_path = output_dir / args.metadata_name
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     write_release_attestations(metadata=metadata, output_dir=output_dir)
     manifest_metadata = release_manifest_metadata(metadata)
     manifest_metadata_path = output_dir / args.manifest_metadata_name
-    manifest_metadata_path.write_text(json.dumps(manifest_metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_metadata_path.write_text(
+        json.dumps(manifest_metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print_json("RELEASE_ARTIFACTS_CI", metadata)
     print_json("RELEASE_MANIFEST_METADATA", manifest_metadata)
     return 0

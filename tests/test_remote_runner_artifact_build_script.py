@@ -12,7 +12,9 @@ from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_
 from scripts import build_remote_runner_artifact_on_server as builder
 
 
-def test_dirty_source_release_files_include_untracked_modules(monkeypatch, tmp_path: Path) -> None:
+def test_dirty_source_release_files_include_untracked_modules(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo_root = tmp_path
     local_dir = repo_root / "apps" / "remote_runner"
     local_dir.mkdir(parents=True)
@@ -31,8 +33,12 @@ def test_dirty_source_release_files_include_untracked_modules(monkeypatch, tmp_p
     def fake_run(cmd, **_kwargs):
         calls.append(list(cmd))
         if "--others" in cmd:
-            return SimpleNamespace(stdout="apps/remote_runner/tool_contract.py\napps/remote_runner/pipelines/demo/.test/fixture.py\n")
-        return SimpleNamespace(stdout="apps/remote_runner/tools.py\napps/remote_runner/pipelines/demo/.test/run-config.json\n")
+            return SimpleNamespace(
+                stdout="apps/remote_runner/tool_contract.py\napps/remote_runner/pipelines/demo/.test/fixture.py\n"
+            )
+        return SimpleNamespace(
+            stdout="apps/remote_runner/tools.py\napps/remote_runner/pipelines/demo/.test/run-config.json\n"
+        )
 
     monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
     monkeypatch.setattr(builder.subprocess, "run", fake_run)
@@ -128,7 +134,9 @@ def test_release_source_collection_rejects_native_magic(
         builder.git_tracked_release_files(local_dir)
 
 
-def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_path: Path) -> None:
+def test_remote_runner_source_upload_includes_shared_contracts(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo_root = tmp_path
     (repo_root / "apps" / "remote_runner").mkdir(parents=True)
     (repo_root / "core" / "contracts").mkdir(parents=True)
@@ -136,27 +144,75 @@ def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_
 
     calls: list[tuple[str, str, str, bool]] = []
 
-    def fake_upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False) -> None:
-        calls.append(("tree", local_dir.relative_to(repo_root).as_posix(), remote_dir, include_untracked))
+    def fake_upload_tree(
+        sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False
+    ) -> None:
+        calls.append(
+            (
+                "tree",
+                local_dir.relative_to(repo_root).as_posix(),
+                remote_dir,
+                include_untracked,
+            )
+        )
 
     def fake_upload_file(sftp, local_file: Path, remote_file: str) -> None:
-        calls.append(("file", local_file.relative_to(repo_root).as_posix(), remote_file, False))
+        calls.append(
+            ("file", local_file.relative_to(repo_root).as_posix(), remote_file, False)
+        )
 
     monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
     monkeypatch.setattr(builder, "upload_tree", fake_upload_tree)
     monkeypatch.setattr(builder, "upload_file", fake_upload_file)
 
-    builder.upload_remote_runner_sources(object(), "/tmp/h2ometa-build", include_untracked=True)
+    builder.upload_remote_runner_sources(
+        object(), "/tmp/h2ometa-build", include_untracked=True
+    )
 
     assert calls == [
         ("tree", "apps/remote_runner", "/tmp/h2ometa-build/bundle/remote_runner", True),
-        ("file", "core/__init__.py", "/tmp/h2ometa-build/bundle/core/__init__.py", False),
-        ("file", "core/async_boundary.py", "/tmp/h2ometa-build/bundle/core/async_boundary.py", False),
-        ("file", "core/api_payloads.py", "/tmp/h2ometa-build/bundle/core/api_payloads.py", False),
-        ("file", "core/api_responses.py", "/tmp/h2ometa-build/bundle/core/api_responses.py", False),
-        ("file", "core/logging_config.py", "/tmp/h2ometa-build/bundle/core/logging_config.py", False),
-        ("file", "core/problem_responses.py", "/tmp/h2ometa-build/bundle/core/problem_responses.py", False),
-        ("file", "core/problem_status.py", "/tmp/h2ometa-build/bundle/core/problem_status.py", False),
+        (
+            "file",
+            "core/__init__.py",
+            "/tmp/h2ometa-build/bundle/core/__init__.py",
+            False,
+        ),
+        (
+            "file",
+            "core/async_boundary.py",
+            "/tmp/h2ometa-build/bundle/core/async_boundary.py",
+            False,
+        ),
+        (
+            "file",
+            "core/api_payloads.py",
+            "/tmp/h2ometa-build/bundle/core/api_payloads.py",
+            False,
+        ),
+        (
+            "file",
+            "core/api_responses.py",
+            "/tmp/h2ometa-build/bundle/core/api_responses.py",
+            False,
+        ),
+        (
+            "file",
+            "core/logging_config.py",
+            "/tmp/h2ometa-build/bundle/core/logging_config.py",
+            False,
+        ),
+        (
+            "file",
+            "core/problem_responses.py",
+            "/tmp/h2ometa-build/bundle/core/problem_responses.py",
+            False,
+        ),
+        (
+            "file",
+            "core/problem_status.py",
+            "/tmp/h2ometa-build/bundle/core/problem_status.py",
+            False,
+        ),
         ("tree", "core/contracts", "/tmp/h2ometa-build/bundle/core/contracts", True),
     ]
 
@@ -174,7 +230,9 @@ def test_remote_build_script_embeds_exact_runner_protocol_descriptor() -> None:
     assert str(fields["runnerProtocolFingerprint"]) in plan["remoteScript"]
 
 
-def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_metadata() -> None:
+def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_metadata() -> (
+    None
+):
     manifest = builder.build_bootstrap_manifest(
         version="protocol-test",
         platform="linux-64",
@@ -188,6 +246,7 @@ def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_me
     )
 
     assert require_runner_activation_release_bootstrap_manifest(manifest) == manifest
+    assert manifest["runtime"]["sqlite"] == {"minimumVersion": "3.51.3"}
     assert set(manifest) == {
         "platform",
         "runnerProtocol",
@@ -199,24 +258,74 @@ def test_remote_build_script_uses_exact_bootstrap_contract_and_external_build_me
     assert '"build"' not in plan["remoteScript"]
     assert plan["lockFile"] == "explicit.txt"
     assert plan["lockSha256"] == "a" * 64
-    assert 'find "$BUILD_ROOT/bundle" -type d -exec chmod 755 {} +' in plan[
-        "remoteScript"
-    ]
-    assert 'find "$BUILD_ROOT/bundle" -type f -perm /111 -exec chmod 755 {} +' in (
-        plan["remoteScript"]
+    assert (
+        'find "$BUILD_ROOT/bundle" -type d -exec chmod 755 {} +' in plan["remoteScript"]
     )
-    assert 'find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {} +' in (
-        plan["remoteScript"]
+    assert (
+        'find "$BUILD_ROOT/bundle" -type f -perm /111 -exec chmod 755 {} +'
+        in (plan["remoteScript"])
+    )
+    assert (
+        'find "$BUILD_ROOT/bundle" -type f ! -perm /111 -exec chmod 644 {} +'
+        in (plan["remoteScript"])
     )
     script = plan["remoteScript"]
     deterministic_archive_command = (
         "tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner "
         '--mtime=@0 -cf - -C "$BUILD_ROOT/bundle" . | gzip -n > '
-        f'{plan["artifactName"]}'
+        f"{plan['artifactName']}"
     )
     assert script.index("set -euo pipefail") < script.index("umask 077")
     assert deterministic_archive_command in script
     assert "tar -czf" not in script
+    assert "require_remote_runner_sqlite_runtime" in script
+    assert "sqlite_runtime_evidence.json" in script
+
+
+def test_explicit_lock_requires_one_safe_conda_forge_libsqlite(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "linux-64.explicit.txt"
+    lock.write_text(
+        "@EXPLICIT\n"
+        "https://conda.anaconda.org/conda-forge/linux-64/"
+        "libsqlite-3.53.0-hf4e2dac_0.conda\n",
+        encoding="utf-8",
+    )
+
+    assert builder.validate_explicit_lock(lock, platform="linux-64") == "3.53.0"
+
+
+@pytest.mark.parametrize(
+    "sqlite_url",
+    [
+        "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.51.2-h1_0.conda",
+        "https://example.invalid/conda-forge/linux-64/libsqlite-3.53.0-h1_0.conda",
+        "https://conda.anaconda.org/conda-forge/linux-aarch64/libsqlite-3.53.0-h1_0.conda",
+        "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-03.53.0-h1_0.conda",
+    ],
+)
+def test_explicit_lock_rejects_unsafe_libsqlite_source_or_version(
+    tmp_path: Path,
+    sqlite_url: str,
+) -> None:
+    lock = tmp_path / "linux-64.explicit.txt"
+    lock.write_text(f"@EXPLICIT\n{sqlite_url}\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="libsqlite"):
+        builder.validate_explicit_lock(lock, platform="linux-64")
+
+
+def test_explicit_lock_rejects_duplicate_libsqlite_packages(tmp_path: Path) -> None:
+    lock = tmp_path / "linux-64.explicit.txt"
+    package = (
+        "https://conda.anaconda.org/conda-forge/linux-64/"
+        "libsqlite-3.53.0-hf4e2dac_0.conda"
+    )
+    lock.write_text(f"@EXPLICIT\n{package}\n{package}\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="exactly one"):
+        builder.validate_explicit_lock(lock, platform="linux-64")
 
 
 @pytest.mark.parametrize(
@@ -231,7 +340,9 @@ def test_remote_build_script_rejects_invalid_bootstrap_identity(
         builder.build_bootstrap_manifest(version=version, platform=platform)
 
 
-def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes() -> None:
+def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes() -> (
+    None
+):
     plan = builder.build_remote_script_plan(
         version="protocol-test",
         platform="linux-64",
@@ -240,8 +351,7 @@ def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes(
 
     script = plan["remoteScript"]
     assert (
-        'exec "$RUNNER_PYTHON" -B -m remote_runner.runner_lifetime_launcher'
-        in script
+        'exec "$RUNNER_PYTHON" -B -m remote_runner.runner_lifetime_launcher' in script
     )
     assert script.index("require_runner_protocol_startup_preflight") < script.index(
         "nohup"

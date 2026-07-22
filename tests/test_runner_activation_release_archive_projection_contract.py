@@ -32,7 +32,11 @@ BOOTSTRAP_MANIFEST = {
     "runnerProtocolFingerprint": runner_protocol_descriptor_fingerprint(
         PROTOCOL_DESCRIPTOR
     ),
-    "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+    "runtime": {
+        "provider": "bundled",
+        "python": "runtime/bin/python",
+        "sqlite": {"minimumVersion": "3.51.3"},
+    },
     "service": RUNNER_ACTIVATION_SERVICE,
     "version": "0.2.0",
 }
@@ -192,9 +196,12 @@ def test_archive_materialization_projection_is_exact_and_deeply_detached() -> No
     assert all(set(entry) == PROJECTED_ENTRY_FIELDS for entry in projected)
     projected[0]["path"] = "changed"
     assert manifest["members"][0]["path"] == "bin"
-    assert project_runner_activation_release_archive_materialization_entries(
-        manifest
-    )[0]["path"] == "bin"
+    assert (
+        project_runner_activation_release_archive_materialization_entries(manifest)[0][
+            "path"
+        ]
+        == "bin"
+    )
 
 
 def test_archive_projection_routes_every_raw_file_payload_once() -> None:
@@ -208,9 +215,7 @@ def test_archive_projection_routes_every_raw_file_payload_once() -> None:
         member["path"] for member in manifest["members"] if member["type"] == "file"
     }
     routed = [
-        entry["payloadSourcePath"]
-        for entry in projected
-        if entry["payloadSourcePath"]
+        entry["payloadSourcePath"] for entry in projected if entry["payloadSourcePath"]
     ]
     assert set(routed) == raw_files
     assert len(routed) == len(set(routed))

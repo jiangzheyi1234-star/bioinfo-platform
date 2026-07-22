@@ -31,15 +31,35 @@ from core.contracts.runner_process_lifetime import (
 )
 from core.contracts.runner_process_owner import build_runner_process_owner
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
-from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
+from core.remote_runner.protocol_manifest import (
+    require_current_runner_protocol_manifest,
+)
 from tests.helpers.remote_runner_control_plane import (
     _fake_runtime_dir,
 )
 
-def test_get_app_cache_dir_prefers_platform_cache_locations(monkeypatch, tmp_path: Path) -> None:
+
+@pytest.fixture(autouse=True)
+def _supported_bundle_sqlite_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        bundle_module,
+        "_require_bundled_sqlite_runtime",
+        lambda _runtime_python: {
+            "minimumVersion": "3.51.3",
+            "loadedVersion": "3.53.0",
+            "sqlVersion": "3.53.0",
+            "ok": True,
+        },
+    )
+
+
+def test_get_app_cache_dir_prefers_platform_cache_locations(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("config.os.name", "nt")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-appdata"))
     assert get_app_cache_dir() == tmp_path / "local-appdata" / "H2OMeta" / "Cache"
+
 
 def test_remote_runner_config_defaults_to_dynamic_loopback_port() -> None:
     cfg = RemoteRunnerConfig()
@@ -49,19 +69,31 @@ def test_remote_runner_config_defaults_to_dynamic_loopback_port() -> None:
     assert cfg.api_token_roles == ()
     assert Path(cfg.runtime_state_path).parts[-2:] == ("runtime", "runner-state.json")
 
+
 def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
     root = Path(__file__).resolve().parents[1]
-    config_source = (root / "apps" / "remote_runner" / "config.py").read_text(encoding="utf-8")
-    workflow_runtime_path = root / "apps" / "remote_runner" / "workflow_runtime_config.py"
-    worker_resource_config_path = root / "apps" / "remote_runner" / "worker_resource_config.py"
+    config_source = (root / "apps" / "remote_runner" / "config.py").read_text(
+        encoding="utf-8"
+    )
+    workflow_runtime_path = (
+        root / "apps" / "remote_runner" / "workflow_runtime_config.py"
+    )
+    worker_resource_config_path = (
+        root / "apps" / "remote_runner" / "worker_resource_config.py"
+    )
 
     assert workflow_runtime_path.exists()
     assert worker_resource_config_path.exists()
     workflow_runtime_source = workflow_runtime_path.read_text(encoding="utf-8")
-    worker_resource_config_source = worker_resource_config_path.read_text(encoding="utf-8")
+    worker_resource_config_source = worker_resource_config_path.read_text(
+        encoding="utf-8"
+    )
     assert len(config_source.splitlines()) <= 260
     assert "from .workflow_runtime_config import (" in config_source
-    assert "from .worker_resource_config import apply_run_worker_env_overrides" in config_source
+    assert (
+        "from .worker_resource_config import apply_run_worker_env_overrides"
+        in config_source
+    )
     for helper in (
         "build_workflow_runtime_environment",
         "get_workflow_profile_dir",
@@ -75,6 +107,7 @@ def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
     assert "def build_run_worker_resource_plan(" not in config_source
     assert "def build_run_worker_resource_plan(" in worker_resource_config_source
     assert "subprocess.run(" not in config_source
+
 
 def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
     cfg = RemoteRunnerConfig(
@@ -132,9 +165,14 @@ def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
     assert payload["processIncarnation"] == process_incarnation
     assert payload["processOwner"]["launchId"] == "1" * 32
 
+
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
     builder = RemoteRunnerBundleBuilder()
-    bundle = builder.build(version=REMOTE_RUNNER_VERSION, platform="linux-64", runtime_dir=_fake_runtime_dir(tmp_path))
+    bundle = builder.build(
+        version=REMOTE_RUNNER_VERSION,
+        platform="linux-64",
+        runtime_dir=_fake_runtime_dir(tmp_path),
+    )
 
     assert (bundle.bundle_dir / "remote_runner" / "main.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_incarnation.py").exists()
@@ -150,9 +188,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (
         bundle.bundle_dir / "remote_runner" / "activation_storage_filesystem.py"
     ).exists()
-    assert (
-        bundle.bundle_dir / "remote_runner" / "activation_storage_root.py"
-    ).exists()
+    assert (bundle.bundle_dir / "remote_runner" / "activation_storage_root.py").exists()
     assert (
         bundle.bundle_dir / "remote_runner" / "activation_storage_errors.py"
     ).exists()
@@ -183,28 +219,18 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         / "remote_runner"
         / "activation_config_integrity_key_storage.py"
     ).exists()
+    assert (bundle.bundle_dir / "remote_runner" / "activation_openat2.py").exists()
     assert (
-        bundle.bundle_dir / "remote_runner" / "activation_openat2.py"
+        bundle.bundle_dir / "remote_runner" / "activation_release_materialization_io.py"
     ).exists()
     assert (
-        bundle.bundle_dir
-        / "remote_runner"
-        / "activation_release_materialization_io.py"
+        bundle.bundle_dir / "remote_runner" / "activation_release_publication_layout.py"
     ).exists()
     assert (
-        bundle.bundle_dir
-        / "remote_runner"
-        / "activation_release_publication_layout.py"
+        bundle.bundle_dir / "remote_runner" / "activation_release_archive_inspection.py"
     ).exists()
     assert (
-        bundle.bundle_dir
-        / "remote_runner"
-        / "activation_release_archive_inspection.py"
-    ).exists()
-    assert (
-        bundle.bundle_dir
-        / "remote_runner"
-        / "activation_release_tar_inspection.py"
+        bundle.bundle_dir / "remote_runner" / "activation_release_tar_inspection.py"
     ).exists()
     assert (
         bundle.bundle_dir
@@ -244,10 +270,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         / "runner_activation_release_bootstrap_manifest.py"
     ).exists()
     assert (
-        bundle.bundle_dir
-        / "core"
-        / "contracts"
-        / "runner_activation_release_tree.py"
+        bundle.bundle_dir / "core" / "contracts" / "runner_activation_release_tree.py"
     ).exists()
     assert (
         bundle.bundle_dir
@@ -257,9 +280,30 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "workflow" / "Snakefile").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "workflow" / "envs" / "base.yaml").exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
+        / "pipelines"
+        / "file-summary-v1"
+        / "pipeline.json"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
+        / "pipelines"
+        / "file-summary-v1"
+        / "workflow"
+        / "Snakefile"
+    ).exists()
+    assert (
+        bundle.bundle_dir
+        / "remote_runner"
+        / "pipelines"
+        / "file-summary-v1"
+        / "workflow"
+        / "envs"
+        / "base.yaml"
+    ).exists()
     assert (
         bundle.bundle_dir
         / "remote_runner"
@@ -276,8 +320,12 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "launch_remote_runner.sh").exists()
     assert (bundle.bundle_dir / "check_service.sh").exists()
     assert (bundle.bundle_dir / "run_workflow.sh").exists()
-    assert "launch_remote_runner.sh" in (bundle.bundle_dir / "start_service.sh").read_text(encoding="utf-8")
-    assert "launch_remote_runner.sh" in (bundle.bundle_dir / "h2ometa-remote.service").read_text(encoding="utf-8")
+    assert "launch_remote_runner.sh" in (
+        bundle.bundle_dir / "start_service.sh"
+    ).read_text(encoding="utf-8")
+    assert "launch_remote_runner.sh" in (
+        bundle.bundle_dir / "h2ometa-remote.service"
+    ).read_text(encoding="utf-8")
     launch_script_path = bundle.bundle_dir / "launch_remote_runner.sh"
     launch_script = launch_script_path.read_text(encoding="utf-8")
     start_script = (bundle.bundle_dir / "start_service.sh").read_text(encoding="utf-8")
@@ -285,7 +333,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
         encoding="utf-8"
     )
     assert "RUNNER_PYTHON" in launch_script
-    assert 'runtime/bin/python' in launch_script
+    assert "runtime/bin/python" in launch_script
     assert (
         'exec "$RUNNER_PYTHON" -B -m remote_runner.runner_lifetime_launcher'
         in launch_script
@@ -296,9 +344,9 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     )
     assert "conda-unpack" not in launch_script
     assert "require_runner_protocol_startup_preflight" not in launch_script
-    assert start_script.index("require_runner_protocol_startup_preflight") < start_script.index(
-        "nohup"
-    )
+    assert start_script.index(
+        "require_runner_protocol_startup_preflight"
+    ) < start_script.index("nohup")
     assert 'echo $! > "$RUN_DIR/runner.pid"' not in start_script
     assert "Type=simple" in service_unit
     assert "Restart=on-failure" in service_unit
@@ -341,7 +389,10 @@ def test_remote_runner_bundle_validates_fixed_core_sources(
 
     assert observed == ["__init__.py", *bundle_module.CORE_RUNTIME_HELPER_FILES]
 
-def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path: Path, monkeypatch) -> None:
+
+def test_load_remote_runner_config_preserves_workflow_runtime_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
     config_path = tmp_path / "runner.json"
     managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
     managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"
@@ -405,7 +456,9 @@ def test_remote_runner_config_loads_explicit_api_token_roles_and_redacts_public_
     assert "api_token_roles" not in public
 
 
-def test_remote_runner_config_rejects_unsupported_api_token_roles(tmp_path: Path, monkeypatch) -> None:
+def test_remote_runner_config_rejects_unsupported_api_token_roles(
+    tmp_path: Path, monkeypatch
+) -> None:
     config_path = tmp_path / "runner.json"
     config_path.write_text(
         json.dumps({"token": "phase2-token", "api_token_roles": ["super-admin"]}),
@@ -413,11 +466,15 @@ def test_remote_runner_config_rejects_unsupported_api_token_roles(tmp_path: Path
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
-    with pytest.raises(ValueError, match="REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED: super-admin"):
+    with pytest.raises(
+        ValueError, match="REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED: super-admin"
+    ):
         load_remote_runner_config()
 
 
-def test_load_remote_runner_config_preserves_and_overrides_worker_capacity(tmp_path: Path, monkeypatch) -> None:
+def test_load_remote_runner_config_preserves_and_overrides_worker_capacity(
+    tmp_path: Path, monkeypatch
+) -> None:
     config_path = tmp_path / "runner.json"
     config_path.write_text(
         json.dumps(
@@ -450,7 +507,10 @@ def test_run_worker_resource_plan_rejects_unsupported_slot_count() -> None:
     with pytest.raises(ValueError, match="P0_3B_MAX_TWO_SLOTS"):
         build_run_worker_resource_plan(cfg)
 
-def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_path: Path, monkeypatch) -> None:
+
+def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(
+    tmp_path: Path, monkeypatch
+) -> None:
     managed_conda_command = tmp_path / "tooling" / "workflow-env" / "bin" / "conda"
     snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     managed_conda_command.parent.mkdir(parents=True, exist_ok=True)
@@ -482,7 +542,9 @@ def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_p
         calls.append({"cmd": cmd, "env": kwargs.get("env")})
         return Result()
 
-    monkeypatch.setattr("apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run
+    )
 
     result = inspect_workflow_runtime(cfg)
 
@@ -520,7 +582,9 @@ def test_inspect_workflow_runtime_does_not_mask_unexpected_version_check_errors(
     def fake_run(*args, **kwargs):
         raise ValueError("unexpected subprocess state")
 
-    monkeypatch.setattr("apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run
+    )
 
     with pytest.raises(ValueError, match="unexpected subprocess state"):
         inspect_workflow_runtime(cfg)

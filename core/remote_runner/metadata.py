@@ -6,7 +6,9 @@ from core.governance_policy import SUPPORTED_ROLES
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 
 
-DEFAULT_SNAKEMAKE_WRAPPER_PREFIX = "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/"
+DEFAULT_SNAKEMAKE_WRAPPER_PREFIX = (
+    "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/"
+)
 MAX_COMPACT_PREVIEW_CONTENT_CHARS = 1024
 MAX_COMPACT_PREVIEW_TABLE_COLUMNS = 12
 MAX_COMPACT_PREVIEW_TABLE_ROWS = 5
@@ -36,7 +38,10 @@ def build_remote_workflow_profile_content(
 
 
 def _normalize_wrapper_prefix(value: str) -> str:
-    prefix = str(value or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX).strip() or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX
+    prefix = (
+        str(value or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX).strip()
+        or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX
+    )
     return prefix if prefix.endswith("/") else f"{prefix}/"
 
 
@@ -53,12 +58,20 @@ def summarize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
 def compact_preview_payload(preview_payload: Any) -> dict[str, Any]:
     if not isinstance(preview_payload, dict):
         return {"kind": "", "truncated": False}
-    data = preview_payload.get("data") if isinstance(preview_payload.get("data"), dict) else preview_payload
+    data = (
+        preview_payload.get("data")
+        if isinstance(preview_payload.get("data"), dict)
+        else preview_payload
+    )
     if isinstance(data, dict):
         preview = data.get("preview") if isinstance(data.get("preview"), dict) else data
-        artifact = data.get("artifact") if isinstance(data.get("artifact"), dict) else {}
+        artifact = (
+            data.get("artifact") if isinstance(data.get("artifact"), dict) else {}
+        )
         compact = {
-            "artifactId": str(data.get("artifactId") or artifact.get("artifactId") or ""),
+            "artifactId": str(
+                data.get("artifactId") or artifact.get("artifactId") or ""
+            ),
             "kind": str(preview.get("kind") or ""),
             "truncated": bool(preview.get("truncated")),
         }
@@ -67,9 +80,13 @@ def compact_preview_payload(preview_payload: Any) -> dict[str, Any]:
             rows, rows_truncated = _compact_preview_rows(preview.get("rows"))
             compact["columns"] = columns
             compact["rows"] = rows
-            compact["truncated"] = bool(compact["truncated"] or columns_truncated or rows_truncated)
+            compact["truncated"] = bool(
+                compact["truncated"] or columns_truncated or rows_truncated
+            )
         else:
-            content, content_truncated = _compact_preview_text(preview.get("content"), MAX_COMPACT_PREVIEW_CONTENT_CHARS)
+            content, content_truncated = _compact_preview_text(
+                preview.get("content"), MAX_COMPACT_PREVIEW_CONTENT_CHARS
+            )
             compact["content"] = content
             compact["truncated"] = bool(compact["truncated"] or content_truncated)
         return compact
@@ -83,7 +100,9 @@ def _compact_preview_rows(raw_rows: Any) -> tuple[list[list[str]], bool]:
     truncated = len(raw_rows) > MAX_COMPACT_PREVIEW_TABLE_ROWS
     for raw_row in raw_rows[:MAX_COMPACT_PREVIEW_TABLE_ROWS]:
         if not isinstance(raw_row, list):
-            cell, cell_truncated = _compact_preview_text(raw_row, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS)
+            cell, cell_truncated = _compact_preview_text(
+                raw_row, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS
+            )
             rows.append([cell])
             truncated = truncated or cell_truncated
             continue
@@ -99,7 +118,9 @@ def _compact_preview_cells(raw_cells: Any) -> tuple[list[str], bool]:
     cells: list[str] = []
     truncated = len(raw_cells) > MAX_COMPACT_PREVIEW_TABLE_COLUMNS
     for raw_cell in raw_cells[:MAX_COMPACT_PREVIEW_TABLE_COLUMNS]:
-        cell, cell_truncated = _compact_preview_text(raw_cell, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS)
+        cell, cell_truncated = _compact_preview_text(
+            raw_cell, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS
+        )
         cells.append(cell)
         truncated = truncated or cell_truncated
     return cells, truncated
@@ -115,6 +136,7 @@ def build_fast_reuse_metadata(
     server_record: dict[str, Any],
     version: str,
     remote_service_python: str,
+    sqlite_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     metadata = dict(server_record.get("bootstrap_metadata") or {})
     preflight = dict(metadata.get("preflight") or {})
@@ -132,6 +154,7 @@ def build_fast_reuse_metadata(
         "provider": "bundled",
         "source": "artifact",
         "python": str(service_runtime.get("python") or remote_service_python),
+        "sqlite": dict(sqlite_evidence),
     }
     if platform:
         service_runtime["platform"] = platform
@@ -148,7 +171,9 @@ def platform_from_metadata(server_record: dict[str, Any]) -> str:
     preflight = dict(metadata.get("preflight") or {})
     tooling = dict(metadata.get("tooling") or {})
     service_runtime = dict(tooling.get("service_runtime") or {})
-    return str(preflight.get("platform") or service_runtime.get("platform") or "").strip()
+    return str(
+        preflight.get("platform") or service_runtime.get("platform") or ""
+    ).strip()
 
 
 def mark_reuse_bootstrap_phases_skipped(bootstrap_metadata: dict[str, Any]) -> None:
@@ -169,8 +194,14 @@ def reuse_failed(bootstrap_metadata: dict[str, Any], reason: str) -> None:
     return None
 
 
-def build_workflow_runtime_metadata(*, artifact: WorkflowRuntimeArtifact, remote_dir: str) -> dict[str, Any]:
-    packages = artifact.manifest.get("packages") if isinstance(artifact.manifest.get("packages"), dict) else {}
+def build_workflow_runtime_metadata(
+    *, artifact: WorkflowRuntimeArtifact, remote_dir: str
+) -> dict[str, Any]:
+    packages = (
+        artifact.manifest.get("packages")
+        if isinstance(artifact.manifest.get("packages"), dict)
+        else {}
+    )
     snakemake_version = str(packages.get("snakemake") or "")
     return {
         "provider": "conda-pack",
@@ -213,6 +244,7 @@ def build_install_bootstrap_metadata(
                 "source": "artifact",
                 "python": remote_service_python,
                 "platform": getattr(artifact, "platform", remote_platform),
+                "sqlite": dict(artifact.sqlite_evidence),
             },
             "workflow_runtime": workflow_runtime,
         },

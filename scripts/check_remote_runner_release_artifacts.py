@@ -17,7 +17,7 @@ from core.remote_runner.artifact import (  # noqa: E402
     RemoteRunnerArtifactProvider,
     WorkflowRuntimeArtifactProvider,
 )
-from core.remote_runner.artifact_io import read_expected_sha256, read_manifest  # noqa: E402
+from core.remote_runner.artifact_io import read_expected_sha256  # noqa: E402
 from core.remote_runner.artifact_models import RemoteRunnerArtifact  # noqa: E402
 from core.remote_runner.artifact_diagnostics import supply_chain_metadata  # noqa: E402
 from core.remote_runner.release_manifest import (  # noqa: E402
@@ -25,7 +25,9 @@ from core.remote_runner.release_manifest import (  # noqa: E402
     WORKFLOW_RUNTIME_ARTIFACT,
 )
 from core.remote_runner.remote_runner_artifact_validation import (  # noqa: E402
+    read_remote_runner_bootstrap_manifest,
     verify_bundled_runtime_entrypoints,
+    verify_packaged_sqlite_metadata,
     verify_required_wrapper_assets,
 )
 
@@ -77,17 +79,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _verify_lock(spec, *, platform: str) -> dict[str, object]:
     relative = spec.conda_explicit_specs.get(platform)
     if not relative:
-        raise RemoteRunnerArtifactError(f"{spec.key} missing explicit conda spec for {platform}")
+        raise RemoteRunnerArtifactError(
+            f"{spec.key} missing explicit conda spec for {platform}"
+        )
     path = REPO_ROOT / relative
     if not path.exists():
-        raise RemoteRunnerArtifactError(f"{spec.key} explicit conda spec not found: {path}")
+        raise RemoteRunnerArtifactError(
+            f"{spec.key} explicit conda spec not found: {path}"
+        )
     first_line = path.read_text(encoding="utf-8").splitlines()[0:1]
     if first_line != ["@EXPLICIT"]:
-        raise RemoteRunnerArtifactError(f"{spec.key} explicit conda spec must start with @EXPLICIT: {path}")
+        raise RemoteRunnerArtifactError(
+            f"{spec.key} explicit conda spec must start with @EXPLICIT: {path}"
+        )
     digest = _sha256_file(path)
     declared = str(spec.lock_sha256.get(platform) or "").strip().lower()
     if declared and declared != digest:
-        raise RemoteRunnerArtifactError(f"{spec.key} explicit conda spec sha256 mismatch: {path}")
+        raise RemoteRunnerArtifactError(
+            f"{spec.key} explicit conda spec sha256 mismatch: {path}"
+        )
     return {"path": str(path), "sha256": digest}
 
 
@@ -98,34 +108,51 @@ def _verify_supply_chain(spec, *, platform: str) -> dict[str, object]:
         gaps.extend(f"pending:{item}" for item in metadata.get("pendingFields", []))
         gaps.extend(f"invalid:{item}" for item in metadata.get("invalidFields", []))
         message = ", ".join(gaps) if gaps else "unknown"
-        raise RemoteRunnerArtifactError(f"{spec.key} release supply-chain metadata incomplete for {platform}: {message}")
+        raise RemoteRunnerArtifactError(
+            f"{spec.key} release supply-chain metadata incomplete for {platform}: {message}"
+        )
     return metadata
 
 
 def _resolve_staging_runner_bundle() -> RemoteRunnerArtifact:
     raw = str(os.environ.get("H2OMETA_REMOTE_RUNNER_BUNDLE", "") or "").strip()
     if not raw:
-        raise RemoteRunnerArtifactError("--allow-staging-runner-bundle requires H2OMETA_REMOTE_RUNNER_BUNDLE")
+        raise RemoteRunnerArtifactError(
+            "--allow-staging-runner-bundle requires H2OMETA_REMOTE_RUNNER_BUNDLE"
+        )
     archive_path = Path(raw).resolve()
     checksum_path = Path(str(archive_path) + ".sha256")
     if not archive_path.is_file():
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact not found: {archive_path}")
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner artifact not found: {archive_path}"
+        )
     if not checksum_path.is_file():
-        raise RemoteRunnerArtifactError(f"staging remote runner checksum not found: {checksum_path}")
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner checksum not found: {checksum_path}"
+        )
     expected = read_expected_sha256(checksum_path)
     actual = _sha256_file(archive_path)
     if actual != expected:
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact sha256 mismatch: {archive_path}")
-    manifest = read_manifest(archive_path)
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner artifact sha256 mismatch: {archive_path}"
+        )
+    manifest = read_remote_runner_bootstrap_manifest(archive_path)
     platform = str(manifest.get("platform") or "")
     if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest has unexpected service: {archive_path}")
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner artifact manifest has unexpected service: {archive_path}"
+        )
     artifact_version = str(manifest.get("version") or "").strip()
     if not artifact_version:
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest missing version: {archive_path}")
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner artifact manifest missing version: {archive_path}"
+        )
     if platform != REMOTE_RUNNER_ARTIFACT.default_platform:
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact platform mismatch: {archive_path}")
+        raise RemoteRunnerArtifactError(
+            f"staging remote runner artifact platform mismatch: {archive_path}"
+        )
     verify_bundled_runtime_entrypoints(archive_path)
+    sqlite_evidence = verify_packaged_sqlite_metadata(archive_path)
     verify_required_wrapper_assets(archive_path)
     return RemoteRunnerArtifact(
         version=artifact_version,
@@ -133,6 +160,7 @@ def _resolve_staging_runner_bundle() -> RemoteRunnerArtifact:
         archive_path=archive_path,
         sha256=actual,
         manifest=manifest,
+        sqlite_evidence=dict(sqlite_evidence),
     )
 
 
@@ -140,8 +168,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         if args.require_supply_chain:
-            _verify_supply_chain(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform)
-            _verify_supply_chain(WORKFLOW_RUNTIME_ARTIFACT, platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform)
+            _verify_supply_chain(
+                REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform
+            )
+            _verify_supply_chain(
+                WORKFLOW_RUNTIME_ARTIFACT,
+                platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform,
+            )
         if args.allow_staging_runner_bundle:
             runner = _resolve_staging_runner_bundle()
         else:
@@ -154,9 +187,15 @@ def main(argv: list[str] | None = None) -> int:
             platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform,
         )
         runner_lock = _verify_lock(REMOTE_RUNNER_ARTIFACT, platform=runner.platform)
-        workflow_lock = _verify_lock(WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform)
-        runner_supply_chain = supply_chain_metadata(REMOTE_RUNNER_ARTIFACT, platform=runner.platform)
-        workflow_supply_chain = supply_chain_metadata(WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform)
+        workflow_lock = _verify_lock(
+            WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform
+        )
+        runner_supply_chain = supply_chain_metadata(
+            REMOTE_RUNNER_ARTIFACT, platform=runner.platform
+        )
+        workflow_supply_chain = supply_chain_metadata(
+            WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform
+        )
     except RemoteRunnerArtifactError as exc:
         payload = {
             "ok": False,
@@ -165,7 +204,10 @@ def main(argv: list[str] | None = None) -> int:
             "workflowRuntime": asdict(WORKFLOW_RUNTIME_ARTIFACT),
         }
         if args.cmd_env:
-            print(f"RELEASE_ARTIFACTS: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}", file=sys.stderr)
+            print(
+                f"RELEASE_ARTIFACTS: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}",
+                file=sys.stderr,
+            )
         else:
             _print_json("RELEASE_ARTIFACTS", payload)
         return 1
@@ -191,7 +233,9 @@ def main(argv: list[str] | None = None) -> int:
                     "version": workflow.version,
                     "platform": workflow.platform,
                     "sha256": workflow.sha256,
-                    "snakemakeVersion": str((workflow.manifest.get("packages") or {}).get("snakemake") or ""),
+                    "snakemakeVersion": str(
+                        (workflow.manifest.get("packages") or {}).get("snakemake") or ""
+                    ),
                     "snakemake": workflow.snakemake_entrypoint,
                     "conda": workflow.conda_entrypoint,
                     "condaUnpack": workflow.conda_unpack_entrypoint,

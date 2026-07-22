@@ -64,7 +64,11 @@ def bootstrap_manifest_bytes(
             "runnerProtocolFingerprint": runner_protocol_descriptor_fingerprint(
                 descriptor
             ),
-            "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+            "runtime": {
+                "provider": "bundled",
+                "python": "runtime/bin/python",
+                "sqlite": {"minimumVersion": "3.51.3"},
+            },
             "service": RUNNER_ACTIVATION_SERVICE,
             "version": version,
         },
@@ -135,7 +139,9 @@ def build_ustar(
             info.devmajor = member.devmajor
             info.devminor = member.devminor
             info.pax_headers = dict(member.pax_headers)
-            info.size = len(member.payload) if member.type in tarfile.REGULAR_TYPES else 0
+            info.size = (
+                len(member.payload) if member.type in tarfile.REGULAR_TYPES else 0
+            )
             payload = io.BytesIO(member.payload) if info.isreg() else None
             archive.addfile(info, payload)
     return output.getvalue()
@@ -184,9 +190,13 @@ def iter_raw_tar_records(raw_tar: bytes) -> list[RawTarRecord]:
 
 
 def find_raw_tar_record(raw_tar: bytes, raw_name: bytes) -> RawTarRecord:
-    matches = [record for record in iter_raw_tar_records(raw_tar) if record.name == raw_name]
+    matches = [
+        record for record in iter_raw_tar_records(raw_tar) if record.name == raw_name
+    ]
     if len(matches) != 1:
-        raise AssertionError(f"expected one raw member {raw_name!r}, found {len(matches)}")
+        raise AssertionError(
+            f"expected one raw member {raw_name!r}, found {len(matches)}"
+        )
     return matches[0]
 
 

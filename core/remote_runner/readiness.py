@@ -5,6 +5,9 @@ import shlex
 import time
 from typing import Any
 
+from core.contracts.remote_runner_sqlite_runtime import (
+    require_remote_runner_sqlite_runtime_evidence,
+)
 from core.contracts.database_remote_endpoints import DATABASE_TEMPLATE_LIST
 from core.contracts.linux_process_incarnation import (
     build_linux_process_incarnation,
@@ -55,28 +58,42 @@ class RemoteRunnerReadinessMixin:
                 last_error = stderr.strip() or stdout.strip() or last_error
             if attempt != attempts - 1:
                 time.sleep(delay_seconds)
-        raise cls._manager_error(f"remote runner runtime state unavailable: {last_error}")
+        raise cls._manager_error(
+            f"remote runner runtime state unavailable: {last_error}"
+        )
 
     @classmethod
     def _parse_runtime_state(cls, raw: str, *, version: str) -> dict[str, Any]:
         try:
             state = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise cls._manager_error("remote runner runtime state is invalid JSON") from exc
+            raise cls._manager_error(
+                "remote runner runtime state is invalid JSON"
+            ) from exc
         if not isinstance(state, dict):
             raise cls._manager_error("remote runner runtime state is not an object")
         if str(state.get("service") or "") != "h2ometa-remote":
-            raise cls._manager_error("remote runner runtime state has unexpected service")
+            raise cls._manager_error(
+                "remote runner runtime state has unexpected service"
+            )
         if str(state.get("version") or "") != version:
-            raise cls._manager_error("remote runner runtime state has unexpected version")
+            raise cls._manager_error(
+                "remote runner runtime state has unexpected version"
+            )
         if str(state.get("bindHost") or "") != "127.0.0.1":
-            raise cls._manager_error("remote runner runtime state has unexpected bind host")
+            raise cls._manager_error(
+                "remote runner runtime state has unexpected bind host"
+            )
         try:
             port = int(state.get("bindPort"))
         except (TypeError, ValueError) as exc:
-            raise cls._manager_error("remote runner runtime state has invalid bind port") from exc
+            raise cls._manager_error(
+                "remote runner runtime state has invalid bind port"
+            ) from exc
         if port <= 0 or port > 65535:
-            raise cls._manager_error("remote runner runtime state has invalid bind port")
+            raise cls._manager_error(
+                "remote runner runtime state has invalid bind port"
+            )
         require_runner_protocol_runtime_self_attestation(
             state.get("runnerProtocol"),
             make_error=cls._manager_error,
@@ -197,10 +214,17 @@ class RemoteRunnerReadinessMixin:
                         body.get("runnerProtocol"),
                         make_error=cls._manager_error,
                     )
+                    require_remote_runner_sqlite_runtime_evidence(
+                        body.get("sqliteRuntime"),
+                        make_error=cls._manager_error,
+                    )
                 except RuntimeError as exc:
                     last_error = str(exc)
                 else:
-                    if body.get("status") == "ok" and body.get("service") == "h2ometa-remote":
+                    if (
+                        body.get("status") == "ok"
+                        and body.get("service") == "h2ometa-remote"
+                    ):
                         return body
                     last_error = str(body.get("message") or last_error)
             if attempt != attempts - 1:
@@ -231,7 +255,9 @@ class RemoteRunnerReadinessMixin:
                 f"workflow runtime not ready: {str(workflow.get('message') or 'Workflow runtime is not ready.').strip()}"
             )
         pipeline_registry = health.get("pipelineRegistry")
-        if isinstance(pipeline_registry, dict) and not bool(pipeline_registry.get("ok")):
+        if isinstance(pipeline_registry, dict) and not bool(
+            pipeline_registry.get("ok")
+        ):
             detail_parts.append(
                 f"pipeline registry not ready: {str(pipeline_registry.get('message') or 'Pipeline registry is not ready.').strip()}"
             )
@@ -241,21 +267,36 @@ class RemoteRunnerReadinessMixin:
             ready_message = str(ready.get("message") or "").strip()
         if ready_message and ready_message not in detail_parts:
             detail_parts.append(ready_message)
-        return "; ".join(part for part in detail_parts if part) or "remote runner control plane is not ready"
+        return (
+            "; ".join(part for part in detail_parts if part)
+            or "remote runner control plane is not ready"
+        )
 
     @classmethod
-    def _verify_database_template_catalog_for_reuse(cls, client: RemoteRunnerHttpClient) -> None:
+    def _verify_database_template_catalog_for_reuse(
+        cls, client: RemoteRunnerHttpClient
+    ) -> None:
         items = call_remote_endpoint(client, DATABASE_TEMPLATE_LIST, path_values={})
         if not isinstance(items, list):
-            raise cls._manager_error("runner database template catalog payload is invalid")
+            raise cls._manager_error(
+                "runner database template catalog payload is invalid"
+            )
         for item in items:
             if not isinstance(item, dict):
-                raise cls._manager_error("runner database template catalog item is invalid")
+                raise cls._manager_error(
+                    "runner database template catalog item is invalid"
+                )
             for field in ("category", "pathLabel", "runtimeValue"):
                 if not str(item.get(field) or "").strip():
-                    raise cls._manager_error(f"runner database template catalog missing {field}")
-            if str(item.get("pathKind") or "") == "prefix" and not item.get("prefixPatternSets"):
-                raise cls._manager_error("runner database template catalog missing prefixPatternSets")
+                    raise cls._manager_error(
+                        f"runner database template catalog missing {field}"
+                    )
+            if str(item.get("pathKind") or "") == "prefix" and not item.get(
+                "prefixPatternSets"
+            ):
+                raise cls._manager_error(
+                    "runner database template catalog missing prefixPatternSets"
+                )
 
     @staticmethod
     def _manager_error(message: str) -> RuntimeError:

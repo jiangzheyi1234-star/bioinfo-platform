@@ -22,15 +22,20 @@ from tests.helpers.remote_runner_control_plane import (
     _remote_runner_manifest,
     _process_incarnation_probe_output,
     _runtime_state_json,
+    packaged_remote_runner_sqlite_evidence,
 )
 
 
-def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(monkeypatch) -> None:
+def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         "core.remote_runner.manager.RemoteRunnerManager._ensure_workflow_runtime",
         _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
     )
-    monkeypatch.setattr("core.remote_runner.workflow_runtime.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "core.remote_runner.workflow_runtime.time.sleep", lambda _seconds: None
+    )
     manager = RemoteRunnerManager()
     artifact = _fake_workflow_artifact()
     executed: list[str] = []
@@ -42,14 +47,20 @@ def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(mon
 
         def run(self, cmd: str, timeout: int = 10):
             executed.append(cmd)
-            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256"
+                in cmd
+            ):
                 return 1, "", "missing"
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 self._snakemake_checks += 1
                 if self._snakemake_checks <= 4:
                     return 127, "", "missing"
                 return 0, "9.19.0\n", ""
-            if "sha256sum /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd:
+            if (
+                "sha256sum /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz"
+                in cmd
+            ):
                 return 1, "", "missing"
             if "tar -xzf" in cmd:
                 return 0, "", ""
@@ -88,9 +99,15 @@ def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(mon
     assert runtime["source"] == "artifact"
     assert runtime["snakemake_command"].endswith("/workflow-env/bin/snakemake")
     assert any("conda-unpack" in cmd for cmd in executed)
-    assert any("PATH=" in cmd and "workflow-env/bin/snakemake" in cmd and "--version" in cmd for cmd in executed)
+    assert any(
+        "PATH=" in cmd and "workflow-env/bin/snakemake" in cmd and "--version" in cmd
+        for cmd in executed
+    )
 
-def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatch) -> None:
+
+def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         "core.remote_runner.manager.RemoteRunnerManager._ensure_workflow_runtime",
         _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
@@ -104,7 +121,10 @@ def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatc
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
             executed.append(cmd)
-            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256"
+                in cmd
+            ):
                 return 1, "", "missing"
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
@@ -140,16 +160,30 @@ def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatc
     assert uploads == []
     assert runtime["provider"] == "conda-pack"
     assert metadata["workflow_runtime"]["action"] == "registered"
-    assert any("PATH=" in cmd and "workflow-env/bin/snakemake" in cmd and "--version" in cmd for cmd in executed)
-    assert sum(1 for cmd in executed if "workflow-env/bin/snakemake" in cmd and "--version" in cmd) == 1
+    assert any(
+        "PATH=" in cmd and "workflow-env/bin/snakemake" in cmd and "--version" in cmd
+        for cmd in executed
+    )
+    assert (
+        sum(
+            1
+            for cmd in executed
+            if "workflow-env/bin/snakemake" in cmd and "--version" in cmd
+        )
+        == 1
+    )
     assert not any("tar -xzf" in cmd for cmd in executed)
 
-def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeypatch) -> None:
+
+def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(
+    monkeypatch,
+) -> None:
     manager = RemoteRunnerManager()
 
     class FakeBundle:
         archive_path = Path(__file__)
         manifest = _remote_runner_manifest()
+        sqlite_evidence = packaged_remote_runner_sqlite_evidence()
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -165,11 +199,17 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
                 return 0, "", ""
             if "runner_protocol_startup" in cmd:
                 return 0, "", ""
-            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
-            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(), ""
@@ -198,17 +238,26 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
             health = _health_endpoint_json(path, accepted_statuses)
             if health is not None:
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
     fake_ssh = FakeSSH()
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
-        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-    ), patch(
-        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    with (
+        patch.object(
+            manager,
+            "_artifact_provider",
+            SimpleNamespace(resolve=lambda **kwargs: FakeBundle()),
+        ),
+        patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient),
+        patch(
+            "core.remote_runner.manager.store_runner_token",
+            lambda **kwargs: "runner://srv_test",
+        ),
     ):
         result = manager.bootstrap(
             server_id="srv_test",
@@ -223,6 +272,7 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
     assert tooling["service_runtime"]["provider"] == "bundled"
     assert tooling["service_runtime"]["source"] == "artifact"
 
+
 def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     executed: list[str] = []
@@ -230,6 +280,7 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
     class FakeBundle:
         archive_path = Path(__file__)
         manifest = _remote_runner_manifest()
+        sqlite_evidence = packaged_remote_runner_sqlite_evidence()
 
     class FakeTunnel:
         local_port = 18765
@@ -249,11 +300,17 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
                 return 0, "", ""
             if "runner_protocol_startup" in cmd:
                 return 0, "", ""
-            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
-            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(), ""
@@ -282,16 +339,25 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
             health = _health_endpoint_json(path, accepted_statuses)
             if health is not None:
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
-        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-    ), patch(
-        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    with (
+        patch.object(
+            manager,
+            "_artifact_provider",
+            SimpleNamespace(resolve=lambda **kwargs: FakeBundle()),
+        ),
+        patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient),
+        patch(
+            "core.remote_runner.manager.store_runner_token",
+            lambda **kwargs: "runner://srv_test",
+        ),
     ):
         result = manager.bootstrap(
             server_id="srv_test",
@@ -305,12 +371,16 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
     assert metadata["tooling"]["workflow_runtime"]["source"] == "artifact"
     assert metadata["tooling"]["service_runtime"]["provider"] == "bundled"
     assert metadata["tooling"]["service_runtime"]["source"] == "artifact"
-    assert metadata["tooling"]["service_runtime"]["python"] == f"/home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}/runtime/bin/python"
+    assert (
+        metadata["tooling"]["service_runtime"]["python"]
+        == f"/home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}/runtime/bin/python"
+    )
     assert metadata["tooling"]["service_runtime"]["platform"] == "linux-64"
     assert not any("micromamba" in cmd for cmd in executed)
     assert not any("service-env" in cmd for cmd in executed)
     assert not any("pip install" in cmd for cmd in executed)
     assert not any("python3 -m venv" in cmd for cmd in executed)
+
 
 def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> None:
     manager = RemoteRunnerManager()
@@ -318,6 +388,7 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
     class FakeBundle:
         archive_path = Path(__file__)
         manifest = _remote_runner_manifest()
+        sqlite_evidence = packaged_remote_runner_sqlite_evidence()
 
     class FakeTunnel:
         local_port = 18765
@@ -336,11 +407,17 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 0, "", ""
             if "runner_protocol_startup" in cmd:
                 return 0, "", ""
-            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, "", ""
             if "systemctl --user restart h2ometa-remote.service" in cmd:
                 return 0, "", ""
-            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(), ""
@@ -371,7 +448,9 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
             if path == "/health/startup":
                 health_calls["count"] += 1
             if path == "/health/startup" and health_calls["count"] < 3:
@@ -381,12 +460,21 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
-    monkeypatch.setattr("core.remote_runner.readiness.time.sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "core.remote_runner.readiness.time.sleep", lambda *_args, **_kwargs: None
+    )
 
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
-        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-    ), patch(
-        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    with (
+        patch.object(
+            manager,
+            "_artifact_provider",
+            SimpleNamespace(resolve=lambda **kwargs: FakeBundle()),
+        ),
+        patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient),
+        patch(
+            "core.remote_runner.manager.store_runner_token",
+            lambda **kwargs: "runner://srv_test",
+        ),
     ):
         result = manager.bootstrap(
             server_id="srv_test",
@@ -398,12 +486,16 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
     assert health_calls["count"] == 3
     assert result["health"]["ready"]["ok"] is True
 
-def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypatch) -> None:
+
+def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(
+    monkeypatch,
+) -> None:
     manager = RemoteRunnerManager()
 
     class FakeBundle:
         archive_path = Path(__file__)
         manifest = _remote_runner_manifest()
+        sqlite_evidence = packaged_remote_runner_sqlite_evidence()
 
     class FakeTunnel:
         local_port = 18765
@@ -422,11 +514,17 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
                 return 0, "", ""
             if "runner_protocol_startup" in cmd:
                 return 0, "", ""
-            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
-            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(), ""
@@ -454,15 +552,26 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
             health = _health_endpoint_json(path, accepted_statuses)
             if health is not None:
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
-        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-    ), patch("core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"):
+    with (
+        patch.object(
+            manager,
+            "_artifact_provider",
+            SimpleNamespace(resolve=lambda **kwargs: FakeBundle()),
+        ),
+        patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient),
+        patch(
+            "core.remote_runner.manager.store_runner_token",
+            lambda **kwargs: "runner://srv_test",
+        ),
+    ):
         result = manager.bootstrap(
             server_id="srv_test",
             server={"label": "demo"},
@@ -470,4 +579,7 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
             server_record={},
         )
 
-    assert result["bootstrap_metadata"]["tooling"]["service_runtime"]["provider"] == "bundled"
+    assert (
+        result["bootstrap_metadata"]["tooling"]["service_runtime"]["provider"]
+        == "bundled"
+    )

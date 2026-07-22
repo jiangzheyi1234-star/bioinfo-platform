@@ -15,6 +15,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_process_incarnation_probe,
     _process_incarnation_probe_output,
     _runtime_state_json,
+    safe_remote_runner_sqlite_runtime_evidence,
 )
 
 
@@ -28,13 +29,18 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
         def run(self, cmd: str, timeout: int = 10):
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
-            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(port=36551, pid=4242), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(pid=4242), ""
             raise AssertionError(f"unexpected command: {cmd}")
 
-        def ensure_local_tunnel(self, _name: str, *, remote_host: str, remote_port: int):
+        def ensure_local_tunnel(
+            self, _name: str, *, remote_host: str, remote_port: int
+        ):
             assert remote_host == "127.0.0.1"
             self.tunnels.append(remote_port)
             if remote_port == 43127:
@@ -54,12 +60,17 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
                 return {
                     "status": "ok",
                     "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+                    "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
                 }
             raise AssertionError(f"unexpected path: {path}")
 
     ssh = FakeSSH()
-    monkeypatch.setattr("core.remote_runner.proxy.resolve_runner_token", lambda _ref: "phase2-token")
-    monkeypatch.setattr("core.remote_runner.proxy.RemoteRunnerHttpClient", FakeHttpClient)
+    monkeypatch.setattr(
+        "core.remote_runner.proxy.resolve_runner_token", lambda _ref: "phase2-token"
+    )
+    monkeypatch.setattr(
+        "core.remote_runner.proxy.RemoteRunnerHttpClient", FakeHttpClient
+    )
 
     health = manager.get_health(
         server_id="srv_demo",
@@ -112,7 +123,9 @@ def test_ssh_status_refresh_persists_resynced_service_port_after_auth_failure() 
     }
     service = RuntimeService(service_locator=ServiceLocator())
     service._initialized = True
-    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    service._service_locator.ssh_service = SimpleNamespace(
+        is_connected=True, close=lambda: None
+    )
     service._service_locator.remote_runner_manager = SimpleNamespace(
         get_health=lambda **kwargs: (_ for _ in ()).throw(
             RuntimeServiceError(
@@ -139,8 +152,9 @@ def test_ssh_status_refresh_persists_resynced_service_port_after_auth_failure() 
         cfg.clear()
         cfg.update(snapshot)
 
-    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
-        "core.app_runtime.runtime_config.save_runtime_config", save_capture
+    with (
+        patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg),
+        patch("core.app_runtime.runtime_config.save_runtime_config", save_capture),
     ):
         status = service.get_ssh_status()
 
@@ -176,7 +190,10 @@ def test_get_server_health_path_returns_persisted_resynced_service_port() -> Non
                 "last_health_snapshot": {
                     "startup": {"ok": True, "message": "Remote runner config loaded."},
                     "live": {"ok": True, "message": "Remote runner process is alive."},
-                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                    "ready": {
+                        "ok": True,
+                        "message": "Remote runner control plane is ready.",
+                    },
                     "reasonCode": "",
                     "checkedAt": "2026-06-09T13:00:00Z",
                 },
@@ -211,8 +228,9 @@ def test_get_server_health_path_returns_persisted_resynced_service_port() -> Non
         cfg.clear()
         cfg.update(snapshot)
 
-    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
-        "core.app_runtime.runtime_config.save_runtime_config", save_capture
+    with (
+        patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg),
+        patch("core.app_runtime.runtime_config.save_runtime_config", save_capture),
     ):
         server = service.get_server(server_id)
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
@@ -19,7 +21,11 @@ from core.contracts.remote_endpoints import (
 from core.remote_runner.diagnostics import OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINTS
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.health import build_runner_health
+from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
+from tests.helpers.remote_runner_control_plane import (
+    safe_remote_runner_sqlite_runtime_evidence,
+)
 
 
 class FakeHealthClient:
@@ -40,6 +46,10 @@ class FakeHealthClient:
                 "items": [{"id": "moving-pictures-16s"}],
             },
         }
+        self.ready.setdefault(
+            "sqliteRuntime",
+            safe_remote_runner_sqlite_runtime_evidence(),
+        )
         self.calls: list[tuple[str, list[int]]] = []
 
     def get_json(
@@ -52,6 +62,7 @@ class FakeHealthClient:
             return {
                 "status": "ok",
                 "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+                "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
             }
         if path == "/health/ready":
             return self.ready
@@ -71,6 +82,7 @@ def test_runner_health_uses_transport_json_endpoints() -> None:
     }
     assert health["workflowRuntime"]["provider"] == "conda-pack"
     assert health["pipelineRegistry"]["items"] == [{"id": "moving-pictures-16s"}]
+    assert health["sqliteRuntime"] == safe_remote_runner_sqlite_runtime_evidence()
     assert health["reasonCode"] == ""
     assert client.calls == [
         ("/health/startup", [200, 503]),
@@ -97,6 +109,19 @@ def test_runner_health_reports_not_ready_subsystems() -> None:
     assert health["workflowRuntime"]["ok"] is False
     assert health["pipelineRegistry"]["ok"] is False
     assert health["reasonCode"] == "WORKFLOW_RUNTIME_NOT_READY"
+
+
+def test_runner_health_rejects_live_ready_sqlite_evidence_drift() -> None:
+    client = FakeHealthClient()
+    client.ready["sqliteRuntime"] = {
+        "minimumVersion": "3.51.3",
+        "loadedVersion": "3.52.0",
+        "sqlVersion": "3.52.0",
+        "ok": True,
+    }
+
+    with pytest.raises(RemoteRunnerClientError, match="changed between live and ready"):
+        build_runner_health(client)
 
 
 class FakeHealthProxy(RemoteRunnerProxyMixin):
@@ -134,14 +159,19 @@ def test_proxy_health_resync_path_delegates_to_health_helper() -> None:
 def test_runner_health_helpers_use_endpoint_contracts() -> None:
     root = Path(__file__).resolve().parents[1]
     health_source = (root / "core/remote_runner/health.py").read_text(encoding="utf-8")
-    diagnostics_source = (root / "core/remote_runner/diagnostics.py").read_text(encoding="utf-8")
+    diagnostics_source = (root / "core/remote_runner/diagnostics.py").read_text(
+        encoding="utf-8"
+    )
 
     assert render_remote_endpoint_path(RUNNER_HEALTH_STARTUP, {}) == "/health/startup"
     assert render_remote_endpoint_path(RUNNER_HEALTH_LIVE, {}) == "/health/live"
     assert render_remote_endpoint_path(RUNNER_HEALTH_READY, {}) == "/health/ready"
     assert render_remote_endpoint_path(RUNNER_HEALTH_META, {}) == "/health/meta"
     assert render_remote_endpoint_path(RUNNER_HEALTH_WORKERS, {}) == "/health/workers"
-    assert render_remote_endpoint_path(RUNNER_HEALTH_EXECUTION_DIAGNOSTICS, {}) == "/health/execution-diagnostics"
+    assert (
+        render_remote_endpoint_path(RUNNER_HEALTH_EXECUTION_DIAGNOSTICS, {})
+        == "/health/execution-diagnostics"
+    )
     assert REMOTE_ENDPOINTS[RUNNER_HEALTH_STARTUP].accepted_statuses == (200, 503)
     assert REMOTE_ENDPOINTS[RUNNER_HEALTH_LIVE].accepted_statuses == (200,)
     assert REMOTE_ENDPOINTS[RUNNER_HEALTH_READY].accepted_statuses == (200, 503)
@@ -167,7 +197,9 @@ def test_runner_health_meta_and_workers_unwrap_data_envelopes() -> None:
         def __init__(self) -> None:
             self.calls: list[tuple[str, list[int]]] = []
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, Any]:
             self.calls.append((path, sorted(accepted_statuses or [])))
             if path == "/health/meta":
                 return {"data": {"service": "h2ometa-remote", "version": "v1"}}

@@ -146,7 +146,11 @@ def test_incompatible_protocol_rollback_stops_and_requires_forward_repair(
         manifest = {
             "service": "h2ometa-remote",
             "version": "previous",
-            "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+            "runtime": {
+                "provider": "bundled",
+                "python": "runtime/bin/python",
+                "sqlite": {"minimumVersion": "3.51.3"},
+            },
         }
 
     metadata = _metadata()
@@ -172,6 +176,7 @@ def test_incompatible_protocol_rollback_stops_and_requires_forward_repair(
         ("service", "unexpected-runner"),
         ("platform", "unexpected-platform"),
         ("runtime", {"provider": "system", "python": "/usr/bin/python"}),
+        ("runtime", {"provider": "bundled", "python": "runtime/bin/python"}),
     ],
 )
 def test_drifted_previous_manifest_requires_forward_repair(
@@ -229,7 +234,10 @@ def test_drifted_previous_config_binding_requires_forward_repair(
     assert "switch-current" not in DriftedConfigRollbackManager.events
     assert "start-previous" not in DriftedConfigRollbackManager.events
     assert "release-guard" not in DriftedConfigRollbackManager.events
-    assert "exact release/config binding" in rollback["lifecycleGuardRecovery"]["nextAction"]
+    assert (
+        "exact release/config binding"
+        in rollback["lifecycleGuardRecovery"]["nextAction"]
+    )
 
 
 def test_pre_activation_failure_retains_guard_without_unproven_release() -> None:

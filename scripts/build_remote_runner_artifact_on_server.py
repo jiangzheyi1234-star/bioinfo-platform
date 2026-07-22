@@ -7,11 +7,13 @@ import argparse
 import hashlib
 import json
 import posixpath
+import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -25,10 +27,24 @@ from core.contracts.runner_process_lifetime import (  # noqa: E402
 from core.contracts.runner_process_owner import (  # noqa: E402
     RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS,
 )
+from core.contracts.remote_runner_sqlite_runtime import (  # noqa: E402
+    REMOTE_RUNNER_SQLITE_MINIMUM_VERSION,
+    REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+    require_remote_runner_sqlite_version,
+)
 from core.contracts.runner_activation_release_bootstrap_manifest import (  # noqa: E402
     require_runner_activation_release_bootstrap_manifest,
 )
-from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
+from core.remote_runner.release_manifest import (  # noqa: E402
+    REMOTE_RUNNER_ARTIFACT,
+    REMOTE_RUNNER_VERSION,
+)
+from core.remote_runner.remote_runner_artifact_validation import (  # noqa: E402
+    read_remote_runner_bootstrap_manifest,
+    verify_bundled_runtime_entrypoints,
+    verify_packaged_sqlite_metadata,
+    verify_required_wrapper_assets,
+)
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
 from core.remote_runner.release_source_policy import (  # noqa: E402
     require_approved_remote_runner_release_worktree_file,
@@ -49,15 +65,28 @@ def print_json(label: str, payload: Any) -> None:
 
 
 def connect():
-    from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
+    from config import (
+        get_config,
+        normalize_ssh_config,
+        resolve_ssh_config_target,
+        resolve_ssh_password,
+    )
     from core.remote.ssh_connector import ssh_connect
 
     cfg = get_config()
     ssh_cfg = normalize_ssh_config(cfg.get("ssh", {}))
     auth_mode = str(ssh_cfg.get("auth_mode") or "password_ref")
-    resolved = resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
-    password = resolve_ssh_password({"ssh": ssh_cfg}) if auth_mode == "password_ref" else ""
-    key_file = str(resolved.get("identity_ref", "") or "") if auth_mode in {"key_file", "ssh_config"} else ""
+    resolved = (
+        resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
+    )
+    password = (
+        resolve_ssh_password({"ssh": ssh_cfg}) if auth_mode == "password_ref" else ""
+    )
+    key_file = (
+        str(resolved.get("identity_ref", "") or "")
+        if auth_mode in {"key_file", "ssh_config"}
+        else ""
+    )
     result = ssh_connect(
         ip=str(resolved.get("host") or ""),
         port=int(resolved.get("port") or 22),
@@ -87,7 +116,9 @@ def run(client, command: str, *, timeout: int = 1800) -> str:
         },
     )
     if exit_code != 0:
-        raise RuntimeError(err.strip() or out.strip() or f"remote command failed: {exit_code}")
+        raise RuntimeError(
+            err.strip() or out.strip() or f"remote command failed: {exit_code}"
+        )
     return out
 
 
@@ -103,7 +134,34 @@ def sha256_text(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def download_artifact_atomically(sftp, remote_artifact: str, local_artifact: Path) -> str:
+def validate_built_remote_runner_candidate(
+    *, artifact_path: Path, version: str, platform: str
+) -> dict[str, object]:
+    """Bind release evidence to the exact candidate archive before publication."""
+
+    manifest = read_remote_runner_bootstrap_manifest(artifact_path)
+    expected = {
+        "service": REMOTE_RUNNER_ARTIFACT.service,
+        "version": version,
+        "platform": platform,
+    }
+    actual = {field: manifest.get(field) for field in expected}
+    if actual != expected:
+        raise RuntimeError(
+            "remote runner candidate manifest identity does not match the build request"
+        )
+    verify_bundled_runtime_entrypoints(artifact_path)
+    sqlite_evidence = verify_packaged_sqlite_metadata(artifact_path)
+    verify_required_wrapper_assets(artifact_path)
+    return {
+        "manifestSchemaVersion": "h2ometa.remote-runner.startup.bootstrap-manifest.v2",
+        "sqlite": dict(sqlite_evidence),
+    }
+
+
+def download_artifact_atomically(
+    sftp, remote_artifact: str, local_artifact: Path
+) -> str:
     tmp_artifact = local_artifact.with_name(f".{local_artifact.name}.downloading")
     tmp_checksum = local_artifact.with_name(f".{local_artifact.name}.sha256.tmp")
     try:
@@ -153,7 +211,13 @@ def git_status_for_path(path: Path) -> str:
 
 def git_status_for_paths(paths: list[Path] | tuple[Path, ...]) -> str:
     result = subprocess.run(
-        ["git", "status", "--porcelain", "--", *(str(path.relative_to(REPO_ROOT)) for path in paths)],
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--",
+            *(str(path.relative_to(REPO_ROOT)) for path in paths),
+        ],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -171,11 +235,15 @@ def remote_runner_release_source_paths() -> tuple[Path, ...]:
     )
 
 
-def git_tracked_release_files(local_dir: Path, *, include_untracked: bool = False) -> list[Path]:
+def git_tracked_release_files(
+    local_dir: Path, *, include_untracked: bool = False
+) -> list[Path]:
     release_roots = [str(local_dir.relative_to(REPO_ROOT))]
     commands = [["git", "ls-files", *release_roots]]
     if include_untracked:
-        commands.append(["git", "ls-files", "--others", "--exclude-standard", *release_roots])
+        commands.append(
+            ["git", "ls-files", "--others", "--exclude-standard", *release_roots]
+        )
     raw_paths: list[str] = []
     for command in commands:
         result = subprocess.run(
@@ -215,9 +283,13 @@ def git_tracked_release_files(local_dir: Path, *, include_untracked: bool = Fals
     return files
 
 
-def upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False) -> None:
+def upload_tree(
+    sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False
+) -> None:
     mkdir_p_sftp(sftp, remote_dir)
-    for path in git_tracked_release_files(local_dir, include_untracked=include_untracked):
+    for path in git_tracked_release_files(
+        local_dir, include_untracked=include_untracked
+    ):
         rel = path.relative_to(local_dir).as_posix()
         remote_path = posixpath.join(remote_dir, rel)
         mkdir_p_sftp(sftp, posixpath.dirname(remote_path))
@@ -234,7 +306,9 @@ def upload_file(sftp, local_file: Path, remote_file: str) -> None:
     sftp.put(str(local_file), remote_file)
 
 
-def upload_remote_runner_sources(sftp, build_root: str, *, include_untracked: bool = False) -> None:
+def upload_remote_runner_sources(
+    sftp, build_root: str, *, include_untracked: bool = False
+) -> None:
     upload_tree(
         sftp,
         REPO_ROOT / "apps" / "remote_runner",
@@ -260,18 +334,60 @@ def upload_remote_runner_sources(sftp, build_root: str, *, include_untracked: bo
     )
 
 
-def validate_explicit_lock(path: Path) -> None:
+def validate_explicit_lock(path: Path, *, platform: str) -> str:
     if not path.exists():
         raise SystemExit(f"explicit lock file not found: {path}")
-    first_line = path.read_text(encoding="utf-8").splitlines()[0:1]
+    lines = path.read_text(encoding="utf-8").splitlines()
+    first_line = lines[0:1]
     if first_line != ["@EXPLICIT"]:
         raise SystemExit(f"explicit lock file must start with @EXPLICIT: {path}")
+    candidates = [
+        line.strip()
+        for line in lines[1:]
+        if line.strip().rsplit("/", 1)[-1].startswith("libsqlite-")
+    ]
+    if len(candidates) != 1:
+        raise SystemExit(
+            "remote runner explicit lock must contain exactly one libsqlite package"
+        )
+    parsed = urlsplit(candidates[0])
+    filename = parsed.path.rsplit("/", 1)[-1]
+    match = re.fullmatch(
+        r"libsqlite-([0-9]+\.[0-9]+\.[0-9]+)-[A-Za-z0-9_.-]+\.(?:conda|tar\.bz2)",
+        filename,
+    )
+    expected_prefix = f"/conda-forge/{platform}/"
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "conda.anaconda.org"
+        or not parsed.path.startswith(expected_prefix)
+        or parsed.query
+        or parsed.fragment
+        or match is None
+    ):
+        raise SystemExit(
+            "remote runner explicit lock libsqlite package source is invalid"
+        )
+    version_text = match.group(1)
+    version = require_remote_runner_sqlite_version(
+        version_text,
+        field="explicit lock libsqlite version",
+        make_error=SystemExit,
+    )
+    if version < REMOTE_RUNNER_SQLITE_MINIMUM_VERSION:
+        raise SystemExit(
+            "remote runner explicit lock libsqlite version is below minimum "
+            f"{REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT}"
+        )
+    return version_text
 
 
 def default_lock_file(*, platform: str) -> Path:
     relative = REMOTE_RUNNER_ARTIFACT.conda_explicit_specs.get(platform)
     if not relative:
-        raise SystemExit(f"remote runner manifest has no explicit conda spec for platform: {platform}")
+        raise SystemExit(
+            f"remote runner manifest has no explicit conda spec for platform: {platform}"
+        )
     return REPO_ROOT / relative
 
 
@@ -342,6 +458,9 @@ def build_bootstrap_manifest(*, version: str, platform: str) -> dict[str, object
             "runtime": {
                 "provider": "bundled",
                 "python": "runtime/bin/python",
+                "sqlite": {
+                    "minimumVersion": REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+                },
             },
             **build_runner_protocol_manifest_fields(),
         },
@@ -355,11 +474,25 @@ def build_remote_script(
     runtime_source: str,
     artifact_name: str,
 ) -> str:
+    sqlite_probe = (
+        "from core.contracts.remote_runner_sqlite_runtime import "
+        "require_remote_runner_sqlite_runtime; "
+        "import json; print(json.dumps(require_remote_runner_sqlite_runtime(), "
+        'sort_keys=True, separators=(",", ":")))'
+    )
     if runtime_source == "copy-from-current":
-        runtime_validation = '"$BUILD_ROOT/bundle/runtime/bin/python" -c "import fastapi, uvicorn, pydantic"'
+        runtime_validation = (
+            '"$BUILD_ROOT/bundle/runtime/bin/python" -c '
+            '"import fastapi, uvicorn, pydantic"\n'
+            f'(cd "$BUILD_ROOT/bundle" && "$BUILD_ROOT/bundle/runtime/bin/python" -B -c {shlex.quote(sqlite_probe)})'
+        )
         runtime_pack = ""
     else:
-        runtime_validation = '"$BUILD_ROOT/runtime-src/bin/python" -c "import fastapi, uvicorn, pydantic"'
+        runtime_validation = (
+            '"$BUILD_ROOT/runtime-src/bin/python" -c '
+            '"import fastapi, uvicorn, pydantic"\n'
+            f'(cd "$BUILD_ROOT/bundle" && "$BUILD_ROOT/runtime-src/bin/python" -B -c {shlex.quote(sqlite_probe)})'
+        )
         runtime_pack = (
             '"$BUILD_ROOT/runtime-src/bin/conda-pack" -p "$BUILD_ROOT/runtime-src" '
             '-o "$BUILD_ROOT/runtime.tar.gz" --force\n'
@@ -373,6 +506,7 @@ cd "$BUILD_ROOT"
 {build_runtime_script(platform=platform, runtime_source=runtime_source)}
 {runtime_validation}
 {runtime_pack}
+(cd "$BUILD_ROOT/bundle" && "$BUILD_ROOT/bundle/runtime/bin/python" -B -c {shlex.quote(sqlite_probe)}) > "$BUILD_ROOT/bundle/sqlite_runtime_evidence.json"
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -494,13 +628,24 @@ def build_remote_script_plan(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build and download the remote-runner control-plane artifact.")
+    parser = argparse.ArgumentParser(
+        description="Build and download the remote-runner control-plane artifact."
+    )
     parser.add_argument("--version", default=REMOTE_RUNNER_VERSION)
-    parser.add_argument("--platform", default="", choices=("", "linux-64", "linux-aarch64"))
-    parser.add_argument("--output-dir", default=str(Path("resources") / "remote-runner"))
+    parser.add_argument(
+        "--platform", default="", choices=("", "linux-64", "linux-aarch64")
+    )
+    parser.add_argument(
+        "--output-dir", default=str(Path("resources") / "remote-runner")
+    )
     parser.add_argument(
         "--runtime-source",
-        choices=("lockfile", "clean-solve", "explicit-from-current", "copy-from-current"),
+        choices=(
+            "lockfile",
+            "clean-solve",
+            "explicit-from-current",
+            "copy-from-current",
+        ),
         default="lockfile",
         help=(
             "lockfile builds from a checked-in explicit spec. clean-solve is a dev-only "
@@ -527,11 +672,15 @@ def main() -> int:
     args = parser.parse_args()
 
     requested_platform = args.platform or REMOTE_RUNNER_ARTIFACT.default_platform
-    lock_file = Path(args.lock_file) if args.lock_file else default_lock_file(platform=requested_platform)
+    lock_file = (
+        Path(args.lock_file)
+        if args.lock_file
+        else default_lock_file(platform=requested_platform)
+    )
     lock_file_name = lock_file.name if args.runtime_source == "lockfile" else ""
     lock_sha256 = sha256_text(lock_file) if args.runtime_source == "lockfile" else ""
     if args.runtime_source == "lockfile":
-        validate_explicit_lock(lock_file)
+        validate_explicit_lock(lock_file, platform=requested_platform)
     if args.print_remote_script:
         print_json(
             "REMOTE_RUNNER_REMOTE_SCRIPT",
@@ -555,16 +704,24 @@ def main() -> int:
     client = connect()
     build_root = ""
     try:
-        uname = run(client, 'printf "%s:%s" "$(uname -s)" "$(uname -m)"', timeout=30).strip()
+        uname = run(
+            client, 'printf "%s:%s" "$(uname -s)" "$(uname -m)"', timeout=30
+        ).strip()
         detected_platform = platform_from_uname(uname)
         platform = args.platform or detected_platform
         if platform != detected_platform:
-            raise RuntimeError(f"requested platform {platform} does not match remote platform {detected_platform}")
+            raise RuntimeError(
+                f"requested platform {platform} does not match remote platform {detected_platform}"
+            )
 
-        build_root = run(client, "mktemp -d /tmp/h2ometa-remote-runner.XXXXXX", timeout=30).strip()
+        build_root = run(
+            client, "mktemp -d /tmp/h2ometa-remote-runner.XXXXXX", timeout=30
+        ).strip()
         sftp = client.open_sftp()
         try:
-            upload_remote_runner_sources(sftp, build_root, include_untracked=args.allow_dirty_source)
+            upload_remote_runner_sources(
+                sftp, build_root, include_untracked=args.allow_dirty_source
+            )
             if args.runtime_source == "lockfile":
                 sftp.put(str(lock_file), posixpath.join(build_root, "explicit.txt"))
         finally:
@@ -582,7 +739,9 @@ def main() -> int:
         output = run(client, remote_command, timeout=3600)
         remote_artifact = output.strip().splitlines()[-1].strip()
         if not remote_artifact.endswith(artifact_name):
-            raise RuntimeError(f"remote build did not report expected artifact path: {remote_artifact}")
+            raise RuntimeError(
+                f"remote build did not report expected artifact path: {remote_artifact}"
+            )
 
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -592,12 +751,20 @@ def main() -> int:
             digest = download_artifact_atomically(sftp, remote_artifact, local_artifact)
         finally:
             sftp.close()
+        candidate_validation = validate_built_remote_runner_candidate(
+            artifact_path=local_artifact,
+            version=args.version,
+            platform=platform,
+        )
     finally:
         if build_root:
             try:
                 run(client, f"rm -rf {shlex.quote(build_root)}", timeout=60)
             except Exception as exc:
-                print_json("REMOTE_CLEANUP_WARNING", {"buildRoot": build_root, "error": str(exc)})
+                print_json(
+                    "REMOTE_CLEANUP_WARNING",
+                    {"buildRoot": build_root, "error": str(exc)},
+                )
         client.close()
 
     print_json(
@@ -607,6 +774,7 @@ def main() -> int:
             "sha256": str(Path(str(local_artifact) + ".sha256")),
             "digest": digest,
             "runtimeSource": args.runtime_source,
+            "candidateValidation": candidate_validation,
         },
     )
     return 0

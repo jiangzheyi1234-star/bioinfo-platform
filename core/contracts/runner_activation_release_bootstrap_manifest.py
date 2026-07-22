@@ -16,6 +16,7 @@ from .runner_activation_validation import (
     require_fingerprint as _require_fingerprint,
     require_mapping as _require_mapping,
 )
+from .remote_runner_sqlite_runtime import REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT
 from .runner_protocol import (
     require_runner_protocol_descriptor,
     runner_protocol_descriptor_fingerprint,
@@ -23,7 +24,7 @@ from .runner_protocol import (
 
 
 RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_SCHEMA = (
-    "h2ometa.remote-runner.startup.bootstrap-manifest.v1"
+    "h2ometa.remote-runner.startup.bootstrap-manifest.v2"
 )
 RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_PATH = "bootstrap_manifest.json"
 RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_MAX_BYTES = 1024 * 1024
@@ -39,7 +40,8 @@ _MANIFEST_FIELDS = frozenset(
         "version",
     }
 )
-_RUNTIME_FIELDS = frozenset({"provider", "python"})
+_RUNTIME_FIELDS = frozenset({"provider", "python", "sqlite"})
+_SQLITE_FIELDS = frozenset({"minimumVersion"})
 _FINGERPRINT_DOMAIN = RUNNER_ACTIVATION_RELEASE_BOOTSTRAP_MANIFEST_SCHEMA.encode(
     "ascii"
 )
@@ -118,6 +120,18 @@ def require_runner_activation_release_bootstrap_manifest(
         field="releaseBootstrapManifest.runtime.python",
         make_error=make_error,
     )
+    sqlite = _require_mapping(
+        runtime.get("sqlite"),
+        expected=_SQLITE_FIELDS,
+        context="runner activation release bootstrap manifest runtime sqlite",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        sqlite.get("minimumVersion"),
+        expected=REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT,
+        field="releaseBootstrapManifest.runtime.sqlite.minimumVersion",
+        make_error=make_error,
+    )
     descriptor = require_runner_protocol_descriptor(
         mapping.get("runnerProtocol"),
         make_error=make_error,
@@ -139,7 +153,11 @@ def require_runner_activation_release_bootstrap_manifest(
         "platform": platform,
         "runnerProtocol": descriptor,
         "runnerProtocolFingerprint": protocol_fingerprint,
-        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        "runtime": {
+            "provider": "bundled",
+            "python": "runtime/bin/python",
+            "sqlite": {"minimumVersion": REMOTE_RUNNER_SQLITE_MINIMUM_VERSION_TEXT},
+        },
         "service": RUNNER_ACTIVATION_SERVICE,
         "version": version,
     }

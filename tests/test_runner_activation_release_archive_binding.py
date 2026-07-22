@@ -31,7 +31,11 @@ BOOTSTRAP_MANIFEST = {
     "runnerProtocolFingerprint": runner_protocol_descriptor_fingerprint(
         PROTOCOL_DESCRIPTOR
     ),
-    "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+    "runtime": {
+        "provider": "bundled",
+        "python": "runtime/bin/python",
+        "sqlite": {"minimumVersion": "3.51.3"},
+    },
     "service": RUNNER_ACTIVATION_SERVICE,
     "version": "0.2.0",
 }

@@ -34,6 +34,12 @@ def _is_remote_bundle_cleanup(cmd: str) -> bool:
 
 
 def _is_remote_config_atomic_move(cmd: str) -> bool:
+    if (
+        cmd.startswith("printf %s ")
+        and "/artifact.sha256.tmp" in cmd
+        and " mv -f " in cmd
+    ):
+        return True
     if cmd.startswith("rm -f ") and cmd.endswith(
         "/shared/config/runner.json.candidate"
     ):
@@ -51,6 +57,8 @@ def _is_remote_config_atomic_move(cmd: str) -> bool:
             or "/shared/config/snakemake/default/profile.v9+.yaml" in cmd
         )
     )
+
+
 def _is_remote_runner_config_read(cmd: str) -> bool:
     return cmd.startswith("cat ") and "/shared/config/runner.json" in cmd
 
@@ -60,11 +68,15 @@ def _is_remote_current_release_read(cmd: str) -> bool:
 
 
 def _is_remote_current_release_switch(cmd: str) -> bool:
-    return "current.tmp" in cmd and "mv -Tf" in cmd and "/.h2ometa/runner/current" in cmd
+    return (
+        "current.tmp" in cmd and "mv -Tf" in cmd and "/.h2ometa/runner/current" in cmd
+    )
 
 
 def _is_remote_runner_config_read(cmd: str) -> bool:
-    return cmd.startswith("cat ") and cmd.endswith("/.h2ometa/runner/shared/config/runner.json")
+    return cmd.startswith("cat ") and cmd.endswith(
+        "/.h2ometa/runner/shared/config/runner.json"
+    )
 
 
 def _is_remote_process_incarnation_probe(cmd: str) -> bool:
@@ -121,7 +133,11 @@ def _remote_runner_manifest(
         "service": "h2ometa-remote",
         "version": version,
         "platform": platform,
-        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        "runtime": {
+            "provider": "bundled",
+            "python": "runtime/bin/python",
+            "sqlite": {"minimumVersion": "3.51.3"},
+        },
         **build_runner_protocol_manifest_fields(),
     }
 
@@ -145,6 +161,26 @@ def _remote_runner_protocol_config(
     }
 
 
+def safe_remote_runner_sqlite_runtime_evidence() -> dict[str, object]:
+    return {
+        "minimumVersion": "3.51.3",
+        "loadedVersion": "3.53.0",
+        "sqlVersion": "3.53.0",
+        "ok": True,
+    }
+
+
+def packaged_remote_runner_sqlite_evidence() -> dict[str, object]:
+    return {
+        "evidenceKind": "packaged-conda-metadata",
+        "minimumVersion": "3.51.3",
+        "packageName": "libsqlite",
+        "packagedVersion": "3.53.0",
+        "build": "hf4e2dac_0",
+        "metadataMember": "runtime/conda-meta/libsqlite-3.53.0-hf4e2dac_0.json",
+    }
+
+
 def _health_endpoint_json(
     path: str, accepted_statuses: set[int] | None = None
 ) -> dict[str, object] | None:
@@ -153,6 +189,7 @@ def _health_endpoint_json(
         return {
             "status": "ok",
             "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+            "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
         }
     if path == "/health/live":
         assert accepted_statuses == {200}
@@ -160,12 +197,14 @@ def _health_endpoint_json(
             "status": "ok",
             "service": "h2ometa-remote",
             "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+            "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
         }
     if path == "/health/ready":
         assert accepted_statuses == {200, 503}
         return {
             "status": "ok",
             "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+            "sqliteRuntime": safe_remote_runner_sqlite_runtime_evidence(),
         }
     return None
 
@@ -177,6 +216,12 @@ def _fake_runtime_dir(tmp_path: Path) -> Path:
     python = bin_dir / "python"
     python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
     python.chmod(0o755)
+    conda_meta = runtime / "conda-meta"
+    conda_meta.mkdir()
+    (conda_meta / "libsqlite-3.53.0-hf4e2dac_0.json").write_text(
+        json.dumps({"name": "libsqlite", "version": "3.53.0", "build": "hf4e2dac_0"}),
+        encoding="utf-8",
+    )
     return runtime
 
 
@@ -215,7 +260,9 @@ def _write_file_summary_pipeline(release_dir: Path) -> None:
                 },
                 "paramsSchema": {
                     "type": "object",
-                    "properties": {"threads": {"type": "integer", "minimum": 1, "maximum": 64}},
+                    "properties": {
+                        "threads": {"type": "integer", "minimum": 1, "maximum": 64}
+                    },
                     "additionalProperties": True,
                 },
                 "outputSchema": {
@@ -234,7 +281,9 @@ def _write_file_summary_pipeline(release_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (pipeline_dir / "workflow" / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
+    (pipeline_dir / "workflow" / "Snakefile").write_text(
+        "rule all:\n  input: 'done.txt'\n", encoding="utf-8"
+    )
     (pipeline_dir / "workflow" / "envs" / "base.yaml").write_text(
         "channels: [conda-forge]\ndependencies: [python=3.12]\n",
         encoding="utf-8",
@@ -274,6 +323,14 @@ def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
 @pytest.fixture(autouse=True)
 def _default_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        "core.remote_runner.manager.RemoteRunnerManager._require_local_service_runtime_artifact",
+        lambda self, artifact: str(getattr(artifact, "sha256", "") or "a" * 64),
+    )
+    monkeypatch.setattr(
+        "core.remote_runner.manager.RemoteRunnerManager._verify_and_publish_bundle_command",
+        lambda self, **_kwargs: "mkdir -p /tmp/h2ometa-test-bundle-publish",
+    )
+    monkeypatch.setattr(
         "core.remote_runner.manager.WorkflowRuntimeArtifactProvider.resolve",
         lambda self, **kwargs: _fake_workflow_artifact(),
     )
@@ -288,18 +345,19 @@ def _default_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         "core.remote_runner.manager.RemoteRunnerManager._verify_remote_config_payload",
         classmethod(lambda cls, **kwargs: None),
     )
+
     def fake_bootstrap_canary(self, *, client, server_id, bootstrap_metadata):
         canary = {
-                "ok": True,
-                "status": "passed",
-                "pipeline_id": "file-summary-v1",
-                "request_id": "req_bootstrap_canary_test",
-                "run_id": "run_bootstrap_canary_test",
-                "artifact_count": 3,
-                "result_id": "res_bootstrap_canary_test",
-                "preview_kind": "table",
-                "checked_at": "2026-05-06T00:00:00Z",
-            }
+            "ok": True,
+            "status": "passed",
+            "pipeline_id": "file-summary-v1",
+            "request_id": "req_bootstrap_canary_test",
+            "run_id": "run_bootstrap_canary_test",
+            "artifact_count": 3,
+            "result_id": "res_bootstrap_canary_test",
+            "preview_kind": "table",
+            "checked_at": "2026-05-06T00:00:00Z",
+        }
         bootstrap_metadata["canary"] = canary
         return canary
 

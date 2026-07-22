@@ -5,7 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION, WorkflowRuntimeArtifact
+import pytest
+
+from core.remote_runner.artifact import (
+    WORKFLOW_RUNTIME_VERSION,
+    WorkflowRuntimeArtifact,
+)
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
 from tests.helpers.remote_runner_control_plane import (
@@ -14,7 +19,22 @@ from tests.helpers.remote_runner_control_plane import (
     _process_incarnation_probe_output,
     _remote_runner_manifest,
     _runtime_state_json,
+    packaged_remote_runner_sqlite_evidence,
 )
+
+
+@pytest.fixture(autouse=True)
+def _trusted_service_runtime_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        RemoteRunnerManager,
+        "_require_local_service_runtime_artifact",
+        lambda self, artifact: str(getattr(artifact, "sha256", "") or "a" * 64),
+    )
+    monkeypatch.setattr(
+        RemoteRunnerManager,
+        "_verify_and_publish_bundle_command",
+        lambda self, **_kwargs: "mkdir -p /tmp/h2ometa-test-bundle-publish",
+    )
 
 
 def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
@@ -44,7 +64,11 @@ def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
 
 
 def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> None:
-    manager = RemoteRunnerManager(workflow_artifact_provider=SimpleNamespace(resolve=lambda **_kwargs: _fake_workflow_artifact()))
+    manager = RemoteRunnerManager(
+        workflow_artifact_provider=SimpleNamespace(
+            resolve=lambda **_kwargs: _fake_workflow_artifact()
+        )
+    )
     executed: list[str] = []
     uploads: list[tuple[str, str]] = []
     uploaded_config: dict[str, object] = {}
@@ -53,6 +77,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
     class FakeArtifact:
         archive_path = Path(__file__)
         manifest = _remote_runner_manifest()
+        sqlite_evidence = packaged_remote_runner_sqlite_evidence()
         platform = "linux-64"
         sha256 = "b" * 64
 
@@ -68,7 +93,10 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "Linux:x86_64", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if f"mkdir /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock" in cmd:
+            if (
+                f"mkdir /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock"
+                in cmd
+            ):
                 return 0, "acquired", ""
             if "readlink -f /home/zyserver/.h2ometa/runner/current" in cmd:
                 return 1, "", "No such file"
@@ -76,11 +104,20 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "", ""
             if "pkill -f '[r]emote_runner.run'" in cmd and "runner-state.json" in cmd:
                 return 0, "", ""
-            if f"tar -xzf /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz" in cmd:
+            if (
+                f"tar -xzf /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz"
+                in cmd
+            ):
                 return 0, "", ""
-            if f"rm -f /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz" in cmd:
+            if (
+                f"rm -f /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz"
+                in cmd
+            ):
                 return 0, "", ""
-            if "artifact.sha256" in cmd and f"/releases/{REMOTE_RUNNER_VERSION}/artifact.sha256" in cmd:
+            if (
+                "artifact.sha256" in cmd
+                and f"/releases/{REMOTE_RUNNER_VERSION}/artifact.sha256" in cmd
+            ):
                 return 0, "", ""
             if f"cat {workflow_runtime_dir}/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
@@ -90,17 +127,29 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "9.19.0\n", ""
             if "runner_protocol_startup" in cmd:
                 return 0, "", ""
-            if "rm -f /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "rm -f /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, "", ""
-            if f"ln -sfn /home/zyserver/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION} /home/zyserver/.h2ometa/runner/current" in cmd:
+            if (
+                f"ln -sfn /home/zyserver/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION} /home/zyserver/.h2ometa/runner/current"
+                in cmd
+            ):
                 return 0, "", ""
             if "bash /home/zyserver/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
-            if "cat /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+            if (
+                "cat /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json"
+                in cmd
+            ):
                 return 0, _runtime_state_json(), ""
             if _is_remote_process_incarnation_probe(cmd):
                 return 0, _process_incarnation_probe_output(), ""
-            if f"rm -rf /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock" in cmd:
+            if (
+                f"rm -rf /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock"
+                in cmd
+            ):
                 return 0, "", ""
             if cmd.endswith("/shared/config/runner.json.candidate"):
                 return 0, "", ""
@@ -123,7 +172,9 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 "/home/zyserver/.h2ometa/runner/shared/config/runner.json.tmp",
                 "/home/zyserver/.h2ometa/runner/shared/config/runner.json.candidate.tmp",
             }:
-                uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
+                uploaded_config.update(
+                    json.loads(Path(local).read_text(encoding="utf-8"))
+                )
 
         def ensure_local_tunnel(self, *args, **kwargs):
             assert kwargs["remote_port"] == 43127
@@ -133,7 +184,9 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
             health = _health_endpoint_json(path, accepted_statuses)
             if health is not None:
                 return health
@@ -149,10 +202,18 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
         }
         return kwargs["bootstrap_metadata"]["canary"]
 
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **_kwargs: FakeArtifact())), patch(
-        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-    ), patch("core.remote_runner.manager.store_runner_token", lambda **_kwargs: "runner://srv_test"), patch.object(
-        manager, "_run_bootstrap_canary", fake_canary
+    with (
+        patch.object(
+            manager,
+            "_artifact_provider",
+            SimpleNamespace(resolve=lambda **_kwargs: FakeArtifact()),
+        ),
+        patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient),
+        patch(
+            "core.remote_runner.manager.store_runner_token",
+            lambda **_kwargs: "runner://srv_test",
+        ),
+        patch.object(manager, "_run_bootstrap_canary", fake_canary),
     ):
         result = manager.bootstrap(
             server_id="srv_test",
@@ -162,14 +223,31 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
         )
 
     assert result["service_port"] == 43127
-    assert (str(FakeArtifact.archive_path), f"/home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz") in uploads
-    assert any(f"rm -f /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz" in cmd for cmd in executed)
+    assert any(
+        local == str(FakeArtifact.archive_path)
+        and remote.startswith(
+            f"/home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz.upload-"
+        )
+        and remote.endswith(".tmp")
+        for local, remote in uploads
+    )
+    assert any(
+        f"rm -f /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz"
+        in cmd
+        for cmd in executed
+    )
     assert uploaded_config["workflow_runtime_provider"] == "conda-pack"
     assert uploaded_config["workflow_runtime_source"] == "artifact"
     assert uploaded_config["workflow_runtime_version"] == WORKFLOW_RUNTIME_VERSION
-    assert uploaded_config["snakemake_command"] == f"{workflow_runtime_dir}/workflow-env/bin/snakemake"
+    assert (
+        uploaded_config["snakemake_command"]
+        == f"{workflow_runtime_dir}/workflow-env/bin/snakemake"
+    )
     assert uploaded_config["snakemake_version"] == "9.19.0"
     assert any("shared/config/runner.json" in remote for _local, remote in uploads)
     assert any("current.tmp" in cmd and "mv -Tf" in cmd for cmd in executed)
-    assert any("bash /home/zyserver/.h2ometa/runner/current/start_service.sh" in cmd for cmd in executed)
+    assert any(
+        "bash /home/zyserver/.h2ometa/runner/current/start_service.sh" in cmd
+        for cmd in executed
+    )
     assert any("shared/runtime/runner-state.json" in cmd for cmd in executed)
