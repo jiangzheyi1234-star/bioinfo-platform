@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from typing import Any
@@ -10,6 +11,11 @@ from .storage_core import now_iso
 
 
 RUN_EVENT_SCHEMA_VERSION = "run-event.v2"
+RUN_EVENT_ID_PATTERN = re.compile(r"^evt_[0-9a-f]{10}$")
+
+
+def new_run_event_id() -> str:
+    return f"evt_{uuid.uuid4().hex[:10]}"
 
 
 def append_run_event_v2(
@@ -22,6 +28,7 @@ def append_run_event_v2(
     message: str,
     request_id: str,
     payload: dict[str, Any],
+    event_id: str | None = None,
     from_status: str | None = None,
     to_status: str | None = None,
     command_id: str | None = None,
@@ -46,8 +53,10 @@ def append_run_event_v2(
     if correlation_required and not normalized_correlation_id:
         raise ValueError("CORRELATION_ID_REQUIRED")
 
+    normalized_event_id = (
+        new_run_event_id() if event_id is None else _validate_run_event_id(event_id)
+    )
     sequence = next_run_event_sequence(connection, normalized_run_id)
-    event_id = f"evt_{uuid.uuid4().hex[:10]}"
     occurred = _optional_text(occurred_at) or now_iso()
     payload_json = _stable_json(payload)
     payload_hash = _sha256(payload_json)
@@ -76,38 +85,47 @@ def append_run_event_v2(
         "prev_event_hash": prev_event_hash,
         "payload": payload,
     }
-    connection.execute(
-        """
-        INSERT INTO run_events (
-            event_id, run_id, event_type, seq, schema_version, from_status, to_status,
-            stage, state_version, message, request_id, command_id, correlation_id, actor,
-            payload_hash, event_hash, prev_event_hash, created_at, details_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            event_id,
-            normalized_run_id,
-            normalized_event_type,
-            sequence,
-            RUN_EVENT_SCHEMA_VERSION,
-            _optional_text(from_status),
-            _optional_text(to_status),
-            normalized_stage,
-            int(state_version),
-            normalized_message,
-            normalized_request_id,
-            normalized_command_id,
-            normalized_correlation_id,
-            normalized_actor,
-            payload_hash,
-            event_hash,
-            prev_event_hash,
-            occurred,
-            _stable_json(details),
-        ),
-    )
+    try:
+        connection.execute(
+            """
+            INSERT INTO run_events (
+                event_id, run_id, event_type, seq, schema_version, from_status, to_status,
+                stage, state_version, message, request_id, command_id, correlation_id, actor,
+                payload_hash, event_hash, prev_event_hash, created_at, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_event_id,
+                normalized_run_id,
+                normalized_event_type,
+                sequence,
+                RUN_EVENT_SCHEMA_VERSION,
+                _optional_text(from_status),
+                _optional_text(to_status),
+                normalized_stage,
+                int(state_version),
+                normalized_message,
+                normalized_request_id,
+                normalized_command_id,
+                normalized_correlation_id,
+                normalized_actor,
+                payload_hash,
+                event_hash,
+                prev_event_hash,
+                occurred,
+                _stable_json(details),
+            ),
+        )
+    except sqlite3.IntegrityError as exc:
+        duplicate = connection.execute(
+            "SELECT 1 FROM run_events WHERE event_id = ?",
+            (normalized_event_id,),
+        ).fetchone()
+        if duplicate is not None:
+            raise ValueError("RUN_EVENT_ID_CONFLICT") from exc
+        raise
     return {
-        "eventId": event_id,
+        "eventId": normalized_event_id,
         "runId": normalized_run_id,
         "eventType": normalized_event_type,
         **details,
@@ -140,7 +158,10 @@ def record_run_command(
         (normalized_command_id,),
     ).fetchone()
     if existing is not None:
-        if existing["payload_hash"] != payload_hash or existing["run_id"] != normalized_run_id:
+        if (
+            existing["payload_hash"] != payload_hash
+            or existing["run_id"] != normalized_run_id
+        ):
             raise ValueError("RUN_COMMAND_CONFLICT")
         return _command_row_to_dict(existing)
     connection.execute(
@@ -176,7 +197,11 @@ def next_run_event_sequence(connection: sqlite3.Connection, run_id: str) -> int:
     highest = 0
     for index, row in enumerate(rows, start=1):
         row_sequence = row["seq"] if "seq" in row.keys() else None
-        if isinstance(row_sequence, int) and not isinstance(row_sequence, bool) and row_sequence > 0:
+        if (
+            isinstance(row_sequence, int)
+            and not isinstance(row_sequence, bool)
+            and row_sequence > 0
+        ):
             highest = max(highest, row_sequence)
             continue
         details_json = row["details_json"]
@@ -195,29 +220,115 @@ def next_run_event_sequence(connection: sqlite3.Connection, run_id: str) -> int:
     return highest + 1
 
 
-def verify_run_event_hash_chain(connection: sqlite3.Connection, run_id: str) -> dict[str, Any]:
+def verify_run_event_hash_chain(
+    connection: sqlite3.Connection,
+    run_id: str,
+    *,
+    allow_legacy_unsequenced: bool = True,
+) -> dict[str, Any]:
+    if type(allow_legacy_unsequenced) is not bool:
+        raise ValueError("RUN_EVENT_LEGACY_POLICY_INVALID")
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
     rows = connection.execute(
         """
         SELECT *
         FROM run_events
-        WHERE run_id = ? AND seq > 0
-        ORDER BY seq ASC
+        WHERE run_id = ?
+        ORDER BY created_at ASC, event_id ASC
         """,
         (normalized_run_id,),
     ).fetchall()
+
+    chained_rows: list[sqlite3.Row] = []
+    legacy_highest = 0
+    saw_chained_row = False
+    for index, row in enumerate(rows, start=1):
+        if _is_legacy_unsequenced_event(row):
+            if not allow_legacy_unsequenced:
+                return {
+                    "valid": False,
+                    "checked": len(chained_rows),
+                    "reason": "LEGACY_EVENT_UNSUPPORTED",
+                }
+            if saw_chained_row:
+                return {
+                    "valid": False,
+                    "checked": len(chained_rows),
+                    "reason": "LEGACY_EVENT_AFTER_CHAIN",
+                }
+            legacy_highest = max(
+                legacy_highest,
+                _legacy_event_sequence(row, fallback=index),
+            )
+            continue
+        saw_chained_row = True
+        sequence = row["seq"]
+        if type(sequence) is not int or sequence < 1:
+            return {
+                "valid": False,
+                "checked": len(chained_rows),
+                "reason": "SEQUENCE_INVALID",
+            }
+        chained_rows.append(row)
+
+    chained_rows.sort(key=lambda row: int(row["seq"]))
     previous_hash: str | None = None
-    expected_sequence = 1
-    for row in rows:
+    expected_sequence = legacy_highest + 1
+    checked = 0
+    for row in chained_rows:
         sequence = int(row["seq"])
         if sequence != expected_sequence:
-            return {"valid": False, "checked": expected_sequence - 1, "reason": "SEQUENCE_GAP"}
-        payload = _payload_from_event_row(row)
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "SEQUENCE_GAP",
+            }
+        try:
+            details = _details_from_event_row(row)
+        except ValueError:
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "EVENT_DETAILS_INVALID",
+            }
+        payload = details.get("payload")
+        if not isinstance(payload, dict):
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "EVENT_DETAILS_INVALID",
+            }
         payload_hash = _sha256(_stable_json(payload))
         if payload_hash != row["payload_hash"]:
-            return {"valid": False, "checked": expected_sequence - 1, "reason": "PAYLOAD_HASH_MISMATCH"}
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "PAYLOAD_HASH_MISMATCH",
+            }
         if row["prev_event_hash"] != previous_hash:
-            return {"valid": False, "checked": expected_sequence - 1, "reason": "PREV_EVENT_HASH_MISMATCH"}
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "PREV_EVENT_HASH_MISMATCH",
+            }
+        expected_details = {
+            "schema_version": str(row["schema_version"]),
+            "occurred_at": str(row["created_at"]),
+            "sequence": sequence,
+            "command_id": _optional_text(row["command_id"]),
+            "correlation_id": _optional_text(row["correlation_id"]),
+            "actor": _optional_text(row["actor"]),
+            "payload_hash": str(row["payload_hash"]),
+            "event_hash": str(row["event_hash"]),
+            "prev_event_hash": _optional_text(row["prev_event_hash"]),
+            "payload": payload,
+        }
+        if _stable_json(details) != _stable_json(expected_details):
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "EVENT_DETAILS_MISMATCH",
+            }
         event_hash = _compute_event_hash(
             run_id=str(row["run_id"]),
             event_type=str(row["event_type"]),
@@ -231,10 +342,38 @@ def verify_run_event_hash_chain(connection: sqlite3.Connection, run_id: str) -> 
             prev_event_hash=_optional_text(row["prev_event_hash"]),
         )
         if event_hash != row["event_hash"]:
-            return {"valid": False, "checked": expected_sequence - 1, "reason": "EVENT_HASH_MISMATCH"}
+            return {
+                "valid": False,
+                "checked": checked,
+                "reason": "EVENT_HASH_MISMATCH",
+            }
         previous_hash = str(row["event_hash"])
         expected_sequence += 1
-    return {"valid": True, "checked": len(rows), "reason": None}
+        checked += 1
+    return {"valid": True, "checked": checked, "reason": None}
+
+
+def _is_legacy_unsequenced_event(row: sqlite3.Row) -> bool:
+    return (
+        row["seq"] == 0
+        and not _optional_text(row["schema_version"])
+        and not _optional_text(row["payload_hash"])
+        and not _optional_text(row["event_hash"])
+        and row["prev_event_hash"] is None
+    )
+
+
+def _legacy_event_sequence(row: sqlite3.Row, *, fallback: int) -> int:
+    details_json = row["details_json"]
+    if details_json:
+        try:
+            details = json.loads(details_json)
+        except json.JSONDecodeError:
+            return fallback
+        sequence = details.get("sequence") if isinstance(details, dict) else None
+        if type(sequence) is int and sequence > 0:
+            return sequence
+    return fallback
 
 
 def _latest_event_hash(connection: sqlite3.Connection, run_id: str) -> str | None:
@@ -253,16 +392,17 @@ def _latest_event_hash(connection: sqlite3.Connection, run_id: str) -> str | Non
     return _optional_text(row["event_hash"])
 
 
-def _payload_from_event_row(row: sqlite3.Row) -> dict[str, Any]:
+def _details_from_event_row(row: sqlite3.Row) -> dict[str, Any]:
     details_json = row["details_json"]
     if not details_json:
-        return {}
+        raise ValueError("EVENT_DETAILS_MISSING")
     try:
         details = json.loads(details_json)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, TypeError) as exc:
         raise ValueError("EVENT_DETAILS_INVALID_JSON") from exc
-    payload = details.get("payload") if isinstance(details, dict) else None
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(details, dict):
+        raise ValueError("EVENT_DETAILS_INVALID")
+    return details
 
 
 def _compute_event_hash(
@@ -327,3 +467,9 @@ def _required_text(value: str, code: str) -> str:
 def _optional_text(value: str | None) -> str | None:
     normalized = str(value or "").strip()
     return normalized or None
+
+
+def _validate_run_event_id(value: object) -> str:
+    if not isinstance(value, str) or RUN_EVENT_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("RUN_EVENT_ID_INVALID")
+    return value

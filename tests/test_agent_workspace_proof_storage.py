@@ -27,6 +27,8 @@ from core.contracts.agent_run_authorization import (
 )
 from core.contracts.agent_workspace_proof import (
     AgentWorkspaceProofV1,
+    agent_workspace_proof_hash,
+    agent_workspace_proof_id,
     build_agent_workspace_proof_v1,
 )
 from tests.helpers.reference_database import make_remote_runner_config
@@ -83,7 +85,6 @@ REVISION = _revision_facts("primary")
 OTHER_REVISION = _revision_facts("other")
 RUN_SPEC_HASH = _hash("run-spec")
 INPUT_SNAPSHOT_HASH = _hash("input-snapshot")
-TOOL_ASSETS_HASH = _hash("tool-assets")
 RUNTIME_LOCK_HASH = _hash("runtime-lock")
 RUNTIME_PROOF_HASH = _hash("runtime-proof")
 
@@ -308,7 +309,6 @@ def _proof(
             "workflowRevisionManifestHash": workflow_revision["manifestHash"],
             "runSpecHash": RUN_SPEC_HASH,
             "inputSnapshotHash": INPUT_SNAPSHOT_HASH,
-            "toolAssetsHash": TOOL_ASSETS_HASH,
             "runtimeLockHash": RUNTIME_LOCK_HASH,
             "runtimeProofHash": RUNTIME_PROOF_HASH,
             "immutableManifest": [
@@ -530,6 +530,32 @@ def test_row_read_rejects_tampered_manifest_json(
         fetch_agent_workspace_proof_by_id_for_connection(
             connection, proof.workspaceProofId
         )
+
+
+def test_row_read_rejects_forged_tool_assets_hash_with_recomputed_identity(
+    connection: sqlite3.Connection,
+) -> None:
+    proof = _proof("forged-tool-assets")
+    _insert(connection, proof)
+    forged = proof.runtime_payload()
+    forged["toolAssetsHash"] = _hash("forged-tool-assets")
+    forged["proofHash"] = agent_workspace_proof_hash(forged)
+    forged_id = agent_workspace_proof_id(str(forged["proofHash"]))
+    old_id = proof.workspaceProofId
+    values = (forged["toolAssetsHash"], forged["proofHash"], forged_id, old_id)
+
+    connection.execute("DROP TRIGGER agent_workspace_proofs_no_update")
+    connection.execute(
+        "UPDATE agent_workspace_proofs "
+        "SET tool_assets_hash = ?, proof_hash = ?, workspace_proof_id = ? "
+        "WHERE workspace_proof_id = ?",
+        values,
+    )
+    with pytest.raises(
+        AgentWorkspaceProofStorageConflictError,
+        match="AGENT_WORKSPACE_PROOF_STORED_PAYLOAD_INVALID",
+    ):
+        fetch_agent_workspace_proof_by_id_for_connection(connection, forged_id)
 
 
 def test_source_terminal_and_resume_chain_are_bound_and_queryable(

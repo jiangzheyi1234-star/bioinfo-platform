@@ -19,10 +19,14 @@ def connection(path: Path) -> sqlite3.Connection:
 
 def downgrade_process_schema(path: Path) -> None:
     with connection(path) as db:
-        db.execute("DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_update")
-        db.execute("DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_delete")
+        db.execute(
+            "DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_update"
+        )
+        db.execute(
+            "DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_delete"
+        )
         db.execute("DROP TABLE IF EXISTS agent_process_instances")
-        db.execute("DELETE FROM schema_migrations WHERE version = 21")
+        db.execute("DELETE FROM schema_migrations WHERE version IN (21, 22)")
         db.execute("PRAGMA user_version = 20")
 
 
@@ -99,16 +103,22 @@ def append_process_event(
     event_type: str,
     payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    is_spawn = event_type == "agent_process_spawn_intent_recorded"
     return append_run_event_v2(
         db,
         run_id=str(intent["run_id"]),
         event_type=event_type,
-        stage="process",
+        stage="agent_process" if is_spawn else "process",
         state_version=2,
-        message=event_type,
-        request_id=f"request_{intent['tag']}_{event_type}",
+        message="Agent process launch intent prepared." if is_spawn else event_type,
+        request_id=(
+            f"run_request_{intent['tag']}"
+            if is_spawn
+            else f"request_{intent['tag']}_{event_type}"
+        ),
         payload=payload or lifecycle_payload(intent),
         occurred_at=TIMESTAMP,
+        actor="remote-runner" if is_spawn else None,
     )
 
 
@@ -169,13 +179,27 @@ def insert_prepared(
         ) VALUES (?, 'agent-process-launch-intent.v1', ?, ?, ?, 1, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, 'prepared', ?, ?, ?)
         """,
-        tuple(values[key] for key in (
-            "process_instance_id", "run_id", "authorization_id", "attempt_id",
-            "logical_activity_id", "process_ordinal", "process_kind",
-            "workspace_proof_id", "tool_assets_hash", "launch_spec_hash",
-            "gate_token_hash", "spawn_event_id", "spawn_event_hash",
-            "process_pid", "prepared_at", "launch_intent_hash",
-        )),
+        tuple(
+            values[key]
+            for key in (
+                "process_instance_id",
+                "run_id",
+                "authorization_id",
+                "attempt_id",
+                "logical_activity_id",
+                "process_ordinal",
+                "process_kind",
+                "workspace_proof_id",
+                "tool_assets_hash",
+                "launch_spec_hash",
+                "gate_token_hash",
+                "spawn_event_id",
+                "spawn_event_hash",
+                "process_pid",
+                "prepared_at",
+                "launch_intent_hash",
+            )
+        ),
     )
 
 
@@ -227,8 +251,14 @@ def finish(
             exit_reason = ?, finished_at = ?
         WHERE process_instance_id = ?
         """,
-        (state, terminal["eventId"], exit_code, state, TIMESTAMP,
-         intent["process_instance_id"]),
+        (
+            state,
+            terminal["eventId"],
+            exit_code,
+            state,
+            TIMESTAMP,
+            intent["process_instance_id"],
+        ),
     )
     return terminal
 
@@ -257,9 +287,15 @@ def _insert_authority_parents(
         ) VALUES (?, 'agent-session.v1', 'project', '{}', '{}', '{}',
             'ready_to_run', 4, 1, ?, ?, ?, ?, 'test', ?, ?)
         """,
-        (values["session_id"], digest("plan"), values["revision_id"],
-         f"request_{values['tag']}", digest(f"request-{values['tag']}"),
-         TIMESTAMP, TIMESTAMP),
+        (
+            values["session_id"],
+            digest("plan"),
+            values["revision_id"],
+            f"request_{values['tag']}",
+            digest(f"request-{values['tag']}"),
+            TIMESTAMP,
+            TIMESTAMP,
+        ),
     )
     db.execute(
         """
@@ -270,8 +306,13 @@ def _insert_authority_parents(
         ) VALUES (?, 'agent-plan-revision.v1', ?, 1, ?, 1, ?, '{}', '{}', '{}',
             'test', ?)
         """,
-        (values["plan_id"], values["session_id"], f"draft_{values['tag']}",
-         digest("plan"), TIMESTAMP),
+        (
+            values["plan_id"],
+            values["session_id"],
+            f"draft_{values['tag']}",
+            digest("plan"),
+            TIMESTAMP,
+        ),
     )
     db.execute(
         """
@@ -284,8 +325,13 @@ def _insert_authority_parents(
             '1.0.0', '2026-04-21', ?, 'running', 'running', 2, 'running', '',
             ?, ?, ?, '{}')
         """,
-        (values["run_id"], values["revision_id"], TIMESTAMP,
-         f"run_request_{values['tag']}", TIMESTAMP),
+        (
+            values["run_id"],
+            values["revision_id"],
+            TIMESTAMP,
+            f"run_request_{values['tag']}",
+            TIMESTAMP,
+        ),
     )
     db.execute(
         """
@@ -300,14 +346,26 @@ def _insert_authority_parents(
             'policy-v1', ?, ?, ?, ?, ?, 'submit_workflow_run',
             'authorize-workflow-run', 'test', ?, ?, ?, ?, ?)
         """,
-        (values["authorization_id"], values["session_id"],
-         digest(f"preview-{values['tag']}"), values["plan_id"], digest("plan"),
-         values["revision_id"], f"sha256:{digest(f'input-{values["tag"]}')}",
-         digest(f"run-spec-{values['tag']}"), digest("policy"),
-         digest("runtime-lock"), digest("runtime-proof"), digest("budget"),
-         values["run_id"], f"auth_request_{values['tag']}",
-         f"auth_idempotency_{values['tag']}", digest(f"command-{values['tag']}"),
-         digest(f"receipt-{values['tag']}"), TIMESTAMP),
+        (
+            values["authorization_id"],
+            values["session_id"],
+            digest(f"preview-{values['tag']}"),
+            values["plan_id"],
+            digest("plan"),
+            values["revision_id"],
+            f"sha256:{digest(f'input-{values["tag"]}')}",
+            digest(f"run-spec-{values['tag']}"),
+            digest("policy"),
+            digest("runtime-lock"),
+            digest("runtime-proof"),
+            digest("budget"),
+            values["run_id"],
+            f"auth_request_{values['tag']}",
+            f"auth_idempotency_{values['tag']}",
+            digest(f"command-{values['tag']}"),
+            digest(f"receipt-{values['tag']}"),
+            TIMESTAMP,
+        ),
     )
     db.execute(
         """
@@ -316,8 +374,14 @@ def _insert_authority_parents(
             work_dir, created_at, updated_at
         ) VALUES (?, ?, ?, 1, 'running', 'worker', ?, ?, ?)
         """,
-        (values["attempt_id"], values["run_id"], f"job_{values['tag']}",
-         f"work_{values['tag']}", TIMESTAMP, TIMESTAMP),
+        (
+            values["attempt_id"],
+            values["run_id"],
+            f"job_{values['tag']}",
+            f"work_{values['tag']}",
+            TIMESTAMP,
+            TIMESTAMP,
+        ),
     )
 
 
@@ -339,12 +403,25 @@ def _insert_workspace_proof(
         ) VALUES (?, 'agent-workspace-proof.v1', ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, '[]', ?, '[]', ?, NULL, ?, ?, ?)
         """,
-        (values["workspace_proof_id"], values["run_id"], values["authorization_id"],
-         values["attempt_id"], values["proof_boundary"], values["process_ordinal"],
-         values["revision_id"], digest(f"revision-content-{values['tag']}"),
-         digest("revision-manifest"), digest(f"run-spec-{values['tag']}"),
-         digest(f"input-{values['tag']}"), values["tool_assets_hash"],
-         digest("runtime-lock"), digest("runtime-proof"),
-         digest("immutable-manifest"), digest("snakemake-manifest"),
-         values["spawn_event_id"], TIMESTAMP, digest(f"proof-{values['tag']}")),
+        (
+            values["workspace_proof_id"],
+            values["run_id"],
+            values["authorization_id"],
+            values["attempt_id"],
+            values["proof_boundary"],
+            values["process_ordinal"],
+            values["revision_id"],
+            digest(f"revision-content-{values['tag']}"),
+            digest("revision-manifest"),
+            digest(f"run-spec-{values['tag']}"),
+            digest(f"input-{values['tag']}"),
+            values["tool_assets_hash"],
+            digest("runtime-lock"),
+            digest("runtime-proof"),
+            digest("immutable-manifest"),
+            digest("snakemake-manifest"),
+            values["spawn_event_id"],
+            TIMESTAMP,
+            digest(f"proof-{values['tag']}"),
+        ),
     )

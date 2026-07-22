@@ -105,9 +105,7 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
                 "current-owner-reference",
                 "runtime-state-reference",
             ],
-            "runtimeProcessIncarnationSchema": (
-                "h2ometa.linux-process-incarnation.v1"
-            ),
+            "runtimeProcessIncarnationSchema": ("h2ometa.linux-process-incarnation.v1"),
             "runtimeProcessIncarnationSurfaces": ["runtime-state"],
             "runtimeSelfAttestationSchema": (
                 "h2ometa.runner-protocol-runtime-self-attestation.v1"
@@ -123,7 +121,7 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
                 "h2ometa.tool-prepare-process-marker.v1"
             ),
         },
-        "databaseSchemaVersion": 21,
+        "databaseSchemaVersion": 22,
         "protocolVersion": "runner-protocol.v5",
         "schemaVersion": "h2ometa.runner-protocol-descriptor.v5",
         "writerScopes": [
@@ -140,13 +138,9 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "automaticRecoveryEnabled": False,
         "coverageComplete": False,
         "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
-        "processLifetimeLockProfile": (
-            RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
-        ),
+        "processLifetimeLockProfile": (RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE),
         "processOwnerProfile": RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE,
-        "processOwnerReferenceSchema": (
-            RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA
-        ),
+        "processOwnerReferenceSchema": (RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA),
         "processOwnerSchema": RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA,
         "processOwnerSurfaces": list(RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES),
         "runtimeProcessIncarnationSchema": (
@@ -165,7 +159,9 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA
         ),
     }
-    assert descriptor["databaseSchemaVersion"] == RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION
+    assert (
+        descriptor["databaseSchemaVersion"] == RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION
+    )
     assert descriptor["protocolVersion"] == RUNNER_PROTOCOL_VERSION
     assert descriptor["schemaVersion"] == RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA
 
@@ -266,7 +262,9 @@ def test_require_runner_protocol_descriptor_rejects_incomplete_capabilities() ->
         require_runner_protocol_descriptor(descriptor)
 
 
-def test_require_runner_protocol_descriptor_rejects_incomplete_writer_scope_universe() -> None:
+def test_require_runner_protocol_descriptor_rejects_incomplete_writer_scope_universe() -> (
+    None
+):
     descriptor = build_runner_protocol_descriptor()
     descriptor["writerScopes"].remove("run-worker")
 
@@ -390,7 +388,9 @@ def test_runner_protocol_descriptor_canonical_json_is_stable_and_compact() -> No
     assert runner_protocol_descriptor_canonical_json(descriptor) == canonical
 
 
-def test_runner_protocol_descriptor_fingerprint_is_domain_separated_and_stable() -> None:
+def test_runner_protocol_descriptor_fingerprint_is_domain_separated_and_stable() -> (
+    None
+):
     descriptor = build_runner_protocol_descriptor()
     canonical = runner_protocol_descriptor_canonical_json(descriptor)
     expected = hashlib.sha256(

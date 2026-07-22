@@ -96,13 +96,16 @@ def scan_agent_generation_bundle(
     workdir: str | os.PathLike[str],
     *,
     require_sealed: bool = False,
+    require_exact_root: bool = False,
 ) -> AgentGenerationBundleManifest:
     """Observe the exact generation bundle without mutating the filesystem."""
 
-    if type(require_sealed) is not bool:
+    if type(require_sealed) is not bool or type(require_exact_root) is not bool:
         raise AgentWorkspaceManifestError("AGENT_WORKSPACE_MANIFEST_ARGUMENT_INVALID")
     return _scan_bundle(
-        _managed_workdir(workdir), require_sealed=require_sealed
+        _managed_workdir(workdir),
+        require_sealed=require_sealed,
+        require_exact_root=require_exact_root,
     ).manifest
 
 
@@ -112,9 +115,9 @@ def seal_agent_generation_bundle(
     """Clear all bundle write bits, then rescan and return the sealed manifest."""
 
     root = _managed_workdir(workdir)
-    initial = _scan_bundle(root, require_sealed=False)
+    initial = _scan_bundle(root, require_sealed=False, require_exact_root=False)
     _seal_observed_paths(root, initial.enumeration)
-    sealed = _scan_bundle(root, require_sealed=True)
+    sealed = _scan_bundle(root, require_sealed=True, require_exact_root=False)
     if not _manifests_equal(initial.manifest, sealed.manifest):
         raise AgentWorkspaceManifestError("AGENT_WORKSPACE_MANIFEST_SEAL_DRIFT")
     return sealed.manifest
@@ -125,18 +128,31 @@ def revalidate_agent_generation_bundle(
     expected_manifest: AgentGenerationBundleManifest
     | Sequence[AgentWorkspaceManifestEntryV1 | Mapping[str, object]],
     expected_manifest_hash: str | None = None,
+    *,
+    require_exact_root: bool = False,
 ) -> AgentGenerationBundleManifest:
     """Reobserve a sealed bundle and compare its exact manifest and hash."""
 
+    if type(require_exact_root) is not bool:
+        raise AgentWorkspaceManifestError("AGENT_WORKSPACE_MANIFEST_ARGUMENT_INVALID")
     expected = _normalize_expected_manifest(expected_manifest, expected_manifest_hash)
-    observed = _scan_bundle(_managed_workdir(workdir), require_sealed=True).manifest
+    observed = _scan_bundle(
+        _managed_workdir(workdir),
+        require_sealed=True,
+        require_exact_root=require_exact_root,
+    ).manifest
     if not _manifests_equal(expected, observed):
         raise AgentWorkspaceManifestError("AGENT_WORKSPACE_MANIFEST_MISMATCH")
     return observed
 
 
-def _scan_bundle(root: Path, *, require_sealed: bool) -> _ScannedBundle:
-    first = _enumerate_bundle(root)
+def _scan_bundle(
+    root: Path,
+    *,
+    require_sealed: bool,
+    require_exact_root: bool,
+) -> _ScannedBundle:
+    first = _enumerate_bundle(root, require_exact_root=require_exact_root)
     _scan_test_hook("after_first_enumeration", "")
 
     entries: list[AgentWorkspaceManifestEntryV1] = []
@@ -163,7 +179,7 @@ def _scan_bundle(root: Path, *, require_sealed: bool) -> _ScannedBundle:
 
     _scan_test_hook("before_second_enumeration", "")
     try:
-        second = _enumerate_bundle(root)
+        second = _enumerate_bundle(root, require_exact_root=require_exact_root)
     except AgentWorkspaceManifestError:
         _fail("AGENT_WORKSPACE_MANIFEST_DIRECTORY_UNSTABLE")
     if first != second:
@@ -178,13 +194,13 @@ def _scan_bundle(root: Path, *, require_sealed: bool) -> _ScannedBundle:
     )
 
 
-def _enumerate_bundle(root: Path) -> _Enumeration:
+def _enumerate_bundle(root: Path, *, require_exact_root: bool) -> _Enumeration:
     try:
         root_status = os.lstat(root)
         _require_directory_status(
             root_status, "AGENT_WORKSPACE_MANIFEST_WORKDIR_INVALID"
         )
-        _require_root_names(root)
+        _require_root_names(root, require_exact_root=require_exact_root)
 
         run_config_status = os.lstat(root / AGENT_GENERATION_BUNDLE_RUN_CONFIG)
         _require_file_status(
@@ -233,8 +249,8 @@ def _enumerate_bundle(root: Path) -> _Enumeration:
     return _Enumeration(_fingerprint(root_status), tuple(observed))
 
 
-def _require_root_names(root: Path) -> None:
-    """Reject portable aliases of the two selected root names, ignore outputs."""
+def _require_root_names(root: Path, *, require_exact_root: bool) -> None:
+    """Reject portable aliases and optionally forbid every non-bundle root entry."""
 
     selected = {
         AGENT_GENERATION_BUNDLE_RUN_CONFIG.casefold(): AGENT_GENERATION_BUNDLE_RUN_CONFIG,
@@ -242,11 +258,15 @@ def _require_root_names(root: Path) -> None:
             AGENT_GENERATION_BUNDLE_WORKFLOW_DIRECTORY
         ),
     }
+    observed: set[str] = set()
     with os.scandir(root) as iterator:
         for entry in iterator:
+            observed.add(entry.name)
             expected = selected.get(entry.name.casefold())
             if expected is not None and entry.name != expected:
                 _fail("AGENT_WORKSPACE_MANIFEST_PATH_ALIAS")
+    if require_exact_root and observed != set(selected.values()):
+        _fail("AGENT_WORKSPACE_MANIFEST_ROOT_SHAPE_INVALID")
 
 
 def _enumerate_workflow(

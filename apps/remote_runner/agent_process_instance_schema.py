@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-
+from .agent_control_plane_schema_readiness import assert_agent_control_plane_schema
+from .agent_schema_trigger_namespace import assert_exact_process_trigger_sets
+from .agent_process_instance_v22_schema import (
+    AGENT_PROCESS_EVENT_GUARD_V21_STATEMENTS,
+    AGENT_PROCESS_EVENT_GUARD_V22_STATEMENTS,
+    AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,
+    AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX_STATEMENT,
+    AGENT_PROCESS_V22_ENVELOPE_TRIGGER_STATEMENT,
+)
 from .agent_schema_migration_guard import assert_agent_schema_migration_precondition
 from .agent_workspace_proof_schema import assert_agent_workspace_proof_schema
 
 
-AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH = (
-    "AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH"
-)
-AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION = (
-    "AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION"
-)
-
+AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH = "AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH"
+AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION = "AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION"
 AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS agent_process_instances (
@@ -475,30 +478,7 @@ AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS = (
         SELECT RAISE(ABORT, 'AGENT_PROCESS_INSTANCE_EVENT_ROLE_REUSED');
     END
     """,
-    """
-    CREATE TRIGGER IF NOT EXISTS agent_process_instances_run_events_no_update
-    BEFORE UPDATE ON run_events
-    WHEN EXISTS (
-        SELECT 1 FROM agent_process_instances
-        WHERE OLD.event_id IN (
-            spawn_intent_event_id, started_event_id, terminal_event_id)
-    )
-    BEGIN
-        SELECT RAISE(ABORT, 'AGENT_PROCESS_INSTANCE_EVENT_IMMUTABLE');
-    END
-    """,
-    """
-    CREATE TRIGGER IF NOT EXISTS agent_process_instances_run_events_no_delete
-    BEFORE DELETE ON run_events
-    WHEN EXISTS (
-        SELECT 1 FROM agent_process_instances
-        WHERE OLD.event_id IN (
-            spawn_intent_event_id, started_event_id, terminal_event_id)
-    )
-    BEGIN
-        SELECT RAISE(ABORT, 'AGENT_PROCESS_INSTANCE_EVENT_IMMUTABLE');
-    END
-    """,
+    *AGENT_PROCESS_EVENT_GUARD_V22_STATEMENTS,
     """
     CREATE TRIGGER IF NOT EXISTS agent_process_instances_no_delete
     BEFORE DELETE ON agent_process_instances
@@ -506,11 +486,20 @@ AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS = (
         SELECT RAISE(ABORT, 'AGENT_PROCESS_INSTANCE_IMMUTABLE');
     END
     """,
+    AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX_STATEMENT,
+    AGENT_PROCESS_V22_ENVELOPE_TRIGGER_STATEMENT,
 )
 
-AGENT_PROCESS_INSTANCE_SCHEMA_SQL = "\n".join(
-    f"{statement.strip()};" for statement in AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS
+AGENT_PROCESS_INSTANCE_SCHEMA_SQL = "\n".join(f"{statement.strip()};" for statement in AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS)
+_V22_TO_V21_EVENT_GUARD = dict(zip(AGENT_PROCESS_EVENT_GUARD_V22_STATEMENTS,
+    AGENT_PROCESS_EVENT_GUARD_V21_STATEMENTS, strict=True))
+_AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS = tuple(
+    _V22_TO_V21_EVENT_GUARD.get(statement, statement)
+    for statement in AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS
+    if statement not in {AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX_STATEMENT,
+        AGENT_PROCESS_V22_ENVELOPE_TRIGGER_STATEMENT}
 )
+AGENT_PROCESS_INSTANCE_V21_SCHEMA_SQL = "\n".join(f"{statement.strip()};" for statement in _AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS)
 
 _SCHEMA_OBJECT_IDENTITIES = (
     ("table", "agent_process_instances"),
@@ -532,7 +521,10 @@ _SCHEMA_OBJECT_IDENTITIES = (
     ("trigger", "agent_process_instances_run_events_no_update"),
     ("trigger", "agent_process_instances_run_events_no_delete"),
     ("trigger", "agent_process_instances_no_delete"),
+    ("index", AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX),
+    ("trigger", "agent_process_instances_envelope_guard"),
 )
+_V21_SCHEMA_OBJECT_IDENTITIES = _SCHEMA_OBJECT_IDENTITIES[:-2]
 
 _EXPECTED_COLUMNS = (
     (0, "process_instance_id", "TEXT", 0, None, 1),
@@ -629,23 +621,42 @@ _EXPECTED_FOREIGN_KEYS = (
 
 _EXPECTED_OBJECT_SQL = {
     identity: " ".join(statement.replace("IF NOT EXISTS", "").split()).casefold()
-    for identity, statement in zip(
-        _SCHEMA_OBJECT_IDENTITIES,
-        AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS,
-        strict=True,
-    )
+    for identity, statement in zip(_SCHEMA_OBJECT_IDENTITIES,
+        AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS, strict=True)
 }
-
+_V21_EXPECTED_OBJECT_SQL = {
+    identity: " ".join(statement.replace("IF NOT EXISTS", "").split()).casefold()
+    for identity, statement in zip(_V21_SCHEMA_OBJECT_IDENTITIES, _AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS, strict=True)
+}
 RecordMigration = Callable[[sqlite3.Connection, int, str], None]
 
 
-def ensure_agent_process_instance_schema(connection: sqlite3.Connection) -> None:
-    for statement in AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS:
+def ensure_agent_process_instance_schema(
+    connection: sqlite3.Connection,
+    *,
+    schema_version: int = 22,
+) -> None:
+    statements = _AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS if schema_version == 21 else AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS
+    if schema_version not in {21, 22}:
+        _raise_schema_mismatch("schema-version")
+    for statement in statements:
         connection.execute(statement)
 
 
-def assert_agent_process_instance_schema(connection: sqlite3.Connection) -> None:
-    for object_type, object_name in _SCHEMA_OBJECT_IDENTITIES:
+def assert_agent_process_instance_schema(
+    connection: sqlite3.Connection,
+    *,
+    schema_version: int = 22,
+) -> None:
+    if schema_version == 21:
+        identities = _V21_SCHEMA_OBJECT_IDENTITIES
+        expected_object_sql = _V21_EXPECTED_OBJECT_SQL
+    elif schema_version == 22:
+        identities = _SCHEMA_OBJECT_IDENTITIES
+        expected_object_sql = _EXPECTED_OBJECT_SQL
+    else:
+        _raise_schema_mismatch("schema-version")
+    for object_type, object_name in identities:
         row = connection.execute(
             "SELECT type, sql FROM sqlite_master WHERE name = ?",
             (object_name,),
@@ -653,7 +664,7 @@ def assert_agent_process_instance_schema(connection: sqlite3.Connection) -> None
         if row is None or str(row[0]) != object_type or row[1] is None:
             _raise_schema_mismatch(f"missing-or-wrong-type:{object_name}")
         actual_sql = " ".join(str(row[1]).split()).casefold()
-        if actual_sql != _EXPECTED_OBJECT_SQL[(object_type, object_name)]:
+        if actual_sql != expected_object_sql[(object_type, object_name)]:
             _raise_schema_mismatch(f"object-sql:{object_name}")
 
     columns = tuple(
@@ -706,6 +717,7 @@ def assert_agent_process_instance_schema(connection: sqlite3.Connection) -> None
     )
     if foreign_keys != _EXPECTED_FOREIGN_KEYS:
         _raise_schema_mismatch("foreign-keys")
+    assert_exact_process_trigger_sets(connection, trigger_names=tuple(name for kind, name in identities if kind == "trigger"), error_code=AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH)
 
 
 def migrate_agent_process_instance_schema(
@@ -715,6 +727,7 @@ def migrate_agent_process_instance_schema(
 ) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
+        assert_agent_control_plane_schema(connection)
         assert_agent_schema_migration_precondition(
             connection,
             prior_version=20,
@@ -724,15 +737,14 @@ def migrate_agent_process_instance_schema(
         assert_agent_workspace_proof_schema(connection)
         _assert_no_preexisting_process_schema(connection)
         _ensure_schema_migrations_table(connection)
-        ensure_agent_process_instance_schema(connection)
-        assert_agent_process_instance_schema(connection)
+        ensure_agent_process_instance_schema(connection, schema_version=21)
+        assert_agent_process_instance_schema(connection, schema_version=21)
         record_migration(connection, 21, "021_agent_process_instance")
         connection.execute("PRAGMA user_version = 21")
         connection.commit()
     except Exception:
         connection.rollback()
         raise
-
 
 def _assert_no_preexisting_process_schema(connection: sqlite3.Connection) -> None:
     collision = connection.execute(
@@ -778,6 +790,7 @@ __all__ = [
     "AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION",
     "AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH",
     "AGENT_PROCESS_INSTANCE_SCHEMA_SQL",
+    "AGENT_PROCESS_INSTANCE_V21_SCHEMA_SQL",
     "assert_agent_process_instance_schema",
     "ensure_agent_process_instance_schema",
     "migrate_agent_process_instance_schema",

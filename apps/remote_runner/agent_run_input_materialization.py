@@ -18,6 +18,7 @@ from core.contracts.agent_fastq_qc import (
 from .agent_session_storage import require_agent_session_for_connection
 from .config import RemoteRunnerConfig
 from .event_contracts import (
+    RUN_EVENT_ID_PATTERN,
     RUN_EVENT_SCHEMA_VERSION,
     append_run_event_v2,
     verify_run_event_hash_chain,
@@ -234,6 +235,87 @@ def record_agent_run_input_materialization(
         }
 
 
+def require_agent_run_input_materialization_event_for_connection(
+    connection: Any,
+    *,
+    run_id: str,
+    request_id: str,
+    expectation: dict[str, Any],
+    event_proof: dict[str, Any],
+) -> dict[str, Any]:
+    """Revalidate the one production materialization event in an open transaction."""
+
+    if not isinstance(event_proof, dict) or set(event_proof) != {
+        "eventId",
+        "sequence",
+        "stateVersion",
+        "eventHash",
+        "prevEventHash",
+        "createdAt",
+    }:
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_PROOF_INVALID")
+    sequence = event_proof.get("sequence")
+    state_version = event_proof.get("stateVersion")
+    if (
+        type(sequence) is not int
+        or sequence < 1
+        or type(state_version) is not int
+        or state_version < 1
+    ):
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_PROOF_INVALID")
+    validated = require_unique_agent_run_input_materialization_event_for_connection(
+        connection,
+        run_id=run_id,
+        request_id=request_id,
+        expectation=expectation,
+    )
+    try:
+        proof_matches = _canonical_json(event_proof) == _canonical_json(
+            validated["eventProof"]
+        )
+    except (TypeError, ValueError):
+        proof_matches = False
+    if not proof_matches:
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_PROOF_MISMATCH")
+    return validated
+
+
+def require_unique_agent_run_input_materialization_event_for_connection(
+    connection: Any,
+    *,
+    run_id: str,
+    request_id: str,
+    expectation: dict[str, Any],
+) -> dict[str, Any]:
+    """Rebuild and verify the unique production event from durable authority."""
+
+    if not connection.in_transaction:
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_TRANSACTION_REQUIRED")
+    rows = connection.execute(
+        "SELECT * FROM run_events WHERE run_id = ? AND event_type = ?",
+        (run_id, AGENT_RUN_INPUT_MATERIALIZATION_EVENT),
+    ).fetchall()
+    if len(rows) != 1:
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_CARDINALITY_INVALID")
+    row = rows[0]
+    state_version = row["state_version"]
+    if type(state_version) is not int or state_version < 1:
+        raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_INVALID")
+    payload = agent_run_input_materialization_payload(
+        expectation,
+        state_version=state_version,
+    )
+    _require_materialization_event_row(
+        connection,
+        row,
+        run_id=run_id,
+        request_id=request_id,
+        payload=payload,
+    )
+    _require_valid_run_event_chain(connection, run_id)
+    return {"payload": payload, "eventProof": _event_proof(row)}
+
+
 def agent_run_input_materialization_payload(
     expectation: dict[str, Any],
     *,
@@ -274,6 +356,26 @@ def _managed_source_path(cfg: RemoteRunnerConfig, raw_path: str) -> Path:
     return path
 
 
+def agent_run_input_materialization_target(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    receipt_hash: str,
+    filename: str,
+) -> Path:
+    """Derive the sole canonical private-copy path without touching disk."""
+
+    work_root = Path(cfg.work_dir).resolve(strict=False)
+    root = work_root / "agent-inputs"
+    run_key = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:24]
+    receipt_key = hashlib.sha256(receipt_hash.encode("ascii")).hexdigest()[:24]
+    directory = root / run_key / receipt_key
+    safe_filename = Path(filename).name
+    if safe_filename != filename or not safe_filename:
+        raise ValueError("AGENT_RUN_INPUT_FILENAME_INVALID")
+    return directory / f"001-{safe_filename}"
+
+
 def _materialization_path(
     cfg: RemoteRunnerConfig,
     *,
@@ -281,24 +383,23 @@ def _materialization_path(
     receipt_hash: str,
     filename: str,
 ) -> Path:
-    work_root = Path(cfg.work_dir).resolve(strict=False)
-    root = work_root / "agent-inputs"
+    target = agent_run_input_materialization_target(
+        cfg,
+        run_id=run_id,
+        receipt_hash=receipt_hash,
+        filename=filename,
+    )
+    root = Path(cfg.work_dir).resolve(strict=False) / "agent-inputs"
+    directory = target.parent
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink() or root.resolve() != root:
         raise ValueError("AGENT_RUN_INPUT_DESTINATION_INVALID")
-    run_key = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:24]
-    receipt_key = hashlib.sha256(receipt_hash.encode("ascii")).hexdigest()[:24]
-    directory = root / run_key / receipt_key
-    safe_filename = Path(filename).name
-    if safe_filename != filename or not safe_filename:
-        raise ValueError("AGENT_RUN_INPUT_FILENAME_INVALID")
     directory.mkdir(parents=True, exist_ok=True)
     _require_no_symlink_components(
         root,
         directory,
         code="AGENT_RUN_INPUT_DESTINATION_INVALID",
     )
-    target = directory / f"001-{safe_filename}"
     if target.is_symlink():
         raise ValueError("AGENT_RUN_INPUT_DESTINATION_INVALID")
     return target
@@ -406,7 +507,7 @@ def _require_materialization_event_row(
         or row["command_id"] is not None
         or row["correlation_id"] is not None
         or row["actor"] is not None
-        or not str(row["event_id"]).startswith("evt_")
+        or RUN_EVENT_ID_PATTERN.fullmatch(str(row["event_id"])) is None
     ):
         raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_INVALID")
     previous = connection.execute(
@@ -441,7 +542,11 @@ def _require_materialization_event_row(
 
 
 def _require_valid_run_event_chain(connection: Any, run_id: str) -> None:
-    integrity = verify_run_event_hash_chain(connection, run_id)
+    integrity = verify_run_event_hash_chain(
+        connection,
+        run_id,
+        allow_legacy_unsequenced=False,
+    )
     if integrity.get("valid") is not True:
         raise ValueError("AGENT_RUN_INPUT_MATERIALIZATION_EVENT_CHAIN_INVALID")
 
@@ -483,8 +588,11 @@ def _canonical_json(value: Any) -> str:
 __all__ = [
     "AGENT_RUN_INPUT_MATERIALIZATION_EVENT",
     "AGENT_RUN_INPUT_MATERIALIZATION_SCHEMA",
+    "agent_run_input_materialization_target",
     "agent_run_input_materialization_payload",
     "materialize_agent_run_input",
     "read_agent_run_input_expectation_for_connection",
     "record_agent_run_input_materialization",
+    "require_agent_run_input_materialization_event_for_connection",
+    "require_unique_agent_run_input_materialization_event_for_connection",
 ]

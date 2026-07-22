@@ -134,22 +134,31 @@ def _require_verified_agent_input_path(
                 raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
         path = declared.resolve()
         metadata = path.stat()
-        if (
-            root not in path.parents
-            or not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_mode & _WRITE_PERMISSION_BITS
-            or (
-                hasattr(os, "geteuid") and metadata.st_uid != os.geteuid()  # type: ignore[attr-defined]
-            )
-        ):
+        if root not in path.parents:
             raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+        _require_verified_input_metadata(metadata)
         digest = hashlib.sha256()
         size = 0
         with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            _require_verified_input_metadata(opened)
+            if _input_file_fingerprint(metadata) != _input_file_fingerprint(opened):
+                raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 size += len(chunk)
                 digest.update(chunk)
+            closed_snapshot = os.fstat(handle.fileno())
+            _require_verified_input_metadata(closed_snapshot)
+            if _input_file_fingerprint(opened) != _input_file_fingerprint(
+                closed_snapshot
+            ):
+                raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+        final_metadata = path.stat()
+        _require_verified_input_metadata(final_metadata)
+        if _input_file_fingerprint(closed_snapshot) != _input_file_fingerprint(
+            final_metadata
+        ):
+            raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
     except ValueError:
         raise
     except (OSError, RuntimeError) as exc:
@@ -157,6 +166,29 @@ def _require_verified_agent_input_path(
     if size != size_bytes or digest.hexdigest() != sha256:
         raise ValueError("AGENT_RUN_VERIFIED_INPUT_DIGEST_MISMATCH")
     return path
+
+
+def _require_verified_input_metadata(metadata: os.stat_result) -> None:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or metadata.st_mode & _WRITE_PERMISSION_BITS
+        or (
+            hasattr(os, "geteuid") and metadata.st_uid != os.geteuid()  # type: ignore[attr-defined]
+        )
+    ):
+        raise ValueError("AGENT_RUN_VERIFIED_INPUT_PATH_INVALID")
+
+
+def _input_file_fingerprint(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        int(metadata.st_dev),
+        int(metadata.st_ino),
+        int(metadata.st_mode),
+        int(metadata.st_size),
+        int(metadata.st_mtime_ns),
+        int(metadata.st_nlink),
+    )
 
 
 def _resolve_run_input(

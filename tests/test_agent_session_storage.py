@@ -17,6 +17,8 @@ from apps.remote_runner.agent_session_storage import (
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.sqlite_migrations import (
     AGENT_SESSION_MIGRATION_NAME,
+    SCHEMA_LEDGER_AHEAD_ERROR,
+    RemoteRunnerSQLiteSchemaError,
     initialize_or_migrate_runtime_db,
 )
 from apps.remote_runner.storage_core import get_connection
@@ -253,18 +255,7 @@ def test_runtime_schema_migrates_v17_agent_session_tables(tmp_path: Path) -> Non
     initialize_or_migrate_runtime_db(db_path)
     with sqlite3.connect(db_path) as connection:
         fresh_schema = _agent_schema_snapshot(connection)
-        connection.execute("DROP TRIGGER agent_approvals_no_delete")
-        connection.execute("DROP TRIGGER agent_approvals_no_update")
-        connection.execute("DROP TRIGGER agent_events_no_delete")
-        connection.execute("DROP TRIGGER agent_events_no_update")
-        connection.execute("DROP TRIGGER agent_plan_revisions_no_delete")
-        connection.execute("DROP TRIGGER agent_plan_revisions_no_update")
-        connection.execute("DROP TABLE agent_approvals")
-        connection.execute("DROP TABLE agent_events")
-        connection.execute("DROP TABLE agent_plan_revisions")
-        connection.execute("DROP TABLE agent_sessions")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 18")
-        connection.execute("PRAGMA user_version = 17")
+        _downgrade_agent_schema_to_v17(connection)
 
     initialize_or_migrate_runtime_db(db_path)
     with get_connection(cfg) as connection:
@@ -284,6 +275,58 @@ def test_runtime_schema_migrates_v17_agent_session_tables(tmp_path: Path) -> Non
     assert names == AGENT_SESSION_V18_TABLES
     assert migrated_schema == fresh_schema
     assert migration["name"] == AGENT_SESSION_MIGRATION_NAME
+
+
+def test_runtime_schema_rejects_partial_v17_rewind_before_writing(
+    tmp_path: Path,
+) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    initialize_or_migrate_runtime_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER agent_approvals_no_delete")
+        connection.execute("DROP TRIGGER agent_approvals_no_update")
+        connection.execute("DROP TRIGGER agent_events_no_delete")
+        connection.execute("DROP TRIGGER agent_events_no_update")
+        connection.execute("DROP TRIGGER agent_plan_revisions_no_delete")
+        connection.execute("DROP TRIGGER agent_plan_revisions_no_update")
+        connection.execute("DROP TABLE agent_approvals")
+        connection.execute("DROP TABLE agent_events")
+        connection.execute("DROP TABLE agent_plan_revisions")
+        connection.execute("DROP TABLE agent_sessions")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 18")
+        connection.execute("PRAGMA user_version = 17")
+        ledger_before = connection.execute(
+            "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        schema_before = connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+
+    with pytest.raises(RemoteRunnerSQLiteSchemaError, match=SCHEMA_LEDGER_AHEAD_ERROR):
+        initialize_or_migrate_runtime_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute(
+            "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version"
+        ).fetchall() == ledger_before
+        assert connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall() == schema_before
+
+
+def _downgrade_agent_schema_to_v17(connection: sqlite3.Connection) -> None:
+    for object_type in ("trigger", "table"):
+        names = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = ? AND name LIKE 'agent_%'",
+            (object_type,),
+        ).fetchall()
+        for (name,) in names:
+            quoted_name = '"' + str(name).replace('"', '""') + '"'
+            connection.execute(f"DROP {object_type.upper()} {quoted_name}")
+    connection.execute("DELETE FROM schema_migrations WHERE version >= 18")
+    connection.execute("PRAGMA user_version = 17")
 
 
 def _agent_schema_snapshot(connection: sqlite3.Connection) -> list[tuple[str, str, str, str]]:

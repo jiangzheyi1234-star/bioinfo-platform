@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import re
 from collections.abc import Mapping, Sequence
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
@@ -20,10 +20,13 @@ from .portable_relative_path import (
 
 AGENT_WORKSPACE_PROOF_CONTRACT_VERSION = "agent-workspace-proof.v1"
 AGENT_WORKSPACE_MANIFEST_HASH_DOMAIN = "agent-workspace-manifest.v1"
+AGENT_WORKSPACE_TOOL_ASSETS_HASH_DOMAIN = "agent-workspace-tool-assets.v1"
 
 _HEX_SHA256 = r"^[0-9a-f]{64}$"
 _WORKSPACE_PROOF_ID = r"^awsp_[0-9a-f]{24}$"
 _MAX_MANIFEST_ENTRIES = 250_000
+_WORKFLOW_ASSET_PREFIX = "workflow/"
+_WORKFLOW_SNAKEFILE = "workflow/Snakefile"
 _PROOF_HASH_FIELDS = (
     "contractVersion",
     "runId",
@@ -152,6 +155,9 @@ class AgentWorkspaceProofV1(AgentSessionModel):
         immutable_hash = agent_workspace_manifest_hash(self.immutableManifest)
         if not hmac.compare_digest(immutable_hash, self.immutableManifestHash):
             raise ValueError("AGENT_WORKSPACE_IMMUTABLE_MANIFEST_HASH_MISMATCH")
+        tool_assets_hash = agent_workspace_tool_assets_hash(self.immutableManifest)
+        if not hmac.compare_digest(tool_assets_hash, self.toolAssetsHash):
+            raise ValueError("AGENT_WORKSPACE_TOOL_ASSETS_HASH_MISMATCH")
         snakemake_hash = agent_workspace_manifest_hash(self.snakemakeManifest)
         if not hmac.compare_digest(snakemake_hash, self.snakemakeManifestHash):
             raise ValueError("AGENT_WORKSPACE_SNAKEMAKE_MANIFEST_HASH_MISMATCH")
@@ -179,6 +185,27 @@ def agent_workspace_manifest_hash(
     return agent_contract_hash(
         AGENT_WORKSPACE_MANIFEST_HASH_DOMAIN,
         {"entries": normalized},
+    )
+
+
+def agent_workspace_tool_assets_hash(
+    entries: Sequence[AgentWorkspaceManifestEntryV1 | Mapping[str, object]],
+) -> str:
+    """Hash every governed workflow asset from one canonical manifest."""
+
+    normalized = _normalize_manifest_entries(entries)
+    workflow_entries = [
+        entry
+        for entry in normalized
+        if cast(str, entry["relativePath"]).startswith(_WORKFLOW_ASSET_PREFIX)
+    ]
+    if not any(
+        entry["relativePath"] == _WORKFLOW_SNAKEFILE for entry in workflow_entries
+    ):
+        raise ValueError("AGENT_WORKSPACE_TOOL_ASSETS_SNAKEFILE_MISSING")
+    return agent_contract_hash(
+        AGENT_WORKSPACE_TOOL_ASSETS_HASH_DOMAIN,
+        {"entries": workflow_entries},
     )
 
 
@@ -235,6 +262,12 @@ def build_agent_workspace_proof_v1(
         "immutableManifestHash",
         agent_workspace_manifest_hash(immutable_entries),
         "AGENT_WORKSPACE_IMMUTABLE_MANIFEST_HASH_MISMATCH",
+    )
+    _bind_or_set_derived(
+        normalized,
+        "toolAssetsHash",
+        agent_workspace_tool_assets_hash(immutable_entries),
+        "AGENT_WORKSPACE_TOOL_ASSETS_HASH_MISMATCH",
     )
     _bind_or_set_derived(
         normalized,
@@ -321,10 +354,12 @@ def _bind_or_set_derived(
 __all__ = [
     "AGENT_WORKSPACE_MANIFEST_HASH_DOMAIN",
     "AGENT_WORKSPACE_PROOF_CONTRACT_VERSION",
+    "AGENT_WORKSPACE_TOOL_ASSETS_HASH_DOMAIN",
     "AgentWorkspaceManifestEntryV1",
     "AgentWorkspaceProofV1",
     "agent_workspace_manifest_hash",
     "agent_workspace_proof_hash",
     "agent_workspace_proof_id",
+    "agent_workspace_tool_assets_hash",
     "build_agent_workspace_proof_v1",
 ]

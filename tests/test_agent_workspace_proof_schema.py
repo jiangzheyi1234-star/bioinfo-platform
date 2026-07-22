@@ -11,6 +11,7 @@ from apps.remote_runner.agent_workspace_proof_schema import (
     ensure_agent_workspace_proof_schema,
 )
 from apps.remote_runner.sqlite_migrations import (
+    AGENT_PROCESS_INSTANCE_MIGRATION_NAME,
     AGENT_RUN_AUTHORIZATION_MIGRATION_NAME,
     AGENT_WORKSPACE_PROOF_MIGRATION_NAME,
     CURRENT_SCHEMA_MIGRATION_NAME,
@@ -34,7 +35,7 @@ V20_OBJECTS = frozenset(
 )
 
 
-def test_fresh_v21_records_agent_migrations_and_exposes_workspace_proof_schema(
+def test_fresh_v22_records_agent_migrations_and_exposes_workspace_proof_schema(
     tmp_path: Path,
 ) -> None:
     cfg = make_remote_runner_config(tmp_path)
@@ -45,11 +46,11 @@ def test_fresh_v21_records_agent_migrations_and_exposes_workspace_proof_schema(
         assert (
             connection.execute("PRAGMA user_version").fetchone()[0]
             == CURRENT_SCHEMA_VERSION
-            == 21
+            == 22
         )
         ledger = connection.execute(
             "SELECT version, name FROM schema_migrations "
-            "WHERE version IN (19, 20, 21) ORDER BY version"
+            "WHERE version IN (19, 20, 21, 22) ORDER BY version"
         ).fetchall()
         objects = {
             str(row["name"])
@@ -65,7 +66,8 @@ def test_fresh_v21_records_agent_migrations_and_exposes_workspace_proof_schema(
     assert [tuple(row) for row in ledger] == [
         (19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME),
         (20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME),
-        (21, CURRENT_SCHEMA_MIGRATION_NAME),
+        (21, AGENT_PROCESS_INSTANCE_MIGRATION_NAME),
+        (22, CURRENT_SCHEMA_MIGRATION_NAME),
     ]
     assert objects == V20_OBJECTS
     assert foreign_keys == {
@@ -87,7 +89,29 @@ def test_fresh_v21_records_agent_migrations_and_exposes_workspace_proof_schema(
     }
 
 
-def test_v19_to_v21_workspace_schema_matches_fresh_schema(tmp_path: Path) -> None:
+def test_workspace_proof_readiness_rejects_extra_side_effect_trigger(
+    tmp_path: Path,
+) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.execute(
+            "CREATE TRIGGER forged_workspace_side_effect "
+            "AFTER INSERT ON agent_workspace_proofs BEGIN SELECT 1; END"
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                rf"^{AGENT_WORKSPACE_PROOF_SCHEMA_SIGNATURE_MISMATCH}: "
+                r"triggers:agent_workspace_proofs$"
+            ),
+        ):
+            agent_workspace_proof_schema.assert_agent_workspace_proof_schema(
+                connection
+            )
+
+
+def test_v19_to_v22_workspace_schema_matches_fresh_schema(tmp_path: Path) -> None:
     fresh_cfg = make_remote_runner_config(tmp_path / "fresh")
     migrated_cfg = make_remote_runner_config(tmp_path / "migrated")
     initialize_or_migrate_runtime_db(fresh_cfg.db_path)
@@ -103,14 +127,15 @@ def test_v19_to_v21_workspace_schema_matches_fresh_schema(tmp_path: Path) -> Non
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         migrations = connection.execute(
             "SELECT version, name FROM schema_migrations "
-            "WHERE version IN (20, 21) ORDER BY version"
+            "WHERE version IN (20, 21, 22) ORDER BY version"
         ).fetchall()
 
     assert migrated == fresh
-    assert version == 21
+    assert version == 22
     assert migrations == [
         (20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME),
-        (21, CURRENT_SCHEMA_MIGRATION_NAME),
+        (21, AGENT_PROCESS_INSTANCE_MIGRATION_NAME),
+        (22, CURRENT_SCHEMA_MIGRATION_NAME),
     ]
 
 
@@ -373,7 +398,9 @@ def _downgrade_to_v19(db_path: Path) -> None:
         connection.execute("DROP TRIGGER agent_process_instances_run_events_no_delete")
         connection.execute("DROP TABLE agent_process_instances")
         connection.execute("DROP TABLE agent_workspace_proofs")
-        connection.execute("DELETE FROM schema_migrations WHERE version IN (20, 21)")
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version IN (20, 21, 22)"
+        )
         connection.execute("PRAGMA user_version = 19")
 
 

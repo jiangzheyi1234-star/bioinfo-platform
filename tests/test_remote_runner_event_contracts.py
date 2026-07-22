@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sqlite3
 
 import pytest
@@ -18,6 +19,105 @@ def _connection() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
     return connection
+
+
+def _append_event(
+    connection: sqlite3.Connection,
+    *,
+    event_id: str | None = None,
+    occurred_at: str = "2099-06-07T00:00:01Z",
+) -> dict[str, object]:
+    return event_contracts.append_run_event_v2(
+        connection,
+        run_id="run_event_id",
+        event_type="run.accepted",
+        stage="submitted",
+        state_version=1,
+        message="Accepted",
+        request_id="req_event_id",
+        payload={"runId": "run_event_id"},
+        event_id=event_id,
+        occurred_at=occurred_at,
+    )
+
+
+def test_new_run_event_id_matches_stable_lowercase_shape() -> None:
+    event_id = event_contracts.new_run_event_id()
+
+    assert re.fullmatch(r"evt_[0-9a-f]{10}", event_id)
+
+
+def test_run_event_v2_appender_uses_default_and_supplied_event_ids() -> None:
+    connection = _connection()
+
+    generated = _append_event(connection)
+    supplied_id = "evt_0123456789"
+    supplied = _append_event(
+        connection,
+        event_id=supplied_id,
+        occurred_at="2099-06-07T00:00:02Z",
+    )
+
+    assert re.fullmatch(r"evt_[0-9a-f]{10}", str(generated["eventId"]))
+    assert supplied["eventId"] == supplied_id
+    stored = connection.execute(
+        "SELECT event_id FROM run_events WHERE event_id = ?",
+        (supplied_id,),
+    ).fetchone()
+    assert stored["event_id"] == supplied_id
+
+
+@pytest.mark.parametrize(
+    "event_id",
+    [
+        " evt_0123456789",
+        "evt_0123456789 ",
+        "evt_01234\x006789",
+        "evt_01234567890",
+        "event_0123456789",
+        "EVT_0123456789",
+        "evt_ABCDEF1234",
+        "evt_short",
+        "",
+    ],
+)
+def test_run_event_v2_appender_rejects_invalid_supplied_event_id(event_id: str) -> None:
+    connection = _connection()
+
+    with pytest.raises(ValueError, match="RUN_EVENT_ID_INVALID"):
+        _append_event(connection, event_id=event_id)
+
+    assert connection.execute("SELECT COUNT(*) FROM run_events").fetchone()[0] == 0
+
+
+def test_run_event_v2_duplicate_event_id_fails_atomically_and_preserves_chain() -> None:
+    connection = _connection()
+    first = _append_event(connection, event_id="evt_0000000001")
+
+    with pytest.raises(ValueError, match="RUN_EVENT_ID_CONFLICT"):
+        _append_event(
+            connection,
+            event_id="evt_0000000001",
+            occurred_at="2099-06-07T00:00:02Z",
+        )
+
+    second = _append_event(
+        connection,
+        event_id="evt_0000000002",
+        occurred_at="2099-06-07T00:00:03Z",
+    )
+    rows = connection.execute(
+        "SELECT event_id, seq, prev_event_hash FROM run_events ORDER BY seq",
+    ).fetchall()
+    assert [row["event_id"] for row in rows] == ["evt_0000000001", "evt_0000000002"]
+    assert [row["seq"] for row in rows] == [1, 2]
+    assert rows[1]["prev_event_hash"] == first["event_hash"]
+    assert second["sequence"] == 2
+    assert event_contracts.verify_run_event_hash_chain(connection, "run_event_id") == {
+        "valid": True,
+        "checked": 2,
+        "reason": None,
+    }
 
 
 def test_run_event_v2_appender_requires_event_metadata() -> None:
@@ -128,9 +228,30 @@ def test_run_event_v2_appender_assigns_deterministic_sequence_after_v1_rows() ->
     assert first["correlation_id"] == "corr_1"
     assert first["payload"] == {"reason": "accepted"}
 
-    rows = connection.execute("SELECT details_json FROM run_events WHERE run_id = ? ORDER BY created_at", ("run_1",))
-    details = [json.loads(row["details_json"]) for row in rows.fetchall() if row["details_json"]]
+    rows = connection.execute(
+        "SELECT details_json FROM run_events WHERE run_id = ? ORDER BY created_at",
+        ("run_1",),
+    )
+    details = [
+        json.loads(row["details_json"])
+        for row in rows.fetchall()
+        if row["details_json"]
+    ]
     assert [item["sequence"] for item in details] == [2, 3]
+    assert event_contracts.verify_run_event_hash_chain(connection, "run_1") == {
+        "valid": True,
+        "checked": 2,
+        "reason": None,
+    }
+    assert event_contracts.verify_run_event_hash_chain(
+        connection,
+        "run_1",
+        allow_legacy_unsequenced=False,
+    ) == {
+        "valid": False,
+        "checked": 0,
+        "reason": "LEGACY_EVENT_UNSUPPORTED",
+    }
 
 
 def test_run_event_v2_appender_writes_ledger_columns_and_hash_chain() -> None:
@@ -208,7 +329,9 @@ def test_run_event_hash_chain_verification_detects_payload_mutation() -> None:
         payload={"runId": "run_tampered"},
         occurred_at="2099-06-07T00:00:01Z",
     )
-    row = connection.execute("SELECT details_json FROM run_events WHERE run_id = ?", ("run_tampered",)).fetchone()
+    row = connection.execute(
+        "SELECT details_json FROM run_events WHERE run_id = ?", ("run_tampered",)
+    ).fetchone()
     details = json.loads(row["details_json"])
     details["payload"] = {"runId": "mutated"}
     connection.execute(
@@ -216,13 +339,69 @@ def test_run_event_hash_chain_verification_detects_payload_mutation() -> None:
         (json.dumps(details, sort_keys=True), "run_tampered"),
     )
 
-    verification = event_contracts.verify_run_event_hash_chain(connection, "run_tampered")
+    verification = event_contracts.verify_run_event_hash_chain(
+        connection, "run_tampered"
+    )
 
     assert verification["valid"] is False
     assert verification["reason"] == "PAYLOAD_HASH_MISMATCH"
 
 
-def test_storage_connection_migrates_legacy_run_events_table_before_index_creation(tmp_path) -> None:
+def test_run_event_hash_chain_verification_detects_details_wrapper_mutation() -> None:
+    connection = _connection()
+    event = _append_event(connection, event_id="evt_0ddba11abc")
+    row = connection.execute(
+        "SELECT details_json FROM run_events WHERE event_id = ?",
+        (event["eventId"],),
+    ).fetchone()
+    details = json.loads(row["details_json"])
+    details["actor"] = "forged-actor"
+    connection.execute(
+        "UPDATE run_events SET details_json = ? WHERE event_id = ?",
+        (
+            json.dumps(details, sort_keys=True, separators=(",", ":")),
+            event["eventId"],
+        ),
+    )
+
+    assert event_contracts.verify_run_event_hash_chain(connection, "run_event_id") == {
+        "valid": False,
+        "checked": 0,
+        "reason": "EVENT_DETAILS_MISMATCH",
+    }
+
+
+@pytest.mark.parametrize("invalid_sequence", [0, -1])
+def test_run_event_hash_chain_rejects_hidden_v2_sequence(
+    invalid_sequence: int,
+) -> None:
+    connection = _connection()
+    event = _append_event(connection, event_id="evt_0badc0ffee")
+    row = connection.execute(
+        "SELECT details_json FROM run_events WHERE event_id = ?",
+        (event["eventId"],),
+    ).fetchone()
+    details = json.loads(row["details_json"])
+    details["sequence"] = invalid_sequence
+    connection.execute(
+        "UPDATE run_events SET seq = ?, details_json = ? WHERE event_id = ?",
+        (
+            invalid_sequence,
+            json.dumps(details, sort_keys=True, separators=(",", ":")),
+            event["eventId"],
+        ),
+    )
+
+    assert event_contracts.verify_run_event_hash_chain(connection, "run_event_id") == {
+        "valid": False,
+        "checked": 0,
+        "reason": "SEQUENCE_INVALID",
+    }
+
+
+def test_storage_connection_migrates_legacy_run_events_table_before_index_creation(
+    tmp_path,
+) -> None:
     cfg = make_remote_runner_config(tmp_path)
     db_path = Path(cfg.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -249,7 +428,10 @@ def test_storage_connection_migrates_legacy_run_events_table_before_index_creati
 
     initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(run_events)").fetchall()}
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(run_events)").fetchall()
+        }
         event_contracts.append_run_event_v2(
             connection,
             run_id="run_legacy",
@@ -261,8 +443,16 @@ def test_storage_connection_migrates_legacy_run_events_table_before_index_creati
             payload={},
             occurred_at="2099-06-07T00:00:01Z",
         )
-        row = connection.execute("SELECT seq, event_hash FROM run_events WHERE run_id = ?", ("run_legacy",)).fetchone()
+        row = connection.execute(
+            "SELECT seq, event_hash FROM run_events WHERE run_id = ?", ("run_legacy",)
+        ).fetchone()
 
-    assert {"seq", "schema_version", "payload_hash", "event_hash", "prev_event_hash"} <= columns
+    assert {
+        "seq",
+        "schema_version",
+        "payload_hash",
+        "event_hash",
+        "prev_event_hash",
+    } <= columns
     assert row["seq"] == 1
     assert row["event_hash"]

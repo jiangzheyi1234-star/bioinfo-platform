@@ -138,6 +138,7 @@ def test_authorization_rolls_back_every_effect_when_each_write_fails(
     candidate_case: dict[str, Any],
     fault_point: str,
     trigger_sql: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = candidate_case["cfg"]
     session_id = candidate_case["session"]["sessionId"]
@@ -145,9 +146,17 @@ def test_authorization_rolls_back_every_effect_when_each_write_fails(
     authority_before = _authority_rows(candidate_case)
     assert _effect_counts(cfg) == {table: 0 for table in _EFFECT_TABLES}
 
-    with get_connection(cfg) as connection:
+    real_create_run = authorization_service.create_run_record_for_connection
+
+    def create_run_with_fault(connection, *args, **kwargs):
         connection.execute(trigger_sql)
-        connection.commit()
+        return real_create_run(connection, *args, **kwargs)
+
+    monkeypatch.setattr(
+        authorization_service,
+        "create_run_record_for_connection",
+        create_run_with_fault,
+    )
 
     marker = f"TEST_AGENT_AUTHORIZATION_FAIL_{fault_point.upper()}"
     with pytest.raises(

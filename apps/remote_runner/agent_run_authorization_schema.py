@@ -143,6 +143,13 @@ def migrate_agent_run_authorization_schema(
         assert_no_agent_control_plane_namespace_collisions(connection)
         _ensure_schema_migrations_table(connection)
         ensure_agent_run_authorization_schema(connection)
+        from .agent_control_plane_schema_readiness import (
+            assert_agent_run_authorization_schema,
+            assert_agent_session_schema,
+        )
+
+        assert_agent_session_schema(connection)
+        assert_agent_run_authorization_schema(connection)
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {int(version)}")
         connection.commit()

@@ -20,6 +20,35 @@ V21 首先增加严格的数据契约和迁移，但不开放 Agent resume。后
 3. exit/termination/lost 终态、terminal checkpoint 和 reconciler；
 4. proof-gated resume 与只读 resumability projection。
 
+## 实施状态
+
+- V21 已落地 immutable process instance 契约，仍未接入现有执行器；
+- V22 在升级事务中逐行重建既有 workspace proof，并验证 `toolAssetsHash` 确由
+  `workflow/**` 内容及必需的 `workflow/Snakefile` 服务端推导；校验失败时保持 V21，
+  不重写或默许旧数据；升级还要求 exact V21 checksum 与完整 baseline schema；
+- V22 将 retry-stable logical activity 提升为数据库唯一约束；一旦 process instance 建立，
+  同一 run 的既有 v2 event chain 禁止更新或删除，raw SQL insert 也必须满足生产 envelope；
+- runtime schema 在任何升级写入前拒绝 ledger 领先于 `user_version` 的伪回拨；current
+  readiness 要求 v17-v22 历史连续且名称精确、v21/v22 checksum 精确，并拒绝未来 ledger；
+  ledger table、列、索引与 trigger namespace 也必须精确，migration recorder 使用冲突即失败的
+  `INSERT`，不会覆盖既有审计历史，也不会允许 trigger 在提交时篡改或追加版本；
+- session 与 run authorization 的 V18/V19 table、列、索引、外键及 immutable trigger 均按
+  canonical SQL 验证；同名弱 trigger、残缺的旧控制面和部分升级都会在事务内 fail closed；
+- V18-V22 受管表要求 trigger 集合精确，current runtime 还要求全库 trigger namespace 精确；
+  启动准备器在取得 `BEGIN IMMEDIATE` 写锁后再次执行完整 readiness，阻断首次连接检查与写事务
+  之间的 DDL 竞态，也不允许额外 trigger 在 proof/event 写入时联动改变 authorization fence；
+- Stage 9b 已提供尚未接线的原子启动准备器，仅接受 `dry_run/pre_dry_run`，在同一事务中
+  写入 workspace proof、spawn intent event 与 prepared process instance；proof 来自当前
+  attempt 持久化 workdir 的真实 sealed rescan，而不是调用方自报 manifest；pre-dry-run 根目录
+  只能包含 `run-config.json` 与 `workflow/`，不会把额外可变配置排除在 proof 之外；
+- 输入证据会在该事务中从 authorization、session goal、current runSpec 与 upload ledger
+  重新推导，并精确复核唯一的 production materialization event；同时重新打开 canonical private
+  input 路径，验证权限、链接数、文件身份、字节数与摘要，缺失或被替换时不产生任何启动写入；
+- 数据库只持久化 gate token 的 domain-separated hash，原始 token 只返回调用方内存；读取
+  process instance 时会重新验证输入 authority、关联 proof、spawn envelope 与完整 event chain；
+- gated launcher、PID/incarnation、token 放行和 terminal checkpoint 仍属于 Stage 9c，当前
+  Agent 路径继续保持 fail closed。
+
 ## 原因
 
 当前一个 run attempt 会先后启动 Snakemake dry-run 与正式 run，但只有一个
@@ -69,6 +98,11 @@ H2OMeta launcher helper，而不是直接启动 Snakemake：
 
 父进程在放行前崩溃时 pipe EOF，helper 必须退出，科学命令不会运行。放行后崩溃时，持久化
 incarnation 已足够让 reconciler 精确终止或标记 `lost`，但不得自动创建新实例。
+
+Stage 9c 接线前必须把 `launch_spec_hash` 改为服务端从 canonical argv、cwd、环境白名单、runtime
+版本与 tool asset binding 推导，不能接受调用方提供的任意 64 位十六进制值。启动 token 的消费
+必须与 `started` CAS、完整 event envelope/chain 校验和再次 authorization/lease/cancel 检查绑定；
+仅凭 raw SQL 写入 process event 不构成已获授权的命令放行。
 
 ## 恢复规则
 

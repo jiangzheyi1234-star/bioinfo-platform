@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
+from .agent_control_plane_schema_readiness import assert_agent_control_plane_schema
+from .agent_schema_trigger_namespace import assert_exact_trigger_sets
 
 AGENT_WORKSPACE_PROOF_SCHEMA_SIGNATURE_MISMATCH = (
     "AGENT_WORKSPACE_PROOF_SCHEMA_SIGNATURE_MISMATCH"
@@ -227,6 +229,16 @@ def assert_agent_workspace_proof_schema(connection: sqlite3.Connection) -> None:
     )
     if foreign_keys != _EXPECTED_FOREIGN_KEYS:
         _raise_schema_mismatch("foreign-keys")
+    assert_exact_trigger_sets(
+        connection,
+        expected_by_table={
+            "agent_workspace_proofs": (
+                "agent_workspace_proofs_no_delete",
+                "agent_workspace_proofs_no_update",
+            )
+        },
+        error_code=AGENT_WORKSPACE_PROOF_SCHEMA_SIGNATURE_MISMATCH,
+    )
 
 
 def migrate_agent_workspace_proof_schema(
@@ -238,6 +250,7 @@ def migrate_agent_workspace_proof_schema(
 ) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
+        assert_agent_control_plane_schema(connection)
         _ensure_schema_migrations_table(connection)
         ensure_agent_workspace_proof_schema(connection)
         assert_agent_workspace_proof_schema(connection)

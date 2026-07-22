@@ -18,6 +18,7 @@ def assert_agent_schema_migration_precondition(
     prior_version: int,
     prior_name: str,
     target_version: int,
+    prior_checksum: str | None = None,
 ) -> None:
     """Require one credible prior ledger row and no pre-recorded target row."""
 
@@ -41,6 +42,7 @@ def assert_agent_schema_migration_precondition(
         or name != prior_name
         or not isinstance(checksum, str)
         or _LOWER_SHA256.fullmatch(checksum) is None
+        or (prior_checksum is not None and checksum != prior_checksum)
         or not isinstance(applied_at, str)
         or not applied_at.strip()
     ):

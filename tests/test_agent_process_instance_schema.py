@@ -43,13 +43,30 @@ def _initialized_path(tmp_path: Path) -> Path:
     return Path(cfg.db_path)
 
 
+def test_process_readiness_rejects_extra_side_effect_trigger(tmp_path: Path) -> None:
+    path = _initialized_path(tmp_path)
+    with connection(path) as db:
+        db.execute(
+            "CREATE TRIGGER forged_process_side_effect "
+            "AFTER INSERT ON agent_process_instances BEGIN SELECT 1; END"
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                rf"^{AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH}: "
+                r"triggers:agent_process_instances$"
+            ),
+        ):
+            assert_agent_process_instance_schema(db)
+
+
 def test_additive_migration_records_v21_and_exact_schema(tmp_path: Path) -> None:
     path = _initialized_path(tmp_path)
     downgrade_process_schema(path)
 
     with connection(path) as db:
         migrate_agent_process_instance_schema(db, record_migration=record_migration)
-        assert_agent_process_instance_schema(db)
+        assert_agent_process_instance_schema(db, schema_version=21)
         version = db.execute("PRAGMA user_version").fetchone()[0]
         ledger = db.execute(
             "SELECT name FROM schema_migrations WHERE version = 21"
@@ -99,7 +116,8 @@ def test_migration_rolls_back_partial_schema_and_ledger(
     path = _initialized_path(tmp_path)
     downgrade_process_schema(path)
 
-    def fail_after_ddl(db: sqlite3.Connection) -> None:
+    def fail_after_ddl(db: sqlite3.Connection, *, schema_version: int) -> None:
+        assert schema_version == 21
         db.execute("CREATE TABLE agent_process_instances (value TEXT)")
         raise RuntimeError("forced process schema failure")
 
@@ -409,6 +427,16 @@ def test_gate_token_and_incarnation_hash_are_globally_unique(tmp_path: Path) -> 
         start(db, process_a, incarnation_hash=incarnation_hash)
         with pytest.raises(sqlite3.IntegrityError, match="process_incarnation_hash"):
             start(db, process_b, incarnation_hash=incarnation_hash)
+
+
+def test_logical_activity_is_globally_unique_in_v22(tmp_path: Path) -> None:
+    path = _initialized_path(tmp_path)
+    with connection(path) as db:
+        first = seed_intent(db, tag="logical_unique_first")
+        second = seed_intent(db, tag="logical_unique_second")
+        insert_prepared(db, first, logical_activity_id="retry-stable-activity")
+        with pytest.raises(sqlite3.IntegrityError, match="logical_activity_id"):
+            insert_prepared(db, second, logical_activity_id="retry-stable-activity")
 
 
 def test_blob_values_cannot_bypass_text_and_json_contracts(tmp_path: Path) -> None:

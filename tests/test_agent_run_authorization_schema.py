@@ -21,9 +21,7 @@ from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_remote_runner_config
 
 
-V19_TABLES = frozenset(
-    {"agent_run_authorizations", "agent_session_effect_budgets"}
-)
+V19_TABLES = frozenset({"agent_run_authorizations", "agent_session_effect_budgets"})
 V19_INDEXES = frozenset(
     {
         "idx_agent_run_authorizations_run",
@@ -44,13 +42,17 @@ V19_TRIGGERS = frozenset(
 V19_OBJECTS = V19_TABLES | V19_INDEXES | V19_TRIGGERS
 
 
-def test_fresh_v21_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) -> None:
+def test_fresh_v22_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) -> None:
     cfg = make_remote_runner_config(tmp_path)
 
     initialize_or_migrate_runtime_db(cfg.db_path)
 
     with get_connection(cfg) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION == 21
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == CURRENT_SCHEMA_VERSION
+            == 22
+        )
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         ledger = connection.execute(
             "SELECT version, name FROM schema_migrations WHERE version IN (18, 19) ORDER BY version"
@@ -72,7 +74,7 @@ def test_fresh_v21_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) 
     assert objects == V19_OBJECTS
 
 
-def test_v18_to_v21_schema_matches_fresh_schema(tmp_path: Path) -> None:
+def test_v18_to_v22_schema_matches_fresh_schema(tmp_path: Path) -> None:
     fresh_cfg = make_remote_runner_config(tmp_path / "fresh")
     migrated_cfg = make_remote_runner_config(tmp_path / "migrated")
     initialize_or_migrate_runtime_db(fresh_cfg.db_path)
@@ -91,7 +93,7 @@ def test_v18_to_v21_schema_matches_fresh_schema(tmp_path: Path) -> None:
         ).fetchall()
 
     assert migrated == fresh
-    assert version == CURRENT_SCHEMA_VERSION == 21
+    assert version == CURRENT_SCHEMA_VERSION == 22
     assert ledger == [
         (18, AGENT_SESSION_MIGRATION_NAME),
         (19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME),
@@ -117,15 +119,24 @@ def test_v18_migration_rejects_reserved_namespace_collisions_atomically(
 
     with sqlite3.connect(cfg.db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 19"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_run_authorizations'"
-        ).fetchone() is None
-        assert connection.execute(
-            f"SELECT 1 FROM {table_name} WHERE substr(server_id, 1, 20) = 'agent-control-plane.'"
-        ).fetchone() is not None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 19"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_run_authorizations'"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                f"SELECT 1 FROM {table_name} WHERE substr(server_id, 1, 20) = 'agent-control-plane.'"
+            ).fetchone()
+            is not None
+        )
 
 
 def test_v18_migration_rolls_back_partial_schema_failure(
@@ -151,44 +162,64 @@ def test_v18_migration_rolls_back_partial_schema_failure(
 
     with sqlite3.connect(cfg.db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 19"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'v19_partial_write'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 19"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'v19_partial_write'"
+            ).fetchone()
+            is None
+        )
 
 
-def test_v19_constraints_foreign_keys_and_delete_guards_are_enforced(tmp_path: Path) -> None:
+def test_v19_constraints_foreign_keys_and_delete_guards_are_enforced(
+    tmp_path: Path,
+) -> None:
     cfg = make_remote_runner_config(tmp_path)
     initialize_or_migrate_runtime_db(cfg.db_path)
 
     with get_connection(cfg) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"
+        ):
             _insert_effect_budget(connection, suffix="missing")
 
         _insert_authorization_parents(connection, suffix="one")
         _insert_effect_budget(connection, suffix="one")
         _insert_authorization(connection, suffix="one")
 
-        with pytest.raises(sqlite3.IntegrityError, match="AGENT_SESSION_EFFECT_BUDGET_IMMUTABLE"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="AGENT_SESSION_EFFECT_BUDGET_IMMUTABLE"
+        ):
             connection.execute(
                 "UPDATE agent_session_effect_budgets SET actor = 'changed' WHERE session_id = 'agent_one'"
             )
-        with pytest.raises(sqlite3.IntegrityError, match="AGENT_SESSION_EFFECT_BUDGET_IMMUTABLE"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="AGENT_SESSION_EFFECT_BUDGET_IMMUTABLE"
+        ):
             connection.execute(
                 "DELETE FROM agent_session_effect_budgets WHERE session_id = 'agent_one'"
             )
-        with pytest.raises(sqlite3.IntegrityError, match="AGENT_RUN_AUTHORIZATION_IMMUTABLE"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="AGENT_RUN_AUTHORIZATION_IMMUTABLE"
+        ):
             connection.execute(
                 "UPDATE agent_run_authorizations SET actor = 'changed' WHERE authorization_id = 'auth_one'"
             )
-        with pytest.raises(sqlite3.IntegrityError, match="AGENT_RUN_AUTHORIZATION_IMMUTABLE"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="AGENT_RUN_AUTHORIZATION_IMMUTABLE"
+        ):
             connection.execute(
                 "DELETE FROM agent_run_authorizations WHERE authorization_id = 'auth_one'"
             )
-        with pytest.raises(sqlite3.IntegrityError, match="AGENT_BOUND_RUN_DELETE_FORBIDDEN"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="AGENT_BOUND_RUN_DELETE_FORBIDDEN"
+        ):
             connection.execute("DELETE FROM runs WHERE run_id = 'run_one'")
 
         _insert_authorization_parents(connection, suffix="two")
@@ -198,11 +229,15 @@ def test_v19_constraints_foreign_keys_and_delete_guards_are_enforced(tmp_path: P
             _insert_authorization(connection, suffix="two", run_id="run_one")
 
         _insert_authorization_parents(connection, suffix="three")
-        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
+        with pytest.raises(
+            sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"
+        ):
             _insert_authorization(connection, suffix="three", run_id="run_missing")
 
 
-def test_current_schema_contract_detects_missing_v19_foreign_key(tmp_path: Path) -> None:
+def test_current_schema_contract_detects_missing_v19_foreign_key(
+    tmp_path: Path,
+) -> None:
     cfg = make_remote_runner_config(tmp_path)
     initialize_or_migrate_runtime_db(cfg.db_path)
     with sqlite3.connect(cfg.db_path) as connection:
@@ -240,7 +275,9 @@ def _downgrade_to_v18(db_path: Path) -> None:
         connection.execute("DROP TRIGGER agent_bound_runs_no_delete")
         connection.execute("DROP TABLE agent_run_authorizations")
         connection.execute("DROP TABLE agent_session_effect_budgets")
-        connection.execute("DELETE FROM schema_migrations WHERE version IN (20, 21)")
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version IN (20, 21, 22)"
+        )
         connection.execute("DELETE FROM schema_migrations WHERE version = 19")
         connection.execute("PRAGMA user_version = 18")
 
@@ -257,14 +294,18 @@ def _v19_schema_snapshot(connection: sqlite3.Connection) -> dict[str, object]:
     foreign_keys = {
         table_name: sorted(
             (str(row[3]), str(row[2]), str(row[4]), str(row[6]).upper())
-            for row in connection.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
+            for row in connection.execute(
+                f"PRAGMA foreign_key_list({table_name})"
+            ).fetchall()
         )
         for table_name in V19_TABLES
     }
     return {"objects": objects, "foreignKeys": foreign_keys}
 
 
-def _insert_reserved_namespace_collision(connection: sqlite3.Connection, table_name: str) -> None:
+def _insert_reserved_namespace_collision(
+    connection: sqlite3.Connection, table_name: str
+) -> None:
     server_id = "agent-control-plane.v1"
     if table_name == "runs":
         connection.execute(
@@ -306,7 +347,9 @@ def _insert_reserved_namespace_collision(connection: sqlite3.Connection, table_n
     )
 
 
-def _insert_authorization_parents(connection: sqlite3.Connection, *, suffix: str) -> None:
+def _insert_authorization_parents(
+    connection: sqlite3.Connection, *, suffix: str
+) -> None:
     session_id = f"agent_{suffix}"
     plan_revision_id = f"plan_{suffix}"
     workflow_revision_id = f"wfrev_{suffix}"
@@ -339,7 +382,13 @@ def _insert_authorization_parents(connection: sqlite3.Connection, *, suffix: str
             created_by, created_at
         ) VALUES (?, 'agent-plan-revision.v1', ?, 1, ?, 1, ?, '{}', '{}', '{}', 'user', ?)
         """,
-        (plan_revision_id, session_id, f"draft-{suffix}", f"plan-hash-{suffix}", timestamp),
+        (
+            plan_revision_id,
+            session_id,
+            f"draft-{suffix}",
+            f"plan-hash-{suffix}",
+            timestamp,
+        ),
     )
     connection.execute(
         """

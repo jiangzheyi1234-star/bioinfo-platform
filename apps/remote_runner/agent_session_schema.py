@@ -215,6 +215,9 @@ def migrate_agent_session_schema(
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         ensure_agent_session_schema(connection)
+        from .agent_control_plane_schema_readiness import assert_agent_session_schema
+
+        assert_agent_session_schema(connection)
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {int(version)}")
         connection.commit()
