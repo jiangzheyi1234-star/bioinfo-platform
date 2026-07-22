@@ -13,6 +13,7 @@ from apps.remote_runner.agent_workspace_proof_schema import (
 from apps.remote_runner.sqlite_migrations import (
     AGENT_RUN_AUTHORIZATION_MIGRATION_NAME,
     AGENT_WORKSPACE_PROOF_MIGRATION_NAME,
+    CURRENT_SCHEMA_MIGRATION_NAME,
     CURRENT_SCHEMA_VERSION,
     ensure_runtime_schema_current,
     initialize_or_migrate_runtime_db,
@@ -33,7 +34,7 @@ V20_OBJECTS = frozenset(
 )
 
 
-def test_fresh_v20_records_v19_and_v20_and_exposes_workspace_proof_schema(
+def test_fresh_v21_records_agent_migrations_and_exposes_workspace_proof_schema(
     tmp_path: Path,
 ) -> None:
     cfg = make_remote_runner_config(tmp_path)
@@ -44,10 +45,11 @@ def test_fresh_v20_records_v19_and_v20_and_exposes_workspace_proof_schema(
         assert (
             connection.execute("PRAGMA user_version").fetchone()[0]
             == CURRENT_SCHEMA_VERSION
-            == 20
+            == 21
         )
         ledger = connection.execute(
-            "SELECT version, name FROM schema_migrations WHERE version IN (19, 20) ORDER BY version"
+            "SELECT version, name FROM schema_migrations "
+            "WHERE version IN (19, 20, 21) ORDER BY version"
         ).fetchall()
         objects = {
             str(row["name"])
@@ -63,6 +65,7 @@ def test_fresh_v20_records_v19_and_v20_and_exposes_workspace_proof_schema(
     assert [tuple(row) for row in ledger] == [
         (19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME),
         (20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME),
+        (21, CURRENT_SCHEMA_MIGRATION_NAME),
     ]
     assert objects == V20_OBJECTS
     assert foreign_keys == {
@@ -84,7 +87,7 @@ def test_fresh_v20_records_v19_and_v20_and_exposes_workspace_proof_schema(
     }
 
 
-def test_v19_to_v20_schema_matches_fresh_schema(tmp_path: Path) -> None:
+def test_v19_to_v21_workspace_schema_matches_fresh_schema(tmp_path: Path) -> None:
     fresh_cfg = make_remote_runner_config(tmp_path / "fresh")
     migrated_cfg = make_remote_runner_config(tmp_path / "migrated")
     initialize_or_migrate_runtime_db(fresh_cfg.db_path)
@@ -98,13 +101,17 @@ def test_v19_to_v20_schema_matches_fresh_schema(tmp_path: Path) -> None:
     with sqlite3.connect(migrated_cfg.db_path) as connection:
         migrated = _v20_schema_snapshot(connection)
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        migration = connection.execute(
-            "SELECT name FROM schema_migrations WHERE version = 20"
-        ).fetchone()
+        migrations = connection.execute(
+            "SELECT version, name FROM schema_migrations "
+            "WHERE version IN (20, 21) ORDER BY version"
+        ).fetchall()
 
     assert migrated == fresh
-    assert version == 20
-    assert migration == (AGENT_WORKSPACE_PROOF_MIGRATION_NAME,)
+    assert version == 21
+    assert migrations == [
+        (20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME),
+        (21, CURRENT_SCHEMA_MIGRATION_NAME),
+    ]
 
 
 def test_v19_migration_rolls_back_partial_schema_failure(
@@ -335,6 +342,7 @@ def test_schema_contract_detects_missing_workspace_proof_foreign_key(
     cfg = make_remote_runner_config(tmp_path)
     initialize_or_migrate_runtime_db(cfg.db_path)
     with sqlite3.connect(cfg.db_path) as connection:
+        connection.execute("DROP TABLE agent_process_instances")
         connection.execute("DROP TABLE agent_workspace_proofs")
         connection.execute(
             """
@@ -361,8 +369,11 @@ def test_schema_contract_detects_missing_workspace_proof_foreign_key(
 
 def _downgrade_to_v19(db_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER agent_process_instances_run_events_no_update")
+        connection.execute("DROP TRIGGER agent_process_instances_run_events_no_delete")
+        connection.execute("DROP TABLE agent_process_instances")
         connection.execute("DROP TABLE agent_workspace_proofs")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 20")
+        connection.execute("DELETE FROM schema_migrations WHERE version IN (20, 21)")
         connection.execute("PRAGMA user_version = 19")
 
 

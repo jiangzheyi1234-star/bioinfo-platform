@@ -23,7 +23,7 @@ from .runner_process_owner import (
 
 RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v5"
 RUNNER_PROTOCOL_VERSION = "runner-protocol.v5"
-RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 20
+RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 21
 RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA = (
     "h2ometa.runner-protocol-runtime-self-attestation.v1"
 )

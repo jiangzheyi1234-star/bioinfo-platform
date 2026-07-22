@@ -4,10 +4,9 @@ import hashlib
 import sqlite3
 import time
 from pathlib import Path
-
 from .agent_run_authorization_schema import migrate_agent_run_authorization_schema
+from .agent_schema_extensions import assert_agent_schema_extensions, migrate_agent_schema_extensions
 from .agent_session_schema import migrate_agent_session_schema
-from .agent_workspace_proof_schema import assert_agent_workspace_proof_schema, migrate_agent_workspace_proof_schema
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .sqlite_artifact_migrations import (
     ensure_artifact_cache,
@@ -52,8 +51,7 @@ from .sqlite_tool_prepare_migrations import (
     ensure_tool_prepare_job_schema,
 )
 from .storage_schema import SCHEMA_SQL
-
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 21
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
@@ -74,7 +72,7 @@ ARTIFACT_LIFECYCLE_POLICY_MIGRATION_NAME = "017_artifact_lifecycle_policy"
 AGENT_SESSION_MIGRATION_NAME = "018_agent_session_control_plane"
 AGENT_RUN_AUTHORIZATION_MIGRATION_NAME = "019_agent_run_authorization_execution_binding"
 AGENT_WORKSPACE_PROOF_MIGRATION_NAME = "020_agent_workspace_proof"
-CURRENT_SCHEMA_MIGRATION_NAME = AGENT_WORKSPACE_PROOF_MIGRATION_NAME
+CURRENT_SCHEMA_MIGRATION_NAME = "021_agent_process_instance"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -231,8 +229,8 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
             name=AGENT_RUN_AUTHORIZATION_MIGRATION_NAME,
         )
         version = read_schema_version(connection)
-    if version == 19:
-        migrate_agent_workspace_proof_schema(connection, record_migration=_record_migration)
+    if version in {19, 20}:
+        migrate_agent_schema_extensions(connection, version, _record_migration)
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -240,13 +238,14 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
     try:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
-        assert_agent_workspace_proof_schema(connection)
+        assert_agent_schema_extensions(connection)
         _apply_baseline_schema_migration(connection)
         _record_migration(connection, 15, ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME)
         _record_migration(connection, 16, RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME)
         _record_migration(connection, 17, ARTIFACT_LIFECYCLE_POLICY_MIGRATION_NAME)
         _record_migration(connection, 18, AGENT_SESSION_MIGRATION_NAME)
         _record_migration(connection, 19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME)
+        _record_migration(connection, 20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME)
         _record_migration(connection, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
@@ -304,7 +303,7 @@ def _assert_current_schema_contract(connection: sqlite3.Connection) -> None:
     missing = missing_required_schema_objects(connection)
     if missing:
         raise RemoteRunnerSQLiteSchemaError(f"{SCHEMA_OBJECT_MISSING_ERROR}: {missing[0]}")
-    assert_agent_workspace_proof_schema(connection)
+    assert_agent_schema_extensions(connection)
 
 def _record_migration(connection: sqlite3.Connection, version: int, name: str) -> None:
     connection.execute(

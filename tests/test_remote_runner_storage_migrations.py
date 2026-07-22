@@ -13,9 +13,9 @@ from apps.remote_runner.sqlite_migrations import (
     initialize_or_migrate_runtime_db,
 )
 from apps.remote_runner.storage_core import get_connection
-from apps.remote_runner.storage_schema import SCHEMA_SQL
 from apps.remote_runner.database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from apps.remote_runner.sqlite_artifact_ledger_migrations import ensure_artifact_ledger_invalidation
+from tests.helpers.legacy_remote_runner_schema import PRE_AGENT_PROCESS_INSTANCE_SCHEMA_SQL as SCHEMA_SQL
 from tests.helpers.reference_database import make_remote_runner_config
 
 
