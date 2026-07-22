@@ -7,7 +7,6 @@ import hmac
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from typing import Any
 
 from core.contracts.agent_workspace_proof import (
@@ -26,6 +25,7 @@ from .execution_resume_claim_preflight import (
     run_resume_execution_options_requested,
     validate_run_resume_claim_preflight,
 )
+from .execution_lease_time import execution_lease_expiry_is_future
 from .workflow_revision_storage import fetch_workflow_revision_for_connection
 
 
@@ -444,7 +444,7 @@ def _require_run_and_active_attempt(
         or str(lease["attempt_id"]) != proof.attemptId
         or int(lease["lease_generation"]) != proof.leaseGeneration
         or str(lease["state"]) != "active"
-        or not _lease_expiry_is_future(lease["expires_at"])
+        or not execution_lease_expiry_is_future(lease["expires_at"])
     ):
         raise AgentWorkspaceProofStorageConflictError(
             "AGENT_WORKSPACE_PROOF_ACTIVE_LEASE_MISMATCH"
@@ -634,16 +634,6 @@ def _fetch_attempt(
         "FROM run_attempts WHERE attempt_id = ?",
         (attempt_id,),
     ).fetchone()
-
-
-def _lease_expiry_is_future(value: object) -> bool:
-    try:
-        expires_at = datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=timezone.utc
-        )
-    except (TypeError, ValueError):
-        return False
-    return expires_at > datetime.now(timezone.utc)
 
 
 def _strict_json_equal(left: object, right: object) -> bool:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .config import RemoteRunnerConfig
 from .run_execution_storage import record_run_attempt_process_group
+from .workflow_run_storage import StaleRunAttemptError
 
 
 def _process_group_recorder(
@@ -17,12 +18,14 @@ def _process_group_recorder(
         return None
 
     def record(process_group_id: int) -> None:
-        record_run_attempt_process_group(
+        result = record_run_attempt_process_group(
             cfg,
             str(attempt_id),
             lease_generation=int(lease_generation),
             process_group_id=str(process_group_id),
         )
+        if not result.get("accepted"):
+            raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
 
     return record
 
@@ -64,4 +67,9 @@ def _resolve_execution_result_dir(
         raise ValueError("RUN_ATTEMPT_ID_REQUIRED")
     if lease_generation is None:
         raise ValueError("RUN_LEASE_GENERATION_REQUIRED")
-    return Path(cfg.results_dir) / "attempts" / str(attempt_id) / f"generation-{int(lease_generation)}"
+    return (
+        Path(cfg.results_dir)
+        / "attempts"
+        / str(attempt_id)
+        / f"generation-{int(lease_generation)}"
+    )

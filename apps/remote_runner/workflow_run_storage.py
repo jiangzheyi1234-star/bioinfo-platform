@@ -10,9 +10,12 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
 from .event_contracts import append_run_event_v2, record_run_command
-from .execution_lifecycle_guard import ensure_execution_lifecycle_admission_open_for_connection
+from .execution_lifecycle_guard import (
+    ensure_execution_lifecycle_admission_open_for_connection,
+)
 from .execution_policy import execution_policy_from_run_spec
 from .execution_query_storage import fetch_run, fetch_run_for_connection
+from .execution_lease_time import execution_lease_expiry_is_future
 from .run_execution_storage import enqueue_run_job_record
 from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection, now_iso
@@ -36,11 +39,14 @@ def canonical_payload_hash(payload: dict[str, Any]) -> str:
             return {
                 key: _normalize(sub_value)
                 for key, sub_value in sorted(value.items())
-                if sub_value not in ("", None, [], {}, False)
-                and key != "runId"
+                if sub_value not in ("", None, [], {}, False) and key != "runId"
             }
         if isinstance(value, list):
-            return [_normalize(item) for item in value if item not in ("", None, [], {}, False)]
+            return [
+                _normalize(item)
+                for item in value
+                if item not in ("", None, [], {}, False)
+            ]
         return value
 
     normalized = _normalize(payload)
@@ -99,13 +105,21 @@ def create_run_record_for_connection(
     run_spec_id = str(run_spec.get("runId") or "").strip()
     if requested_run_id and run_spec_id and requested_run_id != run_spec_id:
         raise ValueError("RUN_CREATION_RUN_ID_MISMATCH")
-    normalized_run_id = requested_run_id or run_spec_id or f"run_{uuid.uuid4().hex[:12]}"
-    project_id = str(run_spec.get("projectId") or "proj_default").strip() or "proj_default"
+    normalized_run_id = (
+        requested_run_id or run_spec_id or f"run_{uuid.uuid4().hex[:12]}"
+    )
+    project_id = (
+        str(run_spec.get("projectId") or "proj_default").strip() or "proj_default"
+    )
     pipeline_id = str(run_spec.get("pipelineId") or "").strip()
     if not pipeline_id:
         raise ValueError("PIPELINE_ID_REQUIRED")
-    pipeline_version = str(run_spec.get("pipelineVersion") or "0.1.0").strip() or "0.1.0"
-    run_spec_version = str(run_spec.get("runSpecVersion") or "2026-04-21").strip() or "2026-04-21"
+    pipeline_version = (
+        str(run_spec.get("pipelineVersion") or "0.1.0").strip() or "0.1.0"
+    )
+    run_spec_version = (
+        str(run_spec.get("runSpecVersion") or "2026-04-21").strip() or "2026-04-21"
+    )
     workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip() or None
     normalized_submitted_at = str(submitted_at or "").strip() or now_iso()
     execution_policy = execution_policy_from_run_spec(run_spec)
@@ -139,7 +153,9 @@ def create_run_record_for_connection(
     ).fetchone()
     if existing is not None:
         if existing["canonical_payload_hash"] != payload_hash:
-            raise IdempotencyKeyReusedError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD")
+            raise IdempotencyKeyReusedError(
+                "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD"
+            )
         existing_run = fetch_run_for_connection(connection, existing["run_id"])
         if existing_run is None:
             raise ValueError("RUN_NOT_FOUND")
@@ -150,7 +166,9 @@ def create_run_record_for_connection(
             reason="idempotency_replay",
         )
 
-    ensure_execution_lifecycle_admission_open_for_connection(connection, now=normalized_submitted_at)
+    ensure_execution_lifecycle_admission_open_for_connection(
+        connection, now=normalized_submitted_at
+    )
     connection.execute(
         """
         INSERT INTO runs (
@@ -231,7 +249,9 @@ def create_run_record_for_connection(
         """,
         (server_id, idempotency_key, payload_hash, run["runId"], "accepted"),
     )
-    return RunCreateRecordResult(run=run, status="accepted", created=True, reason="created")
+    return RunCreateRecordResult(
+        run=run, status="accepted", created=True, reason="created"
+    )
 
 
 def update_run_state(
@@ -248,6 +268,7 @@ def update_run_state(
     lease_generation: int | None = None,
 ) -> dict[str, Any]:
     with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
             "SELECT state_version, status, started_at, finished_at, run_spec_json FROM runs WHERE run_id = ?",
             (run_id,),
@@ -275,12 +296,12 @@ def update_run_state(
             else None
         )
         last_updated_at = now_iso()
-        connection.execute(
+        updated = connection.execute(
             """
             UPDATE runs
             SET status = ?, stage = ?, state_version = ?, message = ?, started_at = ?, finished_at = ?,
                 result_dir = ?, last_error_json = ?, last_updated_at = ?
-            WHERE run_id = ?
+            WHERE run_id = ? AND state_version = ?
             """,
             (
                 transition.to_status,
@@ -293,8 +314,12 @@ def update_run_state(
                 json.dumps(last_error) if last_error else None,
                 last_updated_at,
                 run_id,
+                int(existing["state_version"]),
             ),
         )
+        if updated.rowcount != 1:
+            connection.rollback()
+            raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
         append_run_event_v2(
             connection,
             run_id=run_id,
@@ -320,15 +345,44 @@ def run_attempt_can_publish(
     lease_generation: int | None,
 ) -> bool:
     lease = connection.execute(
-        "SELECT attempt_id, lease_generation, state FROM run_leases WHERE run_id = ?",
+        "SELECT attempt_id, lease_generation, expires_at, state "
+        "FROM run_leases WHERE run_id = ?",
         (run_id,),
     ).fetchone()
     decision = RunExecutionStateMachine.current_lease_guard(
         attempt_id=attempt_id,
         lease_generation=lease_generation,
         current_attempt_id=str(lease["attempt_id"]) if lease is not None else None,
-        current_lease_generation=int(lease["lease_generation"]) if lease is not None else None,
+        current_lease_generation=int(lease["lease_generation"])
+        if lease is not None
+        else None,
         current_lease_state=str(lease["state"]) if lease is not None else None,
         allow_missing_attempt_context=True,
     )
-    return decision.accepted
+    if not decision.accepted:
+        return False
+    if attempt_id is None and lease_generation is None:
+        return True
+    if lease is None or not execution_lease_expiry_is_future(lease["expires_at"]):
+        return False
+    attempt = connection.execute(
+        "SELECT run_id, job_id, lease_generation, state FROM run_attempts "
+        "WHERE attempt_id = ?",
+        (attempt_id,),
+    ).fetchone()
+    if (
+        attempt is None
+        or str(attempt["run_id"]) != run_id
+        or int(attempt["lease_generation"]) != lease_generation
+        or str(attempt["state"]) != "running"
+    ):
+        return False
+    job = connection.execute(
+        "SELECT run_id, state FROM run_jobs WHERE job_id = ?",
+        (attempt["job_id"],),
+    ).fetchone()
+    return (
+        job is not None
+        and str(job["run_id"]) == run_id
+        and str(job["state"]) == "claimed"
+    )

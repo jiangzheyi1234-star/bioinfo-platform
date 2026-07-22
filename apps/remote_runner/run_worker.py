@@ -114,17 +114,20 @@ def process_next_run_job(
             lease_seconds=lease_seconds,
         )
         stop_heartbeat = threading.Event()
-        heartbeat_thread = _start_heartbeat_thread(
-            cfg,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-            lease_seconds=lease_seconds,
-            interval_seconds=heartbeat_interval_seconds,
-            now_factory=now_factory,
-            stop_event=stop_heartbeat,
-        )
+        heartbeat_thread: threading.Thread | None = None
         execution_error = ""
         try:
+            if not heartbeat.get("accepted"):
+                raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
+            heartbeat_thread = _start_heartbeat_thread(
+                cfg,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                lease_seconds=lease_seconds,
+                interval_seconds=heartbeat_interval_seconds,
+                now_factory=now_factory,
+                stop_event=stop_heartbeat,
+            )
             launch_authorization = require_agent_run_launch_authorization(
                 cfg,
                 run_id=run_id,

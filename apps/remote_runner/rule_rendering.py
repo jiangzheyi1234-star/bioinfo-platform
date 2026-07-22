@@ -32,7 +32,6 @@ def render_generated_workflow_snakefile(
         for step in steps
     ]
     return (
-        'configfile: "run-config.json"\n\n'
         "rule all:\n"
         "    input:\n"
         f"{workflow_targets}\n"

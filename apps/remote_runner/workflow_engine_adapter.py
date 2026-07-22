@@ -11,6 +11,7 @@ from .config import (
     get_workflow_profile_dir,
 )
 from .process_runner import (
+    BeforeProcessSpawn,
     BeforeProcessStart,
     ProcessPoll,
     ProcessStarted,
@@ -33,6 +34,7 @@ class WorkflowEngineAdapter(Protocol):
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        conda_prefix: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
         target_paths: list[str] | None = None,
@@ -44,6 +46,7 @@ class WorkflowEngineAdapter(Protocol):
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        conda_prefix: Path | None = None,
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
@@ -60,6 +63,7 @@ class SnakemakeEngineAdapter:
         run_command: Callable[..., Any] | None = None,
         should_cancel: ShouldCancel | None = None,
         before_process_start: BeforeProcessStart | None = None,
+        before_process_spawn: BeforeProcessSpawn | None = None,
         on_process_started: ProcessStarted | None = None,
         poll_interval_seconds: float = 0.2,
     ) -> None:
@@ -67,6 +71,7 @@ class SnakemakeEngineAdapter:
         self._run_command = run_command
         self._should_cancel = should_cancel
         self._before_process_start = before_process_start
+        self._before_process_spawn = before_process_spawn
         self._on_process_started = on_process_started
         self._poll_interval_seconds = poll_interval_seconds
 
@@ -76,6 +81,7 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        conda_prefix: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
         target_paths: list[str] | None = None,
@@ -85,6 +91,7 @@ class SnakemakeEngineAdapter:
                 snakefile=snakefile,
                 work_dir=work_dir,
                 config_path=config_path,
+                conda_prefix=conda_prefix,
                 forcerun_rules=forcerun_rules,
                 rerun_incomplete=rerun_incomplete,
                 dry_run=True,
@@ -98,6 +105,7 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        conda_prefix: Path | None = None,
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
@@ -109,6 +117,7 @@ class SnakemakeEngineAdapter:
                 snakefile=snakefile,
                 work_dir=work_dir,
                 config_path=config_path,
+                conda_prefix=conda_prefix,
                 event_log_path=event_log_path,
                 forcerun_rules=forcerun_rules,
                 rerun_incomplete=rerun_incomplete,
@@ -128,6 +137,8 @@ class SnakemakeEngineAdapter:
                 self._before_process_start()
             if self._should_cancel is not None and self._should_cancel():
                 return _cancelled_before_process_start(command)
+            if self._before_process_spawn is not None:
+                self._before_process_spawn()
             return self._run_command(
                 command,
                 capture_output=True,
@@ -139,6 +150,7 @@ class SnakemakeEngineAdapter:
             env=env,
             should_cancel=self._should_cancel,
             before_process_start=self._before_process_start,
+            before_process_spawn=self._before_process_spawn,
             on_process_started=self._on_process_started,
             on_poll=on_poll,
             poll_interval_seconds=self._poll_interval_seconds,
@@ -150,6 +162,7 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        conda_prefix: Path | None = None,
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
@@ -166,10 +179,14 @@ class SnakemakeEngineAdapter:
             "--directory",
             str(work_dir),
         ]
+        if conda_prefix is not None:
+            command.extend(["--profile", "none"])
         if profile_args:
             command.extend(profile_args)
         else:
             command.extend(["--cores", "1", "--use-conda"])
+        if conda_prefix is not None:
+            command.extend(["--conda-prefix", str(conda_prefix)])
         command.extend(["--configfile", str(config_path)])
         if rerun_incomplete:
             command.append("--rerun-incomplete")

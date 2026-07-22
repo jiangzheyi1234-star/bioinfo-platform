@@ -569,7 +569,7 @@ def test_run_worker_does_not_publish_failure_for_stale_attempt(tmp_path: Path) -
         cfg,
         worker_id="worker_stale",
         execute_run=fake_execute,
-        lease_seconds=1,
+        lease_seconds=2,
         heartbeat_interval_seconds=0,
         now_factory=clock,
     )
@@ -629,7 +629,7 @@ def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_pat
     result = process_next_run_job(
         cfg,
         worker_id="worker_stale_cancellation",
-        lease_seconds=1,
+        lease_seconds=2,
         heartbeat_interval_seconds=0.01,
         now_factory=clock,
     )

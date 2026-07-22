@@ -29,6 +29,7 @@ from .agent_workflow_runtime import (
 )
 from .config import RemoteRunnerConfig
 from .execution_query_storage import fetch_run_for_connection
+from .execution_lease_time import execution_lease_expiry_is_future
 from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection
 from .workflow_revision_storage import fetch_workflow_revision_for_connection
@@ -328,6 +329,8 @@ def _require_current_attempt(
         or job is None
         or str(job["state"]) != "claimed"
         or not decision.accepted
+        or lease is None
+        or not execution_lease_expiry_is_future(lease["expires_at"])
     ):
         raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
 

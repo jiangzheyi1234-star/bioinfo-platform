@@ -128,6 +128,46 @@ def test_process_runner_rechecks_cancellation_after_pre_start_guard(
     assert "not started" in result.stderr
 
 
+def test_process_runner_runs_spawn_guard_after_final_cancellation_check(
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import process_runner
+
+    calls: list[str] = []
+
+    class FakeProcess:
+        pid = 4343
+        returncode = 0
+
+        def poll(self) -> int:
+            return 0
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+            return "", ""
+
+    def should_cancel() -> bool:
+        calls.append("cancel")
+        return False
+
+    def fake_popen(*_args, **_kwargs):
+        calls.append("popen")
+        return FakeProcess()
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", fake_popen)
+
+    result = process_runner.run_process(
+        ["snakemake"],
+        env={"PATH": "/tmp/bin"},
+        should_cancel=should_cancel,
+        before_process_start=lambda: calls.append("pre_start"),
+        before_process_spawn=lambda: calls.append("spawn_guard"),
+    )
+
+    assert result.returncode == 0
+    assert calls[:5] == ["cancel", "pre_start", "cancel", "spawn_guard", "popen"]
+    assert calls[5:] == ["cancel"]
+
+
 def test_process_runner_guard_failure_prevents_popen(monkeypatch) -> None:
     from apps.remote_runner import process_runner
 

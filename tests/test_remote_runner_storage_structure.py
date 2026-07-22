@@ -205,6 +205,7 @@ def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -
 def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     state_machine_path = REMOTE_RUNNER / "run_execution_state_machine.py"
     run_execution_storage = (REMOTE_RUNNER / "run_execution_storage.py").read_text(encoding="utf-8")
+    attempt_authority = (REMOTE_RUNNER / "execution_attempt_authority.py").read_text(encoding="utf-8")
     execution_primitives = (REMOTE_RUNNER / "execution_storage_primitives.py").read_text(encoding="utf-8")
     workflow_run_storage = (REMOTE_RUNNER / "workflow_run_storage.py").read_text(encoding="utf-8")
     execution_retry_storage = (REMOTE_RUNNER / "execution_retry_storage.py").read_text(encoding="utf-8")
@@ -258,7 +259,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "def _attempt_state_for_run_status(" not in run_worker
     assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage
     assert "RunExecutionStateMachine.claim_job(" in run_execution_storage
-    assert "RunExecutionStateMachine.current_lease_guard(" in run_execution_storage
+    assert "RunExecutionStateMachine.current_lease_guard(" in attempt_authority
+    assert "execution_lease_expiry_is_future(" in attempt_authority
     assert "RunExecutionStateMachine.current_lease_guard(" in workflow_run_storage
     assert "RunExecutionStateMachine.complete_from_artifact_cache(" in artifact_cache_adoption
     assert "RunExecutionStateMachine.complete_from_verified_outputs(" in candidate_output_storage

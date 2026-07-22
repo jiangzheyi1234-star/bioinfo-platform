@@ -110,8 +110,12 @@ def test_generated_tool_run_writes_snakefile_and_per_rule_conda_env(tmp_path: Pa
     assert len(calls) == 2
     assert calls[0][0] == cfg.snakemake_command
     assert calls[0][calls[0].index("--snakefile") + 1] == str(work_dir / "workflow" / "Snakefile")
+    assert calls[0][calls[0].index("--configfile") + 1] == str(
+        work_dir / "run-config.json"
+    )
     assert "--workflow-profile" in calls[0]
     assert str(Path(cfg.workflow_profile_dir)) in calls[0]
+    assert "configfile:" not in snakefile
     assert 'conda:'.encode().decode() in snakefile
     assert "envs/conda-forge_coreutils.yaml" in snakefile
     assert "wc -c" in snakefile

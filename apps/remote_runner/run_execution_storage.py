@@ -24,6 +24,16 @@ from .admission_storage import (
 )
 from .resource_pool import ResourceRequest
 from .execution_job_records import run_job_row_to_dict
+from .execution_attempt_authority import (
+    current_attempt_lease_guard as _current_lease_guard,
+    heartbeat_run_attempt as heartbeat_run_attempt,
+    record_run_attempt_process_group as record_run_attempt_process_group,
+    run_attempt_cancel_requested as run_attempt_cancel_requested,
+)
+from .execution_lease_time import (
+    execution_timestamp_at_or_after,
+    require_execution_utc_timestamp,
+)
 from .run_execution_state_machine import RunExecutionStateMachine
 from .execution_storage_primitives import (
     add_seconds,
@@ -32,7 +42,6 @@ from .execution_storage_primitives import (
     fetch_run_row,
     json_object,
     lease_row_to_dict,
-    optional_positive_int,
     optional_text,
     required_text,
     stable_json,
@@ -56,7 +65,9 @@ def enqueue_run_job(
     queued_at = optional_text(available_at) or now_iso()
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        ensure_execution_lifecycle_admission_open_for_connection(connection, now=queued_at)
+        ensure_execution_lifecycle_admission_open_for_connection(
+            connection, now=queued_at
+        )
         row = enqueue_run_job_record(
             connection,
             run_id=run_id,
@@ -140,7 +151,9 @@ def enqueue_run_job_record(
         },
         occurred_at=available_at,
     )
-    return connection.execute("SELECT * FROM run_jobs WHERE job_id = ?", (job_id,)).fetchone()
+    return connection.execute(
+        "SELECT * FROM run_jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()
 
 
 def claim_next_run_job(
@@ -160,12 +173,23 @@ def claim_next_run_job(
     normalized_session_id = optional_text(session_id) or ""
     normalized_slot_id = required_text(slot_id, "SLOT_ID_REQUIRED")
     normalized_queue_name = required_text(queue_name, "QUEUE_NAME_REQUIRED")
-    claimed_at = optional_text(now) or now_iso()
+    requested_at = optional_text(now)
+    if requested_at is not None:
+        require_execution_utc_timestamp(requested_at)
     request = resource_request or ResourceRequest()
     capacity = resource_capacity or ResourceRequest(cpu=max(1, int(max_active_slots)))
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if read_execution_lifecycle_maintenance_for_connection(connection, now=claimed_at) is not None:
+        claimed_at = execution_timestamp_at_or_after(
+            requested_at=requested_at,
+            current_at=now_iso(),
+        )
+        if (
+            read_execution_lifecycle_maintenance_for_connection(
+                connection, now=claimed_at
+            )
+            is not None
+        ):
             connection.commit()
             return None
         job = _select_claimable_job(connection, claimed_at, normalized_queue_name)
@@ -208,11 +232,17 @@ def claim_next_run_job(
         claim_decision = RunExecutionStateMachine.claim_job(
             current_job_state=str(job["state"]),
             attempt_count=int(job["attempt_count"]),
-            current_lease_state=str(current_lease["state"]) if current_lease is not None else None,
-            current_lease_generation=int(current_lease["lease_generation"]) if current_lease is not None else None,
+            current_lease_state=str(current_lease["state"])
+            if current_lease is not None
+            else None,
+            current_lease_generation=int(current_lease["lease_generation"])
+            if current_lease is not None
+            else None,
         )
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
-        work_dir = _work_dir_for_claimed_job(cfg, connection, job, attempt_id=attempt_id)
+        work_dir = _work_dir_for_claimed_job(
+            cfg, connection, job, attempt_id=attempt_id
+        )
         expires_at = add_seconds(
             claimed_at,
             heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
@@ -354,84 +384,10 @@ def claim_next_run_job(
             "SELECT * FROM run_jobs WHERE job_id = ?",
             (job["job_id"],),
         ).fetchone()
-        record_run_attempt_claimed(queued_at=str(claimed_job["created_at"] or ""), claimed_at=claimed_at)
+        record_run_attempt_claimed(
+            queued_at=str(claimed_job["created_at"] or ""), claimed_at=claimed_at
+        )
         return _claim_to_dict(claimed_job, attempt, lease)
-
-
-def heartbeat_run_attempt(
-    cfg: RemoteRunnerConfig,
-    attempt_id: str,
-    *,
-    lease_generation: int,
-    now: str | None = None,
-    lease_seconds: int = 60,
-) -> dict[str, Any]:
-    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    heartbeat_at = optional_text(now) or now_iso()
-    with get_connection(cfg) as connection:
-        attempt = fetch_attempt_row(connection, normalized_attempt_id)
-        lease = connection.execute(
-            "SELECT * FROM run_leases WHERE run_id = ?",
-            (attempt["run_id"],),
-        ).fetchone()
-        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
-        if not lease_guard.accepted:
-            return {"accepted": False, "reason": lease_guard.reason}
-        job = connection.execute(
-            "SELECT * FROM run_jobs WHERE job_id = ?",
-            (attempt["job_id"],),
-        ).fetchone()
-        expires_at = add_seconds(
-            heartbeat_at,
-            heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
-        )
-        connection.execute(
-            """
-            UPDATE run_leases
-            SET heartbeat_at = ?, expires_at = ?, updated_at = ?
-            WHERE run_id = ?
-            """,
-            (heartbeat_at, expires_at, heartbeat_at, attempt["run_id"]),
-        )
-        connection.commit()
-        return {"accepted": True, "expiresAt": expires_at}
-
-
-def record_run_attempt_process_group(
-    cfg: RemoteRunnerConfig,
-    attempt_id: str,
-    *,
-    lease_generation: int,
-    process_group_id: str,
-    now: str | None = None,
-) -> dict[str, Any]:
-    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    normalized_process_group_id = required_text(process_group_id, "PROCESS_GROUP_ID_REQUIRED")
-    updated_at = optional_text(now) or now_iso()
-    with get_connection(cfg) as connection:
-        attempt = fetch_attempt_row(connection, normalized_attempt_id)
-        lease = connection.execute(
-            "SELECT * FROM run_leases WHERE run_id = ?",
-            (attempt["run_id"],),
-        ).fetchone()
-        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
-        if not lease_guard.accepted:
-            return {"accepted": False, "reason": lease_guard.reason}
-        connection.execute(
-            """
-            UPDATE run_attempts
-            SET process_group_id = ?, process_pid = ?, updated_at = ?
-            WHERE attempt_id = ?
-            """,
-            (
-                normalized_process_group_id,
-                optional_positive_int(normalized_process_group_id),
-                updated_at,
-                normalized_attempt_id,
-            ),
-        )
-        connection.commit()
-        return {"accepted": True, "processGroupId": normalized_process_group_id}
 
 
 def request_run_cancel(
@@ -527,26 +483,6 @@ def request_run_cancel(
         }
 
 
-def run_attempt_cancel_requested(
-    cfg: RemoteRunnerConfig,
-    attempt_id: str,
-    *,
-    lease_generation: int,
-) -> bool:
-    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    with get_connection(cfg) as connection:
-        attempt = fetch_attempt_row(connection, normalized_attempt_id)
-        lease = connection.execute(
-            "SELECT * FROM run_leases WHERE run_id = ?",
-            (attempt["run_id"],),
-        ).fetchone()
-        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
-        if not lease_guard.accepted:
-            return True
-        run = fetch_run_row(connection, str(attempt["run_id"]))
-        return bool(attempt["cancel_requested_at"] or run["status"] == "canceling")
-
-
 def complete_run_attempt(
     cfg: RemoteRunnerConfig,
     attempt_id: str,
@@ -560,8 +496,15 @@ def complete_run_attempt(
     completion_decision = RunExecutionStateMachine.complete_attempt(
         state=required_text(state, "ATTEMPT_STATE_REQUIRED"),
     )
-    finished_at = optional_text(now) or now_iso()
+    requested_at = optional_text(now)
+    if requested_at is not None:
+        require_execution_utc_timestamp(requested_at)
     with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        finished_at = execution_timestamp_at_or_after(
+            requested_at=requested_at,
+            current_at=now_iso(),
+        )
         attempt = fetch_attempt_row(connection, normalized_attempt_id)
         run = fetch_run_row(connection, str(attempt["run_id"]))
         lease = connection.execute(
@@ -569,43 +512,102 @@ def complete_run_attempt(
             (attempt["run_id"],),
         ).fetchone()
         if (
-            RunExecutionStateMachine.is_published_attempt_terminal_state(str(attempt["state"]))
+            RunExecutionStateMachine.is_published_attempt_terminal_state(
+                str(attempt["state"])
+            )
             and lease is not None
             and RunExecutionStateMachine.is_terminal_run_status(str(lease["state"]))
         ):
-            release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
+            release_resource_allocation(
+                connection, attempt_id=normalized_attempt_id, released_at=finished_at
+            )
             connection.commit()
             return {"accepted": False, "reason": "already_terminal"}
-        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
+        lease_guard = _current_lease_guard(
+            lease,
+            normalized_attempt_id,
+            lease_generation,
+            observed_at=finished_at,
+        )
         if not lease_guard.accepted:
-            _fence_attempt_record(
+            expired = lease_guard.reason == "lease_expired" and _expire_attempt_record(
                 connection,
                 attempt_id=normalized_attempt_id,
                 generation=lease_generation,
-                reason=lease_guard.reason,
                 occurred_at=finished_at,
                 run=run,
             )
-            connection.commit()
+            if expired:
+                connection.commit()
+            else:
+                connection.rollback()
             return {"accepted": False, "reason": lease_guard.reason}
 
-        connection.execute(
+        updated_attempt = connection.execute(
             """
             UPDATE run_attempts
             SET state = ?, finished_at = ?, exit_code = ?, updated_at = ?
             WHERE attempt_id = ?
+              AND lease_generation = ?
+              AND state = 'running'
+              AND EXISTS (
+                  SELECT 1
+                  FROM run_leases
+                  WHERE run_id = run_attempts.run_id
+                    AND attempt_id = run_attempts.attempt_id
+                    AND lease_generation = ?
+                    AND state = 'active'
+                    AND expires_at > ?
+              )
+              AND EXISTS (
+                  SELECT 1 FROM run_jobs
+                  WHERE job_id = run_attempts.job_id
+                    AND state = 'claimed'
+              )
             """,
-            (completion_decision.attempt_state, finished_at, exit_code, finished_at, normalized_attempt_id),
+            (
+                completion_decision.attempt_state,
+                finished_at,
+                exit_code,
+                finished_at,
+                normalized_attempt_id,
+                lease_generation,
+                lease_generation,
+                finished_at,
+            ),
         )
-        connection.execute(
-            "UPDATE run_jobs SET state = ?, updated_at = ? WHERE job_id = ?",
-            (completion_decision.job_state, finished_at, attempt["job_id"]),
+        updated_job = connection.execute(
+            "UPDATE run_jobs SET state = ?, updated_at = ? "
+            "WHERE job_id = ? AND run_id = ? AND state = 'claimed'",
+            (
+                completion_decision.job_state,
+                finished_at,
+                attempt["job_id"],
+                attempt["run_id"],
+            ),
         )
-        connection.execute(
-            "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
-            (completion_decision.lease_state, finished_at, attempt["run_id"]),
+        updated_lease = connection.execute(
+            "UPDATE run_leases SET state = ?, updated_at = ? "
+            "WHERE run_id = ? AND attempt_id = ? AND lease_generation = ? "
+            "AND state = 'active' AND expires_at > ?",
+            (
+                completion_decision.lease_state,
+                finished_at,
+                attempt["run_id"],
+                normalized_attempt_id,
+                lease_generation,
+                finished_at,
+            ),
         )
-        release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
+        if any(
+            mutation.rowcount != 1
+            for mutation in (updated_attempt, updated_job, updated_lease)
+        ):
+            connection.rollback()
+            return {"accepted": False, "reason": "stale_generation"}
+        release_resource_allocation(
+            connection, attempt_id=normalized_attempt_id, released_at=finished_at
+        )
         mark_worker_slot_idle(
             connection,
             worker_id=str(attempt["worker_id"]),
@@ -638,7 +640,9 @@ def complete_run_attempt(
         return {"accepted": True, "state": completion_decision.attempt_state}
 
 
-def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: str) -> sqlite3.Row | None:
+def _select_claimable_job(
+    connection: sqlite3.Connection, now: str, queue_name: str
+) -> sqlite3.Row | None:
     return connection.execute(
         """
         SELECT jobs.*
@@ -654,35 +658,67 @@ def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: 
     ).fetchone()
 
 
-def _fence_attempt_record(
+def _expire_attempt_record(
     connection: sqlite3.Connection,
     *,
     attempt_id: str,
     generation: int,
-    reason: str,
     occurred_at: str,
     run: sqlite3.Row,
-) -> None:
-    fence_decision = RunExecutionStateMachine.fence_attempt(reason=reason)
+) -> bool:
+    fence_decision = RunExecutionStateMachine.fence_attempt(reason="lease_expired")
     existing = connection.execute(
-        "SELECT * FROM run_attempts WHERE attempt_id = ?",
-        (attempt_id,),
+        "SELECT * FROM run_attempts "
+        "WHERE attempt_id = ? AND lease_generation = ? AND state = 'running'",
+        (attempt_id, generation),
     ).fetchone()
     if existing is None:
-        return
-    connection.execute(
+        return False
+    updated_attempt = connection.execute(
         """
         UPDATE run_attempts
         SET state = ?, fenced_reason = ?, finished_at = COALESCE(finished_at, ?), updated_at = ?
         WHERE attempt_id = ?
+          AND lease_generation = ?
+          AND state = 'running'
+          AND EXISTS (
+              SELECT 1 FROM run_leases
+              WHERE run_id = run_attempts.run_id
+                AND attempt_id = run_attempts.attempt_id
+                AND lease_generation = ?
+                AND state = 'active'
+                AND expires_at <= ?
+          )
         """,
-        (fence_decision.attempt_state, fence_decision.reason, occurred_at, occurred_at, attempt_id),
+        (
+            fence_decision.attempt_state,
+            fence_decision.reason,
+            occurred_at,
+            occurred_at,
+            attempt_id,
+            generation,
+            generation,
+            occurred_at,
+        ),
     )
-    connection.execute(
-        "UPDATE run_leases SET state = ?, updated_at = ? WHERE attempt_id = ?",
-        (fence_decision.lease_state, occurred_at, attempt_id),
+    updated_lease = connection.execute(
+        "UPDATE run_leases SET state = ?, updated_at = ? "
+        "WHERE run_id = ? AND attempt_id = ? AND lease_generation = ? "
+        "AND state = 'active' AND expires_at <= ?",
+        (
+            fence_decision.lease_state,
+            occurred_at,
+            existing["run_id"],
+            attempt_id,
+            generation,
+            occurred_at,
+        ),
     )
-    release_resource_allocation(connection, attempt_id=attempt_id, released_at=occurred_at)
+    if updated_attempt.rowcount != 1 or updated_lease.rowcount != 1:
+        return False
+    release_resource_allocation(
+        connection, attempt_id=attempt_id, released_at=occurred_at
+    )
     append_run_event_v2(
         connection,
         run_id=str(existing["run_id"]),
@@ -691,22 +727,19 @@ def _fence_attempt_record(
         state_version=int(run["state_version"]),
         message=fence_decision.event_message,
         request_id=str(run["request_id"]),
-        payload={"attemptId": attempt_id, "leaseGeneration": int(generation), "reason": fence_decision.reason},
+        payload={
+            "attemptId": attempt_id,
+            "leaseGeneration": int(generation),
+            "reason": fence_decision.reason,
+        },
         occurred_at=occurred_at,
     )
+    return True
 
 
-def _current_lease_guard(lease: sqlite3.Row | None, attempt_id: str, generation: int):
-    return RunExecutionStateMachine.current_lease_guard(
-        attempt_id=attempt_id,
-        lease_generation=generation,
-        current_attempt_id=str(lease["attempt_id"]) if lease is not None else None,
-        current_lease_generation=int(lease["lease_generation"]) if lease is not None else None,
-        current_lease_state=str(lease["state"]) if lease is not None else None,
-    )
-
-
-def _claim_to_dict(job: sqlite3.Row, attempt: sqlite3.Row, lease: sqlite3.Row) -> dict[str, Any]:
+def _claim_to_dict(
+    job: sqlite3.Row, attempt: sqlite3.Row, lease: sqlite3.Row
+) -> dict[str, Any]:
     attempt_payload = attempt_row_to_dict(attempt)
     lease_payload = lease_row_to_dict(lease)
     return {
@@ -740,7 +773,11 @@ def _source_work_dir_for_run_resume(
 ) -> str:
     scope = execution_options.get("resumeScope")
     source_attempt = scope.get("sourceAttempt") if isinstance(scope, dict) else None
-    source_attempt_id = str(source_attempt.get("attemptId") or "").strip() if isinstance(source_attempt, dict) else ""
+    source_attempt_id = (
+        str(source_attempt.get("attemptId") or "").strip()
+        if isinstance(source_attempt, dict)
+        else ""
+    )
     if not source_attempt_id:
         raise ValueError("RUN_RESUME_SOURCE_ATTEMPT_REQUIRED")
     row = connection.execute(

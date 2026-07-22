@@ -9,6 +9,7 @@ import time
 
 ShouldCancel = Callable[[], bool]
 BeforeProcessStart = Callable[[], None]
+BeforeProcessSpawn = Callable[[], None]
 ProcessStarted = Callable[[int], None]
 ProcessPoll = Callable[[], None]
 
@@ -19,6 +20,7 @@ def run_process(
     env: dict[str, str],
     should_cancel: ShouldCancel | None = None,
     before_process_start: BeforeProcessStart | None = None,
+    before_process_spawn: BeforeProcessSpawn | None = None,
     on_process_started: ProcessStarted | None = None,
     on_poll: ProcessPoll | None = None,
     poll_interval_seconds: float = 0.2,
@@ -30,6 +32,8 @@ def run_process(
         before_process_start()
     if should_cancel is not None and should_cancel():
         return _cancelled_before_process_start(command)
+    if before_process_spawn is not None:
+        before_process_spawn()
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,

@@ -638,7 +638,7 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     assert run["status"] == "queued"
 
 
-def test_stale_generation_completion_fences_attempt_without_completion_event(tmp_path):
+def test_stale_generation_completion_cannot_fence_current_attempt(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_wrong_generation", execution={"retryPolicy": {"backoffSeconds": 0}})
     claim = claim_next_run_job(cfg, worker_id="worker_wrong_generation", now="2099-06-07T10:00:00Z")
@@ -663,12 +663,9 @@ def test_stale_generation_completion_fences_attempt_without_completion_event(tmp
             "SELECT state FROM run_leases WHERE run_id = ?",
             ("run_wrong_generation",),
         ).fetchone()
-        event = connection.execute(
-            """
-            SELECT event_type, stage, message, details_json
-            FROM run_events
-            WHERE run_id = ? AND event_type = 'run_attempt_fenced'
-            """,
+        fence_events = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_events "
+            "WHERE run_id = ? AND event_type = 'run_attempt_fenced'",
             ("run_wrong_generation",),
         ).fetchone()
         completion_events = connection.execute(
@@ -679,16 +676,9 @@ def test_stale_generation_completion_fences_attempt_without_completion_event(tmp
             """,
             ("run_wrong_generation",),
         ).fetchone()
-    assert dict(attempt) == {"state": "fenced", "fenced_reason": "stale_generation"}
-    assert lease["state"] == "fenced"
-    assert event["event_type"] == "run_attempt_fenced"
-    assert event["stage"] == "fence"
-    assert event["message"] == "Run attempt fenced."
-    assert json.loads(event["details_json"])["payload"] == {
-        "attemptId": claim["attemptId"],
-        "leaseGeneration": claim["leaseGeneration"] + 1,
-        "reason": "stale_generation",
-    }
+    assert dict(attempt) == {"state": "running", "fenced_reason": None}
+    assert lease["state"] == "active"
+    assert fence_events["count"] == 0
     assert completion_events["count"] == 0
 
 

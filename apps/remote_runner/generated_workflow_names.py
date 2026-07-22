@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
+
+from core.contracts.portable_relative_path import require_portable_relative_path
 
 
 def safe_identifier(value: str) -> str:
@@ -18,10 +20,9 @@ def safe_snakemake_name(value: str) -> str:
 
 
 def safe_relative_output_path(value: str) -> Path:
-    posix_path = PurePosixPath(value.replace("\\", "/"))
-    parts = list(posix_path.parts)
-    if Path(value).is_absolute() or posix_path.is_absolute() or any(part in {"", ".", ".."} for part in parts):
-        raise ValueError("TOOL_OUTPUT_PATH_INVALID")
-    if not parts:
+    if not value:
         raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
-    return Path(*parts)
+    normalized = require_portable_relative_path(
+        value, error_code="TOOL_OUTPUT_PATH_INVALID"
+    )
+    return Path(*normalized.split("/"))

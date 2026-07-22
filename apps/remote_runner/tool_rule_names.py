@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path, PurePosixPath
 from typing import Any
+
+from core.contracts.portable_relative_path import require_portable_relative_path
 
 from .tools_errors import ToolRegistryError
 
@@ -20,11 +21,10 @@ def normalize_io_name(raw: Any) -> str:
 
 
 def validate_relative_output_path(path: str) -> None:
-    posix_path = PurePosixPath(path.replace("\\", "/"))
-    if Path(path).is_absolute() or posix_path.is_absolute() or path in {".", ".."}:
-        raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
-    if any(part in {"", ".", ".."} for part in posix_path.parts):
-        raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
+    try:
+        require_portable_relative_path(path, error_code="TOOL_RULE_OUTPUT_PATH_INVALID")
+    except ValueError as exc:
+        raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID") from exc
 
 
 def validate_relative_log_path(path: str) -> None:

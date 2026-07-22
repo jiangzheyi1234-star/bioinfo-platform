@@ -11,6 +11,7 @@ from .agent_run_launch_gate import (
     AgentRunLaunchGateError,
     revalidate_agent_run_launch_authorization,
 )
+from .agent_workspace_launch_guard import AgentWorkspaceLaunchGuard
 from .config import RemoteRunnerConfig
 from .artifact_input_lineage import record_run_input_artifact_lineage
 from .executor_artifacts import _collect_artifacts
@@ -155,18 +156,31 @@ def _execute_snakemake_workflow(
         resume_scope = snakemake_execution_options.pop("resume_scope")
         if agent_launch_authorization is not None and resume_scope is not None:
             raise AgentRunLaunchGateError("resume_workspace")
+        workspace_guard = (
+            AgentWorkspaceLaunchGuard(
+                managed_work_root=cfg.work_dir,
+                managed_results_root=cfg.results_dir,
+                attempt_id=str(attempt_id or ""),
+                lease_generation=int(lease_generation or 0),
+                claimed_workdir=work_dir,
+                result_dir=result_dir,
+            )
+            if agent_launch_authorization is not None
+            else None
+        )
         engine = SnakemakeEngineAdapter(
             cfg,
             run_command=subprocess.run
             if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN
             else None,
             should_cancel=should_cancel_attempt,
-            before_process_start=_agent_process_launch_guard(
+            before_process_spawn=_agent_process_launch_guard(
                 cfg,
                 authorization=agent_launch_authorization,
                 run_id=run_id,
                 attempt_id=attempt_id,
                 lease_generation=lease_generation,
+                workspace_guard=workspace_guard,
             ),
             on_process_started=_process_group_recorder(
                 cfg,
@@ -174,7 +188,8 @@ def _execute_snakemake_workflow(
                 lease_generation=lease_generation,
             ),
         )
-        work_dir.mkdir(parents=True, exist_ok=True)
+        if workspace_guard is None:
+            work_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
         snakemake_event_log.unlink(missing_ok=True)
         update_run_state(
@@ -190,7 +205,8 @@ def _execute_snakemake_workflow(
         if resume_scope is not None:
             result_dir = _resolve_run_resume_result_dir(cfg, run_id=run_id)
             config_path = work_dir / "run-config.json"
-        result_dir.mkdir(parents=True, exist_ok=True)
+        if workspace_guard is None:
+            result_dir.mkdir(parents=True, exist_ok=True)
         pipeline_id = str(run_spec.get("pipelineId") or "")
         if resume_scope is not None:
             resume_context = _prepare_run_resume_workflow_context(
@@ -248,6 +264,8 @@ def _execute_snakemake_workflow(
             config_path = generated.config_path
             output_schema = generated.output_schema
             run_outputs = generated.outputs
+            if workspace_guard is not None:
+                workspace_guard.seal()
             seed_run_rules_from_config(
                 cfg,
                 run_id=run_id,
@@ -321,8 +339,17 @@ def _execute_snakemake_workflow(
         engine_stage = "dry_run"
         dry_run = engine.dry_run(
             snakefile=snakefile,
-            work_dir=work_dir,
+            work_dir=(
+                workspace_guard.dry_run_workdir
+                if workspace_guard is not None
+                else work_dir
+            ),
             config_path=config_path,
+            conda_prefix=(
+                workspace_guard.dry_run_conda_prefix
+                if workspace_guard is not None
+                else None
+            ),
             **snakemake_execution_options,
         )
         append_log_lines(
@@ -368,6 +395,8 @@ def _execute_snakemake_workflow(
                 lease_generation=lease_generation,
             )
             return
+        if workspace_guard is not None:
+            workspace_guard.mark_dry_run_completed()
 
         cache_adoption = try_complete_from_artifact_cache(
             cfg,
@@ -409,6 +438,11 @@ def _execute_snakemake_workflow(
             snakefile=snakefile,
             work_dir=work_dir,
             config_path=config_path,
+            conda_prefix=(
+                workspace_guard.run_conda_prefix
+                if workspace_guard is not None
+                else None
+            ),
             event_log_path=snakemake_event_log,
             stdout_log=stdout_log,
             stderr_log=stderr_log,
@@ -522,13 +556,26 @@ def _agent_process_launch_guard(
     run_id: str,
     attempt_id: str | None,
     lease_generation: int | None,
+    workspace_guard: AgentWorkspaceLaunchGuard | None,
 ) -> Callable[[], None] | None:
     if authorization is None:
+        if workspace_guard is not None:
+            raise ValueError("AGENT_WORKSPACE_GUARD_UNEXPECTED")
         return None
     if attempt_id is None or lease_generation is None:
         raise ValueError("AGENT_RUN_LAUNCH_ATTEMPT_REQUIRED")
+    if workspace_guard is None:
+        raise AgentRunLaunchGateError("workspace")
 
     def revalidate() -> None:
+        revalidate_agent_run_launch_authorization(
+            cfg,
+            expected=authorization,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        )
+        workspace_guard.revalidate_before_process()
         revalidate_agent_run_launch_authorization(
             cfg,
             expected=authorization,

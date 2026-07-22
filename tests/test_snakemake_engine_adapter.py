@@ -29,6 +29,10 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(
     )
     (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
     ensure_runtime_layout(cfg)
+    dry_run_conda_prefix = tmp_path / "agent-conda" / "dry-run"
+    run_conda_prefix = tmp_path / "agent-conda" / "real-run"
+    dry_run_conda_prefix.mkdir(parents=True)
+    run_conda_prefix.mkdir()
     calls: list[list[str]] = []
     envs: list[dict[str, str]] = []
 
@@ -47,19 +51,31 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(
         snakefile=tmp_path / "workflow" / "Snakefile",
         work_dir=tmp_path / "work",
         config_path=tmp_path / "work" / "run-config.json",
+        conda_prefix=dry_run_conda_prefix,
     )
     adapter.run(
         snakefile=tmp_path / "workflow" / "Snakefile",
         work_dir=tmp_path / "work",
         config_path=tmp_path / "work" / "run-config.json",
+        conda_prefix=run_conda_prefix,
         event_log_path=tmp_path / "logs" / "snakemake-events.jsonl",
     )
 
     assert calls[0][0] == str(snakemake_command)
     assert "--workflow-profile" in calls[0]
     assert str(Path(cfg.workflow_profile_dir)) in calls[0]
+    assert calls[0][calls[0].index("--profile") + 1] == "none"
+    assert calls[0].count("--conda-prefix") == 1
+    assert calls[0][calls[0].index("--conda-prefix") + 1] == str(
+        dry_run_conda_prefix
+    )
     assert "-n" in calls[0]
     assert "--workflow-profile" in calls[1]
+    assert calls[1][calls[1].index("--profile") + 1] == "none"
+    assert calls[1].count("--conda-prefix") == 1
+    assert calls[1][calls[1].index("--conda-prefix") + 1] == str(run_conda_prefix)
+    assert calls[0].index("--conda-prefix") < calls[0].index("--configfile")
+    assert calls[1].index("--conda-prefix") < calls[1].index("--configfile")
     assert "-n" not in calls[1]
     assert "--show-failed-logs" in calls[1]
     assert "--logger" in calls[1]
@@ -123,6 +139,8 @@ def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(
         assert "--forceall" not in command
         assert "--touch" not in command
         assert "--ignore-incomplete" not in command
+        assert "--profile" not in command
+        assert "--conda-prefix" not in command
         assert command[-1] == str(tmp_path / "work" / "results" / "summary.tsv")
     assert "-n" in calls[0]
     assert "-n" not in calls[1]
@@ -279,6 +297,53 @@ def test_snakemake_engine_adapter_runs_launch_guard_before_command(
     )
 
     assert order == ["guard", "command"]
+
+
+def test_snakemake_engine_adapter_runs_spawn_guard_after_final_cancel_check(
+    tmp_path: Path,
+) -> None:
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(tmp_path / "snakemake"),
+    )
+    (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
+    ensure_runtime_layout(cfg)
+    order: list[str] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    def should_cancel() -> bool:
+        order.append("cancel")
+        return False
+
+    def fake_run(*_args, **_kwargs):
+        order.append("command")
+        return Result()
+
+    adapter = SnakemakeEngineAdapter(
+        cfg,
+        run_command=fake_run,
+        should_cancel=should_cancel,
+        before_process_start=lambda: order.append("pre_start"),
+        before_process_spawn=lambda: order.append("spawn_guard"),
+    )
+    adapter.dry_run(
+        snakefile=tmp_path / "workflow" / "Snakefile",
+        work_dir=tmp_path / "work",
+        config_path=tmp_path / "work" / "run-config.json",
+    )
+
+    assert order == ["cancel", "pre_start", "cancel", "spawn_guard", "command"]
 
 
 def test_snakemake_engine_adapter_guard_failure_prevents_command(

@@ -11,6 +11,11 @@ from pydantic import Field, JsonValue, field_validator, model_validator
 
 from .agent_contract_hash import agent_contract_hash, exact_hash_payload
 from .agent_session import AgentSessionModel
+from .portable_relative_path import (
+    MAX_PORTABLE_RELATIVE_PATH_BYTES,
+    portable_relative_path_alias_key,
+    require_portable_relative_path,
+)
 
 
 AGENT_WORKSPACE_PROOF_CONTRACT_VERSION = "agent-workspace-proof.v1"
@@ -18,20 +23,7 @@ AGENT_WORKSPACE_MANIFEST_HASH_DOMAIN = "agent-workspace-manifest.v1"
 
 _HEX_SHA256 = r"^[0-9a-f]{64}$"
 _WORKSPACE_PROOF_ID = r"^awsp_[0-9a-f]{24}$"
-_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 _MAX_MANIFEST_ENTRIES = 250_000
-_MAX_RELATIVE_PATH_BYTES = 4095
-_MAX_PATH_COMPONENT_BYTES = 255
-_WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
-    {
-        "aux",
-        "con",
-        "nul",
-        "prn",
-        *(f"com{index}" for index in range(1, 10)),
-        *(f"lpt{index}" for index in range(1, 10)),
-    }
-)
 _PROOF_HASH_FIELDS = (
     "contractVersion",
     "runId",
@@ -62,14 +54,16 @@ _PROOF_HASH_FIELDS = (
 class AgentWorkspaceManifestEntryV1(AgentSessionModel):
     """One regular file observed below the governed workspace root."""
 
-    relativePath: str = Field(min_length=1, max_length=_MAX_RELATIVE_PATH_BYTES)
+    relativePath: str = Field(min_length=1, max_length=MAX_PORTABLE_RELATIVE_PATH_BYTES)
     size: int = Field(ge=0)
     sha256: str = Field(pattern=_HEX_SHA256)
 
     @field_validator("relativePath")
     @classmethod
     def validate_relative_path(cls, value: str) -> str:
-        return _require_portable_relative_path(value)
+        return require_portable_relative_path(
+            value, error_code="AGENT_WORKSPACE_MANIFEST_RELATIVE_PATH_INVALID"
+        )
 
 
 class AgentWorkspaceProofV1(AgentSessionModel):
@@ -296,7 +290,7 @@ def _require_canonical_manifest_order(
     paths = [entry.relativePath for entry in entries]
     if len(paths) != len(set(paths)):
         raise ValueError(f"{code}_DUPLICATE_PATH")
-    windows_aliases = [_windows_path_alias_key(path) for path in paths]
+    windows_aliases = [portable_relative_path_alias_key(path) for path in paths]
     if len(windows_aliases) != len(set(windows_aliases)):
         raise ValueError(f"{code}_WINDOWS_ALIAS_PATH")
     # Paths are ASCII-only, so Python's exact string order is the portable
@@ -304,56 +298,6 @@ def _require_canonical_manifest_order(
     # does not make canonical ordering platform-dependent.
     if paths != sorted(paths):
         raise ValueError(f"{code}_ORDER_INVALID")
-
-
-def _require_portable_relative_path(value: str) -> str:
-    if (
-        value != value.strip(" ")
-        or value.startswith("/")
-        or value.startswith("//")
-        or "\\" in value
-        or "\x00" in value
-        or _WINDOWS_DRIVE_PREFIX.match(value) is not None
-    ):
-        raise ValueError("AGENT_WORKSPACE_MANIFEST_RELATIVE_PATH_INVALID")
-    try:
-        encoded = value.encode("ascii", errors="strict")
-    except UnicodeEncodeError:
-        raise ValueError("AGENT_WORKSPACE_MANIFEST_RELATIVE_PATH_INVALID") from None
-    components = value.split("/")
-    if (
-        not encoded
-        or len(encoded) > _MAX_RELATIVE_PATH_BYTES
-        or any(
-            not component
-            or component in {".", ".."}
-            or component != component.strip(" ")
-            or component.endswith((".", " "))
-            or ":" in component
-            or _is_windows_reserved_device_component(component)
-            or len(component.encode("ascii")) > _MAX_PATH_COMPONENT_BYTES
-            or any(
-                ord(character) < 0x20 or ord(character) > 0x7E
-                for character in component
-            )
-            for component in components
-        )
-    ):
-        raise ValueError("AGENT_WORKSPACE_MANIFEST_RELATIVE_PATH_INVALID")
-    return value
-
-
-def _is_windows_reserved_device_component(component: str) -> bool:
-    """Reject DOS device aliases even when a component has an extension."""
-
-    device_prefix = component.split(".", 1)[0].casefold()
-    return device_prefix in _WINDOWS_RESERVED_DEVICE_NAMES
-
-
-def _windows_path_alias_key(value: str) -> tuple[str, ...]:
-    """Return the case-insensitive component identity used by Windows paths."""
-
-    return tuple(component.casefold() for component in value.split("/"))
 
 
 def _require_text(value: str, code: str) -> str:

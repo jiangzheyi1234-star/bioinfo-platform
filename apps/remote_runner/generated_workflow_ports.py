@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .generated_workflow_names import safe_identifier, safe_relative_output_path, safe_snakemake_name
+from core.contracts.portable_relative_path import portable_relative_path_alias_key
+
+from .generated_workflow_names import (
+    safe_identifier,
+    safe_relative_output_path,
+    safe_snakemake_name,
+)
 from .rule_command import command_param_names, validate_command_input_tokens_bound
 from core.contracts.rule_ports import validate_input_binding_compatibility
 
@@ -17,7 +23,9 @@ def resolve_step_params(
     requested_step: dict[str, Any],
 ) -> dict[str, Any]:
     declared = declared_rule_params(rule_template)
-    resolved = {name: value for name, value in declared.items() if value is not _MISSING}
+    resolved = {
+        name: value for name, value in declared.items() if value is not _MISSING
+    }
     if "params" in requested_step:
         resolved.update(validate_step_params(requested_step.get("params"), declared))
     for name in command_param_names(str(rule_template.get("commandTemplate") or "")):
@@ -34,7 +42,11 @@ def declared_rule_params(rule_template: dict[str, Any]) -> dict[str, Any]:
     for key, value in raw.items():
         name = safe_snakemake_name(str(key or ""))
         if isinstance(value, dict):
-            declared[name] = normalize_param_value(value["default"]) if "default" in value else _MISSING
+            declared[name] = (
+                normalize_param_value(value["default"])
+                if "default" in value
+                else _MISSING
+            )
         else:
             declared[name] = normalize_param_value(value)
     return declared
@@ -81,12 +93,18 @@ def resolve_step_inputs(
     return mapped
 
 
-def validate_required_step_inputs(*, rule_template: dict[str, Any], inputs: dict[str, str]) -> None:
+def validate_required_step_inputs(
+    *, rule_template: dict[str, Any], inputs: dict[str, str]
+) -> None:
     provided = {safe_snakemake_name(name) for name in inputs}
-    for index, spec in enumerate([item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]):
+    for index, spec in enumerate(
+        [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
+    ):
         if not bool(spec.get("required", True)):
             continue
-        name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
+        name = str(
+            spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")
+        ).strip()
         if name and safe_snakemake_name(name) not in provided:
             raise ValueError(f"TOOL_INPUT_REQUIRED: {name}")
 
@@ -109,7 +127,9 @@ def resolve_explicit_step_inputs(
         if not input_name:
             raise ValueError("WORKFLOW_STEP_INPUT_NAME_REQUIRED")
         if input_name not in declared_inputs:
-            raise ValueError(f"WORKFLOW_STEP_INPUT_PORT_UNKNOWN: {step_id}.{input_name}")
+            raise ValueError(
+                f"WORKFLOW_STEP_INPUT_PORT_UNKNOWN: {step_id}.{input_name}"
+            )
         if not isinstance(binding, dict):
             raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
         validate_input_binding_compatibility(
@@ -128,11 +148,15 @@ def resolve_explicit_step_inputs(
 
 
 def declared_rule_input_names(rule_template: dict[str, Any]) -> set[str]:
-    specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
+    specs = [
+        item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)
+    ]
     if not specs:
         return {"primary"}
     return {
-        safe_snakemake_name(str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")))
+        safe_snakemake_name(
+            str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}"))
+        )
         for index, spec in enumerate(specs)
     }
 
@@ -154,7 +178,9 @@ def resolve_input_binding(
         if not output_name:
             raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
         if output_name not in step_outputs:
-            raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
+            raise ValueError(
+                f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}"
+            )
         return str(step_outputs[output_name])
     if "fromUpload" in binding:
         raise ValueError("WORKFLOW_STEP_INPUT_BINDING_UNSUPPORTED: fromUpload")
@@ -163,24 +189,37 @@ def resolve_input_binding(
         if not role:
             raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
         for index, item in enumerate(resolved_inputs):
-            item_role = str(item.get("role") or ("input" if index == 0 else f"input_{index + 1}")).strip()
+            item_role = str(
+                item.get("role") or ("input" if index == 0 else f"input_{index + 1}")
+            ).strip()
             if item_role == role:
                 return str(item.get("path") or f"input_{index + 1}")
         raise ValueError(f"WORKFLOW_STEP_INPUT_ROLE_UNKNOWN: {role}")
     raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
 
 
-def resolve_outputs(*, rule_template: dict[str, Any], result_dir: Path, output_prefix: str = "") -> dict[str, Path]:
-    specs = [item for item in (rule_template.get("outputs") or []) if isinstance(item, dict)]
+def resolve_outputs(
+    *, rule_template: dict[str, Any], result_dir: Path, output_prefix: str = ""
+) -> dict[str, Path]:
+    specs = [
+        item for item in (rule_template.get("outputs") or []) if isinstance(item, dict)
+    ]
     if not specs:
         raise ValueError("TOOL_OUTPUTS_REQUIRED")
     outputs: dict[str, Path] = {}
+    path_aliases: set[tuple[str, ...]] = set()
     for index, spec in enumerate(specs):
-        name = str(spec.get("name") or ("tool_output" if index == 0 else f"output_{index + 1}")).strip()
+        name = str(
+            spec.get("name") or ("tool_output" if index == 0 else f"output_{index + 1}")
+        ).strip()
         requested_path = str(spec.get("path") or "").strip()
         if not requested_path:
             raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
         path = safe_relative_output_path(requested_path)
+        path_alias = portable_relative_path_alias_key(requested_path)
+        if path_alias in path_aliases:
+            raise ValueError("TOOL_OUTPUT_PATH_INVALID")
+        path_aliases.add(path_alias)
         if output_prefix:
             path = (
                 Path(path.parent, f"{output_prefix}-{path.name}")

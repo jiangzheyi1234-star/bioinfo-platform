@@ -152,6 +152,9 @@ def test_default_executor_receives_process_boundary_authority_and_private_input(
 ) -> None:
     from apps.remote_runner import run_worker
     from apps.remote_runner.executor import _agent_process_launch_guard
+    from apps.remote_runner.agent_workspace_launch_guard import (
+        AgentWorkspaceLaunchGuard,
+    )
 
     cfg = candidate_case["cfg"]
     authorization_result = _authorize(candidate_case)
@@ -164,17 +167,37 @@ def test_default_executor_receives_process_boundary_authority_and_private_input(
         request_id: str,
         attempt_id: str,
         lease_generation: int,
+        attempt_work_dir: str,
         agent_launch_authorization: Any,
         verified_inputs: list[dict[str, Any]],
         should_cancel_attempt: Any,
         **_kwargs: Any,
     ) -> None:
+        workspace_guard = AgentWorkspaceLaunchGuard(
+            managed_work_root=cfg.work_dir,
+            managed_results_root=cfg.results_dir,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            claimed_workdir=attempt_work_dir,
+            result_dir=(
+                Path(cfg.results_dir)
+                / "attempts"
+                / attempt_id
+                / f"generation-{lease_generation}"
+            ),
+        )
+        workdir = Path(attempt_work_dir)
+        (workdir / "workflow").mkdir()
+        (workdir / "workflow" / "Snakefile").write_text("rule all:\n    input: []\n")
+        (workdir / "run-config.json").write_text("{}")
+        workspace_guard.seal()
         guard = _agent_process_launch_guard(
             cfg,
             authorization=agent_launch_authorization,
             run_id=run_id,
             attempt_id=attempt_id,
             lease_generation=lease_generation,
+            workspace_guard=workspace_guard,
         )
         assert guard is not None
         guard()
