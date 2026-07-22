@@ -60,7 +60,7 @@ from .sqlite_tool_prepare_migrations import (
 )
 from .storage_schema import SCHEMA_SQL
 from .sqlite_schema_checksums import runtime_schema_ledger_checksum
-CURRENT_SCHEMA_VERSION = 22
+CURRENT_SCHEMA_VERSION = 23
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
@@ -82,7 +82,8 @@ AGENT_SESSION_MIGRATION_NAME = "018_agent_session_control_plane"
 AGENT_RUN_AUTHORIZATION_MIGRATION_NAME = "019_agent_run_authorization_execution_binding"
 AGENT_WORKSPACE_PROOF_MIGRATION_NAME = "020_agent_workspace_proof"
 AGENT_PROCESS_INSTANCE_MIGRATION_NAME = "021_agent_process_instance"
-CURRENT_SCHEMA_MIGRATION_NAME = "022_agent_workspace_tool_assets_binding"
+AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_NAME = "022_agent_workspace_tool_assets_binding"
+CURRENT_SCHEMA_MIGRATION_NAME = "023_agent_process_lifecycle"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -240,7 +241,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
             name=AGENT_RUN_AUTHORIZATION_MIGRATION_NAME,
         )
         version = read_schema_version(connection)
-    if version in {19, 20, 21}:
+    if version in {19, 20, 21, 22}:
         migrate_agent_schema_extensions(connection, version, _record_migration)
         return
     if version != 0:
@@ -258,6 +259,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         _record_migration(connection, 19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME)
         _record_migration(connection, 20, AGENT_WORKSPACE_PROOF_MIGRATION_NAME)
         _record_migration(connection, 21, AGENT_PROCESS_INSTANCE_MIGRATION_NAME)
+        _record_migration(connection, 22, AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_NAME)
         _record_migration(connection, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         _assert_current_schema_contract(connection)

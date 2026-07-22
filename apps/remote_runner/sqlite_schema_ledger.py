@@ -10,13 +10,9 @@ from .sqlite_schema_checksums import runtime_schema_ledger_checksum
 
 
 SCHEMA_LEDGER_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_MISSING"
-SCHEMA_LEDGER_CHECKSUM_ERROR = (
-    "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_CHECKSUM_MISMATCH"
-)
+SCHEMA_LEDGER_CHECKSUM_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_CHECKSUM_MISMATCH"
 SCHEMA_LEDGER_HISTORY_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_HISTORY_INVALID"
-SCHEMA_LEDGER_AHEAD_ERROR = (
-    "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_AHEAD_OF_USER_VERSION"
-)
+SCHEMA_LEDGER_AHEAD_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_AHEAD_OF_USER_VERSION"
 
 _EXPECTED_NAMES = {
     1: "001_baseline_remote_runner_schema",
@@ -41,8 +37,8 @@ _EXPECTED_NAMES = {
     20: "020_agent_workspace_proof",
     21: "021_agent_process_instance",
     22: "022_agent_workspace_tool_assets_binding",
+    23: "023_agent_process_lifecycle",
 }
-_CURRENT_HISTORY = tuple(range(17, 23))
 _LOWER_SHA256 = re.compile(r"[0-9a-f]{64}")
 _EXPECTED_COLUMNS = (
     (0, "version", "INTEGER", 0, None, 1),
@@ -77,18 +73,22 @@ def assert_runtime_schema_migration_source(
     if normalized_version == 0:
         if table_exists:
             _assert_ledger_table_shape(connection, error_factory)
-            if connection.execute(
-                "SELECT 1 FROM schema_migrations LIMIT 1"
-            ).fetchone() is not None:
+            if (
+                connection.execute("SELECT 1 FROM schema_migrations LIMIT 1").fetchone()
+                is not None
+            ):
                 _raise(error_factory, SCHEMA_LEDGER_AHEAD_ERROR)
         return
     if not table_exists:
         _raise(error_factory, SCHEMA_LEDGER_MISSING_ERROR)
     _assert_ledger_table_shape(connection, error_factory)
-    if connection.execute(
-        "SELECT 1 FROM schema_migrations WHERE version > ? LIMIT 1",
-        (normalized_version,),
-    ).fetchone() is not None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version > ? LIMIT 1",
+            (normalized_version,),
+        ).fetchone()
+        is not None
+    ):
         _raise(error_factory, SCHEMA_LEDGER_AHEAD_ERROR)
     if normalized_version >= 17:
         expected_versions = tuple(range(17, normalized_version + 1))
@@ -131,31 +131,58 @@ def assert_runtime_schema_ledger_current(
     *,
     error_factory: ErrorFactory,
 ) -> None:
-    """Require continuous named history and exact v21/v22 checksums."""
+    """Require continuous named history and exact current Agent checksums."""
 
+    assert_runtime_schema_ledger_at_version(
+        connection,
+        version=23,
+        error_factory=error_factory,
+    )
+
+
+def assert_runtime_schema_ledger_at_version(
+    connection: sqlite3.Connection,
+    *,
+    version: int,
+    error_factory: ErrorFactory,
+) -> None:
+    """Require the exact append-only Agent ledger at V22 or V23."""
+
+    normalized_version = int(version)
+    if normalized_version not in {22, 23}:
+        _raise(error_factory, SCHEMA_LEDGER_HISTORY_ERROR)
     if not _ledger_table_exists(connection):
         _raise(error_factory, SCHEMA_LEDGER_MISSING_ERROR)
     _assert_ledger_table_shape(connection, error_factory)
-    if connection.execute(
-        "SELECT 1 FROM schema_migrations WHERE version > 22 LIMIT 1"
-    ).fetchone() is not None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version > ? LIMIT 1",
+            (normalized_version,),
+        ).fetchone()
+        is not None
+    ):
         _raise(error_factory, SCHEMA_LEDGER_AHEAD_ERROR)
-    if connection.execute(
-        "SELECT 1 FROM schema_migrations WHERE version = 22"
-    ).fetchone() is None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = ?",
+            (normalized_version,),
+        ).fetchone()
+        is None
+    ):
         _raise(error_factory, SCHEMA_LEDGER_MISSING_ERROR)
     rows = connection.execute(
         """
         SELECT version, name, checksum, applied_at
         FROM schema_migrations
-        WHERE version BETWEEN 17 AND 22
+        WHERE version BETWEEN 17 AND ?
         ORDER BY version
-        """
+        """,
+        (normalized_version,),
     ).fetchall()
     _assert_expected_history(
         rows,
-        expected_versions=_CURRENT_HISTORY,
-        exact_checksum_versions=frozenset({21, 22}),
+        expected_versions=tuple(range(17, normalized_version + 1)),
+        exact_checksum_versions=frozenset(range(21, normalized_version + 1)),
         error_factory=error_factory,
     )
 
@@ -275,6 +302,7 @@ __all__ = [
     "SCHEMA_LEDGER_CHECKSUM_ERROR",
     "SCHEMA_LEDGER_HISTORY_ERROR",
     "SCHEMA_LEDGER_MISSING_ERROR",
+    "assert_runtime_schema_ledger_at_version",
     "assert_runtime_schema_ledger_current",
     "assert_runtime_schema_ledger_write_safe",
     "assert_runtime_schema_migration_source",

@@ -61,11 +61,13 @@ def test_bound_agent_run_revalidates_origin_and_runtime_before_executor(
     candidate_case: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from apps.remote_runner import run_worker
+
     cfg = candidate_case["cfg"]
     authorization = _authorize(candidate_case)
     run_id = authorization["run"]["runId"]
-    seen: list[dict[str, Any]] = []
-    seen_inputs: list[list[dict[str, Any]]] = []
+    seen_authorizations: list[Any] = []
+    original_gate = run_worker.require_agent_run_launch_authorization
 
     def fail_if_process_started(*_args: Any, **_kwargs: Any) -> None:
         pytest.fail("the launch gate runtime check must remain passive")
@@ -77,55 +79,47 @@ def test_bound_agent_run_revalidates_origin_and_runtime_before_executor(
         fail_if_process_started,
     )
 
-    def fake_execute(
-        _cfg: Any,
-        *,
-        run_id: str,
-        request_id: str,
-        run_spec: dict[str, Any],
-        attempt_id: str,
-        lease_generation: int,
-        verified_inputs: list[dict[str, Any]],
-        **_kwargs: Any,
-    ) -> None:
-        seen.append(run_spec)
-        seen_inputs.append(verified_inputs)
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="completed",
-            stage="finalize",
-            message="Agent launch gate test completed.",
-            request_id=request_id,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-        )
+    def capture_gate(*args: Any, **kwargs: Any) -> Any:
+        launch_authorization = original_gate(*args, **kwargs)
+        if launch_authorization is not None:
+            seen_authorizations.append(launch_authorization)
+        return launch_authorization
+
+    monkeypatch.setattr(
+        run_worker,
+        "require_agent_run_launch_authorization",
+        capture_gate,
+    )
 
     result = process_next_run_job(
         cfg,
         worker_id="agent-launch-worker",
-        execute_run=fake_execute,
+        execute_run=lambda *_args, **_kwargs: pytest.fail(
+            "Agent executor must wait for the durable process launcher"
+        ),
         heartbeat_interval_seconds=0,
     )
 
     assert result["claimed"] is True
     assert result["runId"] == run_id
-    assert result["executionError"] == ""
-    assert result["attemptCompletion"]["state"] == "succeeded"
-    assert len(seen) == 1
+    assert result["executionError"] == (
+        "AGENT_RUN_LAUNCH_GATE_FAILED: durable_process_launcher"
+    )
+    assert result["attemptCompletion"]["state"] == "failed"
+    assert len(seen_authorizations) == 1
+    launch_authorization = seen_authorizations[0]
     assert (
-        seen[0]["workflowRevisionId"]
+        launch_authorization.run_spec["workflowRevisionId"]
         == candidate_case["revision"]["workflowRevisionId"]
     )
-    assert seen[0]["inputs"] == [
+    assert launch_authorization.run_spec["inputs"] == [
         {
             "role": "reads",
             "uploadId": candidate_case["upload"]["uploadId"],
             "filename": "reads.fastq",
         }
     ]
-    assert len(seen_inputs) == 1
-    private_input = Path(seen_inputs[0][0]["path"])
+    private_input = Path(launch_authorization.verified_inputs[0]["path"])
     assert (Path(cfg.work_dir) / "agent-inputs").resolve() in private_input.parents
     assert private_input != Path(candidate_case["upload"]["path"])
     assert not private_input.samefile(candidate_case["upload"]["path"])
@@ -144,80 +138,24 @@ def test_bound_agent_run_revalidates_origin_and_runtime_before_executor(
     event_json = str(events[0]["details_json"])
     assert str(private_input) not in event_json
     assert candidate_case["upload"]["path"] not in event_json
+    _assert_launch_gate_failure(cfg, run_id)
 
 
-def test_default_executor_receives_process_boundary_authority_and_private_input(
+def test_default_executor_is_blocked_until_durable_launcher_is_wired(
     candidate_case: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from apps.remote_runner import run_worker
-    from apps.remote_runner.executor import _agent_process_launch_guard
-    from apps.remote_runner.agent_workspace_launch_guard import (
-        AgentWorkspaceLaunchGuard,
-    )
 
     cfg = candidate_case["cfg"]
     authorization_result = _authorize(candidate_case)
     run_id = authorization_result["run"]["runId"]
-    seen: list[dict[str, Any]] = []
+    executor_called = False
 
-    def fake_default_executor(
-        _cfg: Any,
-        *,
-        request_id: str,
-        attempt_id: str,
-        lease_generation: int,
-        attempt_work_dir: str,
-        agent_launch_authorization: Any,
-        verified_inputs: list[dict[str, Any]],
-        should_cancel_attempt: Any,
-        **_kwargs: Any,
-    ) -> None:
-        workspace_guard = AgentWorkspaceLaunchGuard(
-            managed_work_root=cfg.work_dir,
-            managed_results_root=cfg.results_dir,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-            claimed_workdir=attempt_work_dir,
-            result_dir=(
-                Path(cfg.results_dir)
-                / "attempts"
-                / attempt_id
-                / f"generation-{lease_generation}"
-            ),
-        )
-        workdir = Path(attempt_work_dir)
-        (workdir / "workflow").mkdir()
-        (workdir / "workflow" / "Snakefile").write_text("rule all:\n    input: []\n")
-        (workdir / "run-config.json").write_text("{}")
-        workspace_guard.seal()
-        guard = _agent_process_launch_guard(
-            cfg,
-            authorization=agent_launch_authorization,
-            run_id=run_id,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-            workspace_guard=workspace_guard,
-        )
-        assert guard is not None
-        guard()
-        assert should_cancel_attempt() is False
-        seen.append(
-            {
-                "authorizationId": agent_launch_authorization.authorization_id,
-                "verifiedInputs": verified_inputs,
-            }
-        )
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="completed",
-            stage="finalize",
-            message="Default executor boundary proof completed.",
-            request_id=request_id,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-        )
+    def fake_default_executor(*_args: Any, **_kwargs: Any) -> None:
+        nonlocal executor_called
+        executor_called = True
+        pytest.fail("default executor must not run before launcher activation")
 
     monkeypatch.setattr(
         run_worker,
@@ -230,12 +168,11 @@ def test_default_executor_receives_process_boundary_authority_and_private_input(
         heartbeat_interval_seconds=0,
     )
 
-    assert result["executionError"] == ""
-    assert (
-        seen[0]["authorizationId"]
-        == authorization_result["authorization"]["authorizationId"]
+    assert result["executionError"] == (
+        "AGENT_RUN_LAUNCH_GATE_FAILED: durable_process_launcher"
     )
-    assert seen[0]["verifiedInputs"][0]["agentInputSnapshot"] is True
+    assert executor_called is False
+    _assert_launch_gate_failure(cfg, run_id)
 
 
 def test_bound_agent_run_origin_tamper_fails_without_executor(
@@ -694,47 +631,30 @@ def test_launch_gate_failure_redacts_nested_filesystem_error(
     assert secret_detail not in json.dumps(run["lastError"])
 
 
-def test_verified_private_input_io_error_is_path_free_in_persisted_failure(
+def test_durable_launcher_gate_precedes_executor_errors_and_is_path_free(
     candidate_case: dict[str, Any],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from apps.remote_runner.executor_inputs import require_verified_run_inputs
-
     cfg = candidate_case["cfg"]
     authorization = _authorize(candidate_case)
     run_id = authorization["run"]["runId"]
     secret_detail = str(Path(cfg.work_dir) / "agent-inputs" / "secret.fastq")
 
-    def fake_execute(
-        _cfg: Any,
-        *,
-        run_spec: dict[str, Any],
-        verified_inputs: list[dict[str, Any]],
-        **_kwargs: Any,
-    ) -> None:
-        private_path = Path(verified_inputs[0]["path"])
-        original_open = Path.open
-
-        def fail_private_open(path: Path, *args: Any, **kwargs: Any):
-            if path == private_path:
-                raise OSError(f"private input unavailable: {secret_detail}")
-            return original_open(path, *args, **kwargs)
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(Path, "open", fail_private_open)
-            require_verified_run_inputs(cfg, run_spec, verified_inputs)
+    def leak_if_called(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError(f"private input unavailable: {secret_detail}")
 
     result = process_next_run_job(
         cfg,
         worker_id="agent-private-input-redaction-worker",
-        execute_run=fake_execute,
+        execute_run=leak_if_called,
         heartbeat_interval_seconds=0,
     )
 
-    assert result["executionError"] == "AGENT_RUN_VERIFIED_INPUT_IO_FAILED"
+    assert result["executionError"] == (
+        "AGENT_RUN_LAUNCH_GATE_FAILED: durable_process_launcher"
+    )
     run = fetch_run(cfg, run_id)
     assert run is not None
-    assert run["lastError"]["message"] == "AGENT_RUN_VERIFIED_INPUT_IO_FAILED"
+    assert run["lastError"]["message"] == result["executionError"]
     with get_connection(cfg) as connection:
         event_details = [
             str(row["details_json"])

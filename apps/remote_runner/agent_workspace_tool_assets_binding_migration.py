@@ -11,6 +11,9 @@ from .agent_process_instance_v22_schema import (
     AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,
     upgrade_agent_process_instance_schema_to_v22,
 )
+from .agent_process_instance_v23_schema import (
+    AGENT_PROCESS_LIFECYCLE_EXACT_TRIGGER_NAME,
+)
 from .agent_schema_migration_guard import assert_agent_schema_migration_precondition
 from .agent_schema_trigger_namespace import assert_exact_runtime_trigger_namespace
 from .agent_workspace_proof_schema import assert_agent_workspace_proof_schema
@@ -20,7 +23,7 @@ from .sqlite_schema_checksums import (
     runtime_schema_ledger_checksum,
 )
 from .sqlite_schema_contract import REQUIRED_TRIGGERS, missing_required_schema_objects
-from .sqlite_schema_ledger import assert_runtime_schema_ledger_current
+from .sqlite_schema_ledger import assert_runtime_schema_ledger_at_version
 
 
 AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_PROOF_INVALID = (
@@ -34,6 +37,9 @@ _V22_TARGET_SCHEMA_OBJECTS = frozenset(
         f"index:{AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX}",
         "trigger:agent_process_instances_envelope_guard",
     }
+)
+_V23_FUTURE_SCHEMA_OBJECTS = frozenset(
+    {f"trigger:{AGENT_PROCESS_LIFECYCLE_EXACT_TRIGGER_NAME}"}
 )
 
 RecordMigration = Callable[[sqlite3.Connection, int, str], None]
@@ -71,19 +77,24 @@ def migrate_agent_workspace_tool_assets_binding(
         upgrade_agent_process_instance_schema_to_v22(connection)
         _assert_existing_workspace_proofs_current(connection)
         assert_agent_process_instance_schema(connection)
-        if missing_required_schema_objects(connection):
+        if set(missing_required_schema_objects(connection)) != (
+            _V23_FUTURE_SCHEMA_OBJECTS
+        ):
             raise RuntimeError(
                 AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_BASELINE_INVALID
             )
         assert_exact_runtime_trigger_namespace(
             connection,
-            expected_names=tuple(REQUIRED_TRIGGERS),
+            expected_names=tuple(
+                REQUIRED_TRIGGERS - {AGENT_PROCESS_LIFECYCLE_EXACT_TRIGGER_NAME}
+            ),
             error_code=AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_BASELINE_INVALID,
         )
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {int(version)}")
-        assert_runtime_schema_ledger_current(
+        assert_runtime_schema_ledger_at_version(
             connection,
+            version=22,
             error_factory=AgentWorkspaceToolAssetsBindingMigrationError,
         )
         connection.commit()
@@ -94,7 +105,7 @@ def migrate_agent_workspace_tool_assets_binding(
 
 def _assert_complete_v21_baseline(connection: sqlite3.Connection) -> None:
     missing = set(missing_required_schema_objects(connection))
-    if missing - _V22_TARGET_SCHEMA_OBJECTS or not _V22_TARGET_SCHEMA_OBJECTS <= missing:
+    if missing != _V22_TARGET_SCHEMA_OBJECTS | _V23_FUTURE_SCHEMA_OBJECTS:
         raise RuntimeError(
             AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_BASELINE_INVALID
         )

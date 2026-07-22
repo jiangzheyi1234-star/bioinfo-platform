@@ -7,6 +7,7 @@ from typing import Any
 
 from core.logging_config import clear_log_context, set_log_context
 
+from . import agent_process_launcher_gate
 from .agent_run_launch_gate import (
     AgentRunLaunchGateError,
     revalidate_agent_run_launch_authorization,
@@ -199,6 +200,8 @@ def process_next_run_job(
                     attempt_id=attempt_id,
                     lease_generation=lease_generation,
                 )
+            if launch_authorization is not None:
+                agent_process_launcher_gate.require_durable_agent_process_launcher()
             executor(
                 cfg,
                 **executor_kwargs,

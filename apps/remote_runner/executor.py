@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from . import agent_process_launcher_gate
 from .agent_run_launch_gate import (
     AgentRunLaunchAuthorization,
     AgentRunLaunchGateError,
@@ -604,6 +605,7 @@ def _require_agent_executor_authority(
         [dict(item) for item in authorization.verified_inputs],
     ):
         raise AgentRunLaunchGateError("executor_authority")
+    agent_process_launcher_gate.require_durable_agent_process_launcher()
 
 
 def _strict_json_equal(left: Any, right: Any) -> bool:

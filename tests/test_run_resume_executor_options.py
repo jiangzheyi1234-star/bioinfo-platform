@@ -106,7 +106,7 @@ def test_artifact_cache_adoption_skips_run_resume_execution_options(
     }
 
 
-def test_agent_run_resume_fails_closed_without_immutable_workspace_proof(
+def test_direct_agent_executor_call_fails_closed_without_durable_launcher(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -181,7 +181,7 @@ def test_agent_run_resume_fails_closed_without_immutable_workspace_proof(
 
     with pytest.raises(
         AgentRunLaunchGateError,
-        match="AGENT_RUN_LAUNCH_GATE_FAILED: resume_workspace",
+        match="AGENT_RUN_LAUNCH_GATE_FAILED: durable_process_launcher",
     ):
         _execute_snakemake_workflow(
             cfg,

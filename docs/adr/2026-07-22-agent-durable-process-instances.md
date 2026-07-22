@@ -29,12 +29,12 @@ V21 首先增加严格的数据契约和迁移，但不开放 Agent resume。后
 - V22 将 retry-stable logical activity 提升为数据库唯一约束；一旦 process instance 建立，
   同一 run 的既有 v2 event chain 禁止更新或删除，raw SQL insert 也必须满足生产 envelope；
 - runtime schema 在任何升级写入前拒绝 ledger 领先于 `user_version` 的伪回拨；current
-  readiness 要求 v17-v22 历史连续且名称精确、v21/v22 checksum 精确，并拒绝未来 ledger；
+  readiness 要求 v17-v23 历史连续且名称精确、v21/v22/v23 checksum 精确，并拒绝未来 ledger；
   ledger table、列、索引与 trigger namespace 也必须精确，migration recorder 使用冲突即失败的
   `INSERT`，不会覆盖既有审计历史，也不会允许 trigger 在提交时篡改或追加版本；
 - session 与 run authorization 的 V18/V19 table、列、索引、外键及 immutable trigger 均按
   canonical SQL 验证；同名弱 trigger、残缺的旧控制面和部分升级都会在事务内 fail closed；
-- V18-V22 受管表要求 trigger 集合精确，current runtime 还要求全库 trigger namespace 精确；
+- V18-V23 受管表要求 trigger 集合精确，current runtime 还要求全库 trigger namespace 精确；
   启动准备器在取得 `BEGIN IMMEDIATE` 写锁后再次执行完整 readiness，阻断首次连接检查与写事务
   之间的 DDL 竞态，也不允许额外 trigger 在 proof/event 写入时联动改变 authorization fence；
 - Stage 9b 已提供尚未接线的原子启动准备器，仅接受 `dry_run/pre_dry_run`，在同一事务中
@@ -45,9 +45,28 @@ V21 首先增加严格的数据契约和迁移，但不开放 Agent resume。后
   重新推导，并精确复核唯一的 production materialization event；同时重新打开 canonical private
   input 路径，验证权限、链接数、文件身份、字节数与摘要，缺失或被替换时不产生任何启动写入；
 - 数据库只持久化 gate token 的 domain-separated hash，原始 token 只返回调用方内存；读取
-  process instance 时会重新验证输入 authority、关联 proof、spawn envelope 与完整 event chain；
-- gated launcher、PID/incarnation、token 放行和 terminal checkpoint 仍属于 Stage 9c，当前
-  Agent 路径继续保持 fail closed。
+  process instance 时会重新验证 launch intent、spawn envelope 与完整 event chain；`started` writer
+  还会重新验证当前输入 authority、关联 proof、lease、取消状态与事件链；
+- Stage 9c1 增加尚未接执行器的 V23 lifecycle foundation：服务端绑定的 canonical launch spec、
+  Linux/Windows incarnation contract、`prepared -> started|spawn_failed -> terminal` CAS/read model，
+  以及 exact schema/readiness。V23 升级拒绝任何既有非 `prepared` process row，不为未受验证的
+  历史 started/terminal 状态背书；
+- run-event.v2 的 `prev_event_hash` 始终指向同一 run 的紧邻全局事件；process payload 另以
+  `priorProcessEventId/Hash` 绑定 spawn intent 到 started/spawn_failed、started 到 terminal。
+  因此其他 run event 可以穿插，全局审计链与单进程状态链都不会断裂；event append 与 row CAS
+  位于同一 savepoint，exact replay 是只读结果；
+- Stage 9c1 的 launch spec 在内存中精确绑定 argv、resolved cwd、完整且 canonical 排序的 child
+  environment、stdio/session/helper/runtime identity 与服务端 proof；Windows 环境名按 case-fold
+  去重。argv、cwd、环境值和可执行路径不进入 DB/event，持久层只保留由一次性内存 key 计算的
+  domain-separated digest；
+- Stage 9c1 只提供事务后放行契约：connection-scoped CAS 结果不构成放行凭据，commit-owning
+  wrapper 只有在 `started` 提交成功且确为首次迁移后，才至多调用一次 gate-release callback；
+- Stage 9c2 才能接入执行器：必须由服务端 resolver 从已验证 runtime/artifact、run spec 与环境策略
+  构建命令，并复核 helper/runtime 的实际磁盘 digest；当前调用方给出的 path/hash 不能被视为
+  production authority。Stage 9c2 还必须实现跨平台 gated launcher 与 SQLite 安全门；
+- Stage 9c3 才增加 incarnation-aware reconciler、terminal evidence 与 prepared-crash 回收。当前
+  worker 与 executor 都以稳定的 `durable_process_launcher` gate 阻断 Agent-owned run，不能因为
+  V23 已存在就称为可启动、可暂停恢复或 exactly-once。
 
 ## 原因
 
@@ -87,22 +106,37 @@ incarnation 确认停止；`lost` 表示已启动但没有可信 exit observatio
 
 ## 启动闸门
 
-只记录 `prepared` intent 仍不能关闭 `Popen` 崩溃窗口。Agent 路径最终必须启动一个极小的
-H2OMeta launcher helper，而不是直接启动 Snakemake：
+只记录 `prepared` intent 仍不能关闭创建进程与数据库提交之间的崩溃窗口。Agent 路径不能直接
+调用普通 `Popen` 启动 Snakemake；Stage 9c2 必须实现以下平台专用协议：
 
-1. 父进程原子提交 workspace proof、spawn event 与 prepared instance；
-2. helper 启动后在继承 pipe 上阻塞，尚未 `exec` 科学命令；
-3. 父进程捕获 PID、process group 与 incarnation，提交 `started` event/CAS；
-4. 再次验证 authorization、lease、proof 和 cancellation；
-5. 父进程发送一次性 token，helper 校验后 `execve` Snakemake。
+- Windows：`CreateProcessW(CREATE_SUSPENDED)` 创建主线程仍暂停的进程，将进程加入
+  kill-on-close Job Object，并在仍持有 live process handle 时用 `GetProcessTimes` 捕获
+  `(pid, creationTimeFiletime)`；`started` 提交成功后才 `ResumeThread`。FILETIME 以无前导零的
+  uint64 十进制字符串进入 canonical JSON，避免跨语言 JSON 安全整数失真；
+- Linux：极小的 `posix_gate_helper` 在 inherited pipe 上阻塞，创建新 session/process group，
+  捕获 `(bootId, pid, procStartTicks)`；pidfd 用于无 PID-reuse 竞态的在线观察与终止。只有
+  `started` 提交成功后父进程才写入放行 frame，helper 随后 `execve` 精确命令；
+- 两个平台都必须先原子提交 workspace proof、spawn event 与 prepared instance；启动后再次验证
+  authorization、lease、proof、input materialization、event chain 与 cancellation，再提交 started。
 
-父进程在放行前崩溃时 pipe EOF，helper 必须退出，科学命令不会运行。放行后崩溃时，持久化
-incarnation 已足够让 reconciler 精确终止或标记 `lost`，但不得自动创建新实例。
+父进程在放行前崩溃时，Linux helper 必须因 pipe EOF 退出；Windows suspended process 必须由
+Job Object/controller 清理，科学命令不得开始。放行后崩溃时只能依据精确 incarnation 做 reconcile，
+不得自动创建新实例。普通 PID、日志或“进程名看起来相同”都不是恢复证据。
 
-Stage 9c 接线前必须把 `launch_spec_hash` 改为服务端从 canonical argv、cwd、环境白名单、runtime
-版本与 tool asset binding 推导，不能接受调用方提供的任意 64 位十六进制值。启动 token 的消费
-必须与 `started` CAS、完整 event envelope/chain 校验和再次 authorization/lease/cancel 检查绑定；
-仅凭 raw SQL 写入 process event 不构成已获授权的命令放行。
+服务端 command resolver 是 Stage 9c2 的启用前置条件：它从已验证 runtime proof、artifact manifest、
+不可变 run spec、workspace proof 与明确环境策略构建 canonical argv/cwd/完整 child environment，
+并对 helper/runtime 文件做稳定读取与 digest 比对。把调用方自报的 path/hash 与服务端 proof 放在
+同一个 JSON 中并不能建立信任关系，因此 9c1 recorder 仍不得接到 production executor。
+
+## SQLite 安全门
+
+SQLite 官方披露的 WAL-reset bug 影响 3.7.0 到 3.51.2，并在 3.51.3 修复。Stage 9c1 因未接
+production launcher 不以本机 SQLite 版本作为可运行证明；Stage 9c2 必须在构建、artifact preflight、
+runner startup/readiness、install/reuse、activation 与 rollback 全路径对 `<3.51.3` fail closed。
+
+当前 remote-runner 0.1.5 artifact lock 中的 libsqlite 3.53.0 只能证明该 artifact 内容满足版本下限，
+不能替代目标机实际加载库的运行时检查。接线必须发布新 artifact version，并让安全门结果进入可审计
+readiness/activation evidence；未知版本、解析失败或回滚到不安全 artifact 都必须拒绝启动。
 
 ## 恢复规则
 
@@ -117,7 +151,8 @@ Stage 9c 接线前必须把 `launch_spec_hash` 改为服务端从 canonical argv
 
 - 不恢复 DAG 拖拽编辑器为主产品界面；
 - 不 replay LLM、Python 调用栈或 Snakemake 进程内存；
-- 不宣称外部副作用 exactly-once；
+- 不宣称 SQLite commit 与 OS process release 原子，也不宣称进程或外部副作用 exactly-once；
+- Stage 9c1 只保证 durable authorization 与每个 prepared instance 至多一次 gate-release attempt；
 - 不把每行 stdout 写入事件历史；日志仍进入 log/blob/artifact；
 - 不在 V21 schema 提交中移除现有 Agent resume blanket gate。
 
@@ -128,3 +163,9 @@ Stage 9c 接线前必须把 `launch_spec_hash` 改为服务端从 canonical argv
 - [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 - [OpenAI Agents SDK human-in-the-loop](https://openai.github.io/openai-agents-python/human_in_the_loop/)
+- [SQLite WAL-reset bug](https://sqlite.org/wal.html#the_wal_reset_bug)
+- [Microsoft CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)
+- [Microsoft GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes)
+- [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [Linux pidfd_open(2)](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)
+- [Linux `/proc/<pid>/stat`](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html)

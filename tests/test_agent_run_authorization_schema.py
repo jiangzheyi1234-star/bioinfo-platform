@@ -42,7 +42,9 @@ V19_TRIGGERS = frozenset(
 V19_OBJECTS = V19_TABLES | V19_INDEXES | V19_TRIGGERS
 
 
-def test_fresh_v22_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) -> None:
+def test_fresh_current_records_v18_and_v19_and_enables_foreign_keys(
+    tmp_path: Path,
+) -> None:
     cfg = make_remote_runner_config(tmp_path)
 
     initialize_or_migrate_runtime_db(cfg.db_path)
@@ -51,7 +53,7 @@ def test_fresh_v22_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) 
         assert (
             connection.execute("PRAGMA user_version").fetchone()[0]
             == CURRENT_SCHEMA_VERSION
-            == 22
+            == 23
         )
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         ledger = connection.execute(
@@ -74,7 +76,7 @@ def test_fresh_v22_records_v18_and_v19_and_enables_foreign_keys(tmp_path: Path) 
     assert objects == V19_OBJECTS
 
 
-def test_v18_to_v22_schema_matches_fresh_schema(tmp_path: Path) -> None:
+def test_v18_to_current_schema_matches_fresh_schema(tmp_path: Path) -> None:
     fresh_cfg = make_remote_runner_config(tmp_path / "fresh")
     migrated_cfg = make_remote_runner_config(tmp_path / "migrated")
     initialize_or_migrate_runtime_db(fresh_cfg.db_path)
@@ -93,7 +95,7 @@ def test_v18_to_v22_schema_matches_fresh_schema(tmp_path: Path) -> None:
         ).fetchall()
 
     assert migrated == fresh
-    assert version == CURRENT_SCHEMA_VERSION == 22
+    assert version == CURRENT_SCHEMA_VERSION == 23
     assert ledger == [
         (18, AGENT_SESSION_MIGRATION_NAME),
         (19, AGENT_RUN_AUTHORIZATION_MIGRATION_NAME),
@@ -276,7 +278,7 @@ def _downgrade_to_v18(db_path: Path) -> None:
         connection.execute("DROP TABLE agent_run_authorizations")
         connection.execute("DROP TABLE agent_session_effect_budgets")
         connection.execute(
-            "DELETE FROM schema_migrations WHERE version IN (20, 21, 22)"
+            "DELETE FROM schema_migrations WHERE version IN (20, 21, 22, 23)"
         )
         connection.execute("DELETE FROM schema_migrations WHERE version = 19")
         connection.execute("PRAGMA user_version = 18")

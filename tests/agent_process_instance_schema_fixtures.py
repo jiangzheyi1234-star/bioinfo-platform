@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 
 from apps.remote_runner.event_contracts import append_run_event_v2
+from core.contracts.agent_process_lifecycle import agent_process_incarnation_hash
+from core.contracts.linux_process_incarnation import build_linux_process_incarnation
 
 
 TIMESTAMP = "2099-01-01T00:00:00Z"
+PROCESS_PID = 4242
+_LINUX_BOOT_ID = "12345678-1234-4abc-8def-123456789abc"
+_EVENT_MESSAGES = {
+    "agent_process_spawn_intent_recorded": "Agent process launch intent prepared.",
+    "agent_process_started": "Agent process started after authorization commit.",
+    "agent_process_spawn_failed": "Agent process spawn failed before start.",
+    "agent_process_exited": "Agent process exited and was reaped.",
+    "agent_process_terminated": "Agent process termination confirmed.",
+    "agent_process_lost": "Agent process identity lost.",
+}
 
 
 def connection(path: Path) -> sqlite3.Connection:
@@ -20,13 +33,16 @@ def connection(path: Path) -> sqlite3.Connection:
 def downgrade_process_schema(path: Path) -> None:
     with connection(path) as db:
         db.execute(
+            "DROP TRIGGER IF EXISTS agent_process_instances_lifecycle_event_exact"
+        )
+        db.execute(
             "DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_update"
         )
         db.execute(
             "DROP TRIGGER IF EXISTS agent_process_instances_run_events_no_delete"
         )
         db.execute("DROP TABLE IF EXISTS agent_process_instances")
-        db.execute("DELETE FROM schema_migrations WHERE version IN (21, 22)")
+        db.execute("DELETE FROM schema_migrations WHERE version IN (21, 22, 23)")
         db.execute("PRAGMA user_version = 20")
 
 
@@ -103,22 +119,17 @@ def append_process_event(
     event_type: str,
     payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    is_spawn = event_type == "agent_process_spawn_intent_recorded"
     return append_run_event_v2(
         db,
         run_id=str(intent["run_id"]),
         event_type=event_type,
-        stage="agent_process" if is_spawn else "process",
+        stage="agent_process",
         state_version=2,
-        message="Agent process launch intent prepared." if is_spawn else event_type,
-        request_id=(
-            f"run_request_{intent['tag']}"
-            if is_spawn
-            else f"request_{intent['tag']}_{event_type}"
-        ),
-        payload=payload or lifecycle_payload(intent),
+        message=_EVENT_MESSAGES[event_type],
+        request_id=f"run_request_{intent['tag']}",
+        payload=payload if payload is not None else lifecycle_payload(intent),
         occurred_at=TIMESTAMP,
-        actor="remote-runner" if is_spawn else None,
+        actor="remote-runner",
     )
 
 
@@ -142,6 +153,55 @@ def lifecycle_payload(intent: dict[str, str | int]) -> dict[str, object]:
         "processKind": intent["process_kind"],
         "processOrdinal": intent["process_ordinal"],
     }
+
+
+def started_payload(
+    intent: dict[str, str | int],
+    incarnation_hash: str,
+) -> dict[str, object]:
+    return {
+        **lifecycle_payload(intent),
+        "launchSpecHash": intent["launch_spec_hash"],
+        "priorProcessEventHash": intent["spawn_event_hash"],
+        "priorProcessEventId": intent["spawn_event_id"],
+        "processGroupId": PROCESS_PID,
+        "processIncarnationHash": incarnation_hash,
+        "processPid": PROCESS_PID,
+    }
+
+
+def terminal_payload(
+    intent: dict[str, str | int],
+    *,
+    state: str,
+    exit_reason: str,
+) -> dict[str, object]:
+    prior_id = (
+        intent["spawn_event_id"]
+        if state == "spawn_failed"
+        else intent["started_event_id"]
+    )
+    prior_hash = (
+        intent["spawn_event_hash"]
+        if state == "spawn_failed"
+        else intent["started_event_hash"]
+    )
+    payload = {
+        **lifecycle_payload(intent),
+        "launchSpecHash": intent["launch_spec_hash"],
+        "priorProcessEventHash": prior_hash,
+        "priorProcessEventId": prior_id,
+    }
+    if state == "spawn_failed":
+        payload["failureCode"] = exit_reason
+    else:
+        payload["exitReason"] = exit_reason
+        payload["processIncarnationHash"] = intent["process_incarnation_hash"]
+        if state == "exited":
+            payload["exitCode"] = 0
+        else:
+            payload["evidenceHash"] = digest(f"terminal-evidence-{intent['tag']}")
+    return payload
 
 
 def insert_prepared(
@@ -208,11 +268,29 @@ def start(
     intent: dict[str, str | int],
     *,
     event: dict[str, object] | None = None,
-    incarnation_json: object = '{"pid":4242}',
+    incarnation_json: object | None = None,
     incarnation_hash: object | None = None,
 ) -> dict[str, object]:
+    incarnation = build_linux_process_incarnation(
+        boot_id=_LINUX_BOOT_ID,
+        pid=PROCESS_PID,
+        proc_start_ticks=int(digest(f"incarnation-{intent['tag']}")[:12], 16) + 1,
+    )
+    normalized_incarnation_json: object = (
+        json.dumps(incarnation, separators=(",", ":"), sort_keys=True)
+        if incarnation_json is None
+        else incarnation_json
+    )
+    normalized_incarnation_hash = (
+        agent_process_incarnation_hash(incarnation)
+        if incarnation_hash is None
+        else incarnation_hash
+    )
     started = event or append_process_event(
-        db, intent, event_type="agent_process_started"
+        db,
+        intent,
+        event_type="agent_process_started",
+        payload=started_payload(intent, str(normalized_incarnation_hash)),
     )
     db.execute(
         """
@@ -223,13 +301,21 @@ def start(
         WHERE process_instance_id = ?
         """,
         (
-            incarnation_json,
-            incarnation_hash or digest(f"incarnation-{intent['tag']}"),
+            normalized_incarnation_json,
+            normalized_incarnation_hash,
             started["eventId"],
             TIMESTAMP,
             intent["process_instance_id"],
         ),
     )
+    intent["started_event_id"] = str(started["eventId"])
+    intent["started_event_hash"] = str(
+        db.execute(
+            "SELECT event_hash FROM run_events WHERE event_id = ?",
+            (started["eventId"],),
+        ).fetchone()[0]
+    )
+    intent["process_incarnation_hash"] = str(normalized_incarnation_hash)
     return started
 
 
@@ -240,8 +326,17 @@ def finish(
     state: str,
     event: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    exit_reason = {
+        "spawn_failed": "PROCESS_CREATE_FAILED",
+        "exited": "exit_code",
+        "terminated": "reconciler_terminated",
+        "lost": "controller_lost",
+    }[state]
     terminal = event or append_process_event(
-        db, intent, event_type=f"agent_process_{state}"
+        db,
+        intent,
+        event_type=f"agent_process_{state}",
+        payload=terminal_payload(intent, state=state, exit_reason=exit_reason),
     )
     exit_code = 0 if state == "exited" else None
     db.execute(
@@ -255,7 +350,7 @@ def finish(
             state,
             terminal["eventId"],
             exit_code,
-            state,
+            exit_reason,
             TIMESTAMP,
             intent["process_instance_id"],
         ),

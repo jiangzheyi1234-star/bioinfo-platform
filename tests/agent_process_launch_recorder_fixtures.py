@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,11 @@ from apps.remote_runner.workflow_revision_storage import (
 )
 from core.contracts.agent_fastq_qc import fastq_qc_manifest_digest
 from core.contracts.agent_fastq_qc_execution import agent_workflow_run_spec_hash
+from core.contracts.agent_process_instance import agent_process_ordinal
+from core.contracts.agent_process_launch_spec import (
+    AgentProcessLaunchCommandV1,
+    build_agent_process_launch_command_v1,
+)
 from core.contracts.agent_run_authorization import (
     AgentRunAuthorizationReceipt,
     agent_run_authorization_receipt_hash,
@@ -52,7 +58,6 @@ RUN_SPEC = {
 }
 RUNTIME_LOCK_HASH = hashlib.sha256(b"recorder-runtime-lock").hexdigest()
 RUNTIME_PROOF_HASH = hashlib.sha256(b"recorder-runtime-proof").hexdigest()
-LAUNCH_SPEC_HASH = hashlib.sha256(b"recorder-launch-spec").hexdigest()
 VERIFIED_INPUT_HASH = hashlib.sha256(b"recorder-reads").hexdigest()
 VERIFIED_INPUT_SIZE = len(b"recorder-reads")
 INPUT_GOAL_CONTEXT = {
@@ -80,6 +85,62 @@ class SeededRecorderContext:
     authorization: AgentRunLaunchAuthorization
     workdir: Path
     manifest: AgentGenerationBundleManifest
+
+
+def build_recorder_launch_command(
+    workdir: Path,
+    *,
+    process_kind: str = "dry_run",
+    environment_marker: str = "default",
+) -> AgentProcessLaunchCommandV1:
+    """Build exact, memory-only launch semantics for recorder tests."""
+
+    platform = "windows" if os.name == "nt" else "linux"
+    executable = str((workdir / "runtime-snakemake").resolve())
+    helper = str((workdir / "agent-process-helper").resolve())
+    session = (
+        {
+            "platform": "windows",
+            "launchMechanism": "windows_suspended_process",
+            "containment": "windows_job_object_kill_on_close",
+            "gateRelease": "resume_primary_thread",
+            "closeFds": True,
+        }
+        if platform == "windows"
+        else {
+            "platform": "linux",
+            "launchMechanism": "posix_gate_helper",
+            "containment": "posix_new_session_process_group",
+            "gateRelease": "write_inherited_pipe_frame",
+            "closeFds": True,
+        }
+    )
+    return build_agent_process_launch_command_v1(
+        process_kind=process_kind,  # type: ignore[arg-type]
+        process_ordinal=agent_process_ordinal(process_kind),
+        argv=(executable, "--directory", str(workdir.resolve())),
+        resolved_cwd=str(workdir.resolve()),
+        child_env={"H2OMETA_TEST_BOUND": environment_marker, "PATH": executable},
+        stdio={
+            "stdinMode": "null",
+            "stdoutMode": "pipe",
+            "stderrMode": "pipe",
+            "textEncoding": "utf-8",
+            "textErrors": "strict",
+        },
+        session=session,
+        helper={
+            "helperId": "h2ometa-agent-process-helper",
+            "helperVersion": "test-v1",
+            "gateProtocolVersion": "agent-process-gate.v1",
+            "resolvedPath": helper,
+            "sha256": hashlib.sha256(helper.encode()).hexdigest(),
+        },
+        runtime_executable={
+            "resolvedPath": executable,
+            "sha256": hashlib.sha256(executable.encode()).hexdigest(),
+        },
+    )
 
 
 def seed_recorder_context(

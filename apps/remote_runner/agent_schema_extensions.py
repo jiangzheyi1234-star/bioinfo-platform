@@ -8,8 +8,13 @@ from collections.abc import Callable
 from .agent_control_plane_schema_readiness import assert_agent_control_plane_schema
 from .agent_schema_trigger_namespace import assert_exact_runtime_trigger_namespace
 from .agent_process_instance_schema import (
-    assert_agent_process_instance_schema,
     migrate_agent_process_instance_schema,
+)
+from .agent_process_instance_v23_schema import (
+    assert_agent_process_instance_v23_schema,
+)
+from .agent_process_lifecycle_migration import (
+    migrate_agent_process_lifecycle_schema,
 )
 from .agent_workspace_proof_schema import (
     assert_agent_workspace_proof_schema,
@@ -45,9 +50,15 @@ def migrate_agent_schema_extensions(
             record_migration=record_migration,
         )
         current = 21
-    if current != 21:
+    if current == 21:
+        migrate_agent_workspace_tool_assets_binding(
+            connection,
+            record_migration=record_migration,
+        )
+        current = 22
+    if current != 22:
         raise RuntimeError(f"AGENT_SCHEMA_MIGRATION_VERSION_UNSUPPORTED: {current}")
-    migrate_agent_workspace_tool_assets_binding(
+    migrate_agent_process_lifecycle_schema(
         connection,
         record_migration=record_migration,
     )
@@ -58,7 +69,7 @@ def assert_agent_schema_extensions(connection: sqlite3.Connection) -> None:
 
     assert_agent_control_plane_schema(connection)
     assert_agent_workspace_proof_schema(connection)
-    assert_agent_process_instance_schema(connection)
+    assert_agent_process_instance_v23_schema(connection)
     assert_exact_runtime_trigger_namespace(
         connection,
         expected_names=tuple(REQUIRED_TRIGGERS),

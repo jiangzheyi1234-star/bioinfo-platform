@@ -100,12 +100,22 @@ def test_additive_migration_records_v21_and_exact_schema(tmp_path: Path) -> None
     }
     assert fks == {
         ("attempt_id", "run_attempts", "attempt_id", "RESTRICT"),
-        ("authorization_id", "agent_run_authorizations", "authorization_id", "RESTRICT"),
+        (
+            "authorization_id",
+            "agent_run_authorizations",
+            "authorization_id",
+            "RESTRICT",
+        ),
         ("run_id", "runs", "run_id", "RESTRICT"),
         ("spawn_intent_event_id", "run_events", "event_id", "RESTRICT"),
         ("started_event_id", "run_events", "event_id", "RESTRICT"),
         ("terminal_event_id", "run_events", "event_id", "RESTRICT"),
-        ("workspace_proof_id", "agent_workspace_proofs", "workspace_proof_id", "RESTRICT"),
+        (
+            "workspace_proof_id",
+            "agent_workspace_proofs",
+            "workspace_proof_id",
+            "RESTRICT",
+        ),
     }
 
 
@@ -130,12 +140,16 @@ def test_migration_rolls_back_partial_schema_and_ledger(
         with pytest.raises(RuntimeError, match="forced process schema failure"):
             migrate_agent_process_instance_schema(db, record_migration=record_migration)
         assert db.execute("PRAGMA user_version").fetchone()[0] == 20
-        assert db.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 21"
-        ).fetchone() is None
-        assert db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
-        ).fetchone() is None
+        assert (
+            db.execute("SELECT 1 FROM schema_migrations WHERE version = 21").fetchone()
+            is None
+        )
+        assert (
+            db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_migration_requires_exact_v20_workspace_proof_schema(tmp_path: Path) -> None:
@@ -149,9 +163,12 @@ def test_migration_requires_exact_v20_workspace_proof_schema(tmp_path: Path) -> 
         ):
             migrate_agent_process_instance_schema(db, record_migration=record_migration)
         assert db.execute("PRAGMA user_version").fetchone()[0] == 20
-        assert db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
-        ).fetchone() is None
+        assert (
+            db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
+            ).fetchone()
+            is None
+        )
 
 
 @pytest.mark.parametrize(
@@ -174,9 +191,7 @@ def test_migration_requires_credible_v20_ledger_and_no_v21_entry(
         if mutation == "missing":
             db.execute("DELETE FROM schema_migrations WHERE version = 20")
         elif mutation == "wrong_name":
-            db.execute(
-                "UPDATE schema_migrations SET name = 'wrong' WHERE version = 20"
-            )
+            db.execute("UPDATE schema_migrations SET name = 'wrong' WHERE version = 20")
         elif mutation == "bad_checksum":
             db.execute(
                 "UPDATE schema_migrations SET checksum = 'bad' WHERE version = 20"
@@ -196,9 +211,12 @@ def test_migration_requires_credible_v20_ledger_and_no_v21_entry(
                 record_migration=record_migration,
             )
         assert db.execute("PRAGMA user_version").fetchone()[0] == 20
-        assert db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
-        ).fetchone() is None
+        assert (
+            db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_migration_rejects_prefilled_v21_namespace_atomically(tmp_path: Path) -> None:
@@ -217,12 +235,13 @@ def test_migration_rejects_prefilled_v21_namespace_atomically(tmp_path: Path) ->
         ):
             migrate_agent_process_instance_schema(db, record_migration=record_migration)
         assert db.execute("PRAGMA user_version").fetchone()[0] == 20
-        assert tuple(db.execute(
-            "SELECT marker FROM agent_process_instances"
-        ).fetchone()) == ("prefilled",)
-        assert db.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 21"
-        ).fetchone() is None
+        assert tuple(
+            db.execute("SELECT marker FROM agent_process_instances").fetchone()
+        ) == ("prefilled",)
+        assert (
+            db.execute("SELECT 1 FROM schema_migrations WHERE version = 21").fetchone()
+            is None
+        )
 
 
 def test_schema_assertion_rejects_wrong_partial_unique_index(tmp_path: Path) -> None:
@@ -288,9 +307,15 @@ def test_spawn_event_tampering_is_rejected(tmp_path: Path, mutation: str) -> Non
         intent = seed_intent(db, tag=mutation)
         event_id = intent["spawn_event_id"]
         if mutation == "event_type":
-            db.execute("UPDATE run_events SET event_type = 'wrong' WHERE event_id = ?", (event_id,))
+            db.execute(
+                "UPDATE run_events SET event_type = 'wrong' WHERE event_id = ?",
+                (event_id,),
+            )
         elif mutation == "event_hash":
-            db.execute("UPDATE run_events SET event_hash = ? WHERE event_id = ?", (digest("wrong"), event_id))
+            db.execute(
+                "UPDATE run_events SET event_hash = ? WHERE event_id = ?",
+                (digest("wrong"), event_id),
+            )
         elif mutation == "payload":
             db.execute(
                 "UPDATE run_events SET details_json = json_set(details_json, "
@@ -298,9 +323,15 @@ def test_spawn_event_tampering_is_rejected(tmp_path: Path, mutation: str) -> Non
                 (event_id,),
             )
         elif mutation == "payload_hash":
-            db.execute("UPDATE run_events SET payload_hash = upper(payload_hash) WHERE event_id = ?", (event_id,))
+            db.execute(
+                "UPDATE run_events SET payload_hash = upper(payload_hash) WHERE event_id = ?",
+                (event_id,),
+            )
         else:
-            db.execute("UPDATE run_events SET details_json = CAST(details_json AS BLOB) WHERE event_id = ?", (event_id,))
+            db.execute(
+                "UPDATE run_events SET details_json = CAST(details_json AS BLOB) WHERE event_id = ?",
+                (event_id,),
+            )
         with pytest.raises(
             sqlite3.IntegrityError,
             match="AGENT_PROCESS_INSTANCE_SPAWN_EVENT_INVALID",
@@ -354,7 +385,10 @@ def test_lifecycle_event_type_payload_and_sequence_are_exact(tmp_path: Path) -> 
         wrong_type = seed_intent(db, tag="wrong_type")
         insert_prepared(db, wrong_type)
         event = append_process_event(db, wrong_type, event_type="agent_process_lost")
-        with pytest.raises(sqlite3.IntegrityError, match="EVENT_BINDING_INVALID"):
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="AGENT_PROCESS_INSTANCE_LIFECYCLE_EVENT_INVALID",
+        ):
             start(db, wrong_type, event=event)
 
         wrong_payload = seed_intent(db, tag="wrong_payload")
@@ -363,7 +397,10 @@ def test_lifecycle_event_type_payload_and_sequence_are_exact(tmp_path: Path) -> 
         event = append_process_event(
             db, wrong_payload, event_type="agent_process_started", payload=payload
         )
-        with pytest.raises(sqlite3.IntegrityError, match="EVENT_BINDING_INVALID"):
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="AGENT_PROCESS_INSTANCE_LIFECYCLE_EVENT_INVALID",
+        ):
             start(db, wrong_payload, event=event)
 
         wrong_seq = seed_intent(db, tag="wrong_seq")
@@ -372,7 +409,10 @@ def test_lifecycle_event_type_payload_and_sequence_are_exact(tmp_path: Path) -> 
             db, wrong_seq, event_type="agent_process_exited"
         )
         start(db, wrong_seq)
-        with pytest.raises(sqlite3.IntegrityError, match="EVENT_BINDING_INVALID"):
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="AGENT_PROCESS_INSTANCE_LIFECYCLE_EVENT_INVALID",
+        ):
             finish(db, wrong_seq, state="exited", event=early_terminal)
 
 
@@ -386,7 +426,10 @@ def test_referenced_run_events_are_immutable(tmp_path: Path) -> None:
         event_ids = [intent["spawn_event_id"], started["eventId"], terminal["eventId"]]
         for event_id in event_ids:
             with pytest.raises(sqlite3.IntegrityError, match="EVENT_IMMUTABLE"):
-                db.execute("UPDATE run_events SET message = 'tampered' WHERE event_id = ?", (event_id,))
+                db.execute(
+                    "UPDATE run_events SET message = 'tampered' WHERE event_id = ?",
+                    (event_id,),
+                )
             with pytest.raises(sqlite3.IntegrityError, match="EVENT_IMMUTABLE"):
                 db.execute("DELETE FROM run_events WHERE event_id = ?", (event_id,))
 
@@ -450,9 +493,7 @@ def test_blob_values_cannot_bypass_text_and_json_contracts(tmp_path: Path) -> No
 
         hash_blob = seed_intent(db, tag="hash_blob")
         with pytest.raises(sqlite3.IntegrityError):
-            insert_prepared(
-                db, hash_blob, launch_intent_hash=sqlite3.Binary(b"a" * 64)
-            )
+            insert_prepared(db, hash_blob, launch_intent_hash=sqlite3.Binary(b"a" * 64))
 
         timestamp_blob = seed_intent(db, tag="timestamp_blob")
         with pytest.raises(sqlite3.IntegrityError):

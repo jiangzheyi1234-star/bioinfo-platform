@@ -150,6 +150,7 @@ REQUIRED_TRIGGERS = {
     "agent_process_instances_exited_shape",
     "agent_process_instances_insert_guard",
     "agent_process_instances_intent_immutable",
+    "agent_process_instances_lifecycle_event_exact",
     "agent_process_instances_no_delete",
     "agent_process_instances_run_events_no_delete",
     "agent_process_instances_run_events_no_update",
@@ -217,9 +218,21 @@ REQUIRED_FOREIGN_KEYS = {
         "workspace_proof_id",
         "RESTRICT",
     ),
-    ("agent_run_authorizations", "plan_revision_id", "agent_plan_revisions", "plan_revision_id", "RESTRICT"),
+    (
+        "agent_run_authorizations",
+        "plan_revision_id",
+        "agent_plan_revisions",
+        "plan_revision_id",
+        "RESTRICT",
+    ),
     ("agent_run_authorizations", "run_id", "runs", "run_id", "RESTRICT"),
-    ("agent_run_authorizations", "session_id", "agent_sessions", "session_id", "RESTRICT"),
+    (
+        "agent_run_authorizations",
+        "session_id",
+        "agent_sessions",
+        "session_id",
+        "RESTRICT",
+    ),
     (
         "agent_run_authorizations",
         "workflow_revision_id",
@@ -227,7 +240,13 @@ REQUIRED_FOREIGN_KEYS = {
         "workflow_revision_id",
         "RESTRICT",
     ),
-    ("agent_session_effect_budgets", "session_id", "agent_sessions", "session_id", "RESTRICT"),
+    (
+        "agent_session_effect_budgets",
+        "session_id",
+        "agent_sessions",
+        "session_id",
+        "RESTRICT",
+    ),
     (
         "agent_workspace_proofs",
         "attempt_id",
@@ -270,9 +289,21 @@ def missing_required_schema_objects(connection: sqlite3.Connection) -> list[str]
     ).fetchall()
     existing = {(str(row[0]), str(row[1])) for row in rows}
     missing: list[str] = []
-    missing.extend(f"table:{name}" for name in sorted(REQUIRED_TABLES) if ("table", name) not in existing)
-    missing.extend(f"index:{name}" for name in sorted(REQUIRED_INDEXES) if ("index", name) not in existing)
-    missing.extend(f"trigger:{name}" for name in sorted(REQUIRED_TRIGGERS) if ("trigger", name) not in existing)
+    missing.extend(
+        f"table:{name}"
+        for name in sorted(REQUIRED_TABLES)
+        if ("table", name) not in existing
+    )
+    missing.extend(
+        f"index:{name}"
+        for name in sorted(REQUIRED_INDEXES)
+        if ("index", name) not in existing
+    )
+    missing.extend(
+        f"trigger:{name}"
+        for name in sorted(REQUIRED_TRIGGERS)
+        if ("trigger", name) not in existing
+    )
 
     foreign_keys_by_table = {
         table_name: {
@@ -282,11 +313,15 @@ def missing_required_schema_objects(connection: sqlite3.Connection) -> list[str]
                 str(row[4]),
                 str(row[6]).upper(),
             )
-            for row in connection.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
+            for row in connection.execute(
+                f"PRAGMA foreign_key_list({table_name})"
+            ).fetchall()
         }
         for table_name in {item[0] for item in REQUIRED_FOREIGN_KEYS}
     }
-    for table_name, column, parent_table, parent_column, on_delete in sorted(REQUIRED_FOREIGN_KEYS):
+    for table_name, column, parent_table, parent_column, on_delete in sorted(
+        REQUIRED_FOREIGN_KEYS
+    ):
         expected = (column, parent_table, parent_column, on_delete)
         if expected not in foreign_keys_by_table[table_name]:
             missing.append(

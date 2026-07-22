@@ -173,7 +173,7 @@ def test_v20_upgrade_rejects_weak_authority_before_process_schema_commit(
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version IN (21, 22)"
+            "SELECT 1 FROM schema_migrations WHERE version IN (21, 22, 23)"
         ).fetchone() is None
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE name = 'agent_process_instances'"

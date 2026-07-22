@@ -27,6 +27,7 @@ from apps.remote_runner.event_contracts import (
     verify_run_event_hash_chain,
 )
 from apps.remote_runner.storage_core import get_connection
+from core.contracts.agent_process_launch_spec import agent_process_launch_spec_hash
 from core.contracts.agent_workspace_proof import (
     AgentWorkspaceManifestEntryV1,
     agent_workspace_manifest_hash,
@@ -34,10 +35,10 @@ from core.contracts.agent_workspace_proof import (
 )
 from tests.agent_process_launch_recorder_fixtures import (
     ATTEMPT_ID,
-    LAUNCH_SPEC_HASH,
     LEASE_GENERATION,
     RUN_ID,
     SeededRecorderContext,
+    build_recorder_launch_command,
     seed_recorder_context,
 )
 
@@ -66,17 +67,21 @@ def _prepare_with_workspace(
     *,
     workdir: Path | None = None,
     manifest: AgentGenerationBundleManifest | None = None,
+    environment_marker: str = "default",
 ):
+    effective_workdir = context.workdir if workdir is None else workdir
     return prepare_agent_process_launch(
         context.cfg,
         expected_authorization=context.authorization,
         run_id=RUN_ID,
         attempt_id=ATTEMPT_ID,
         lease_generation=LEASE_GENERATION,
-        process_kind="dry_run",
-        managed_workdir=context.workdir if workdir is None else workdir,
+        launch_command=build_recorder_launch_command(
+            effective_workdir,
+            environment_marker=environment_marker,
+        ),
+        managed_workdir=effective_workdir,
         sealed_manifest=context.manifest if manifest is None else manifest,
-        launch_spec_hash=LAUNCH_SPEC_HASH,
     )
 
 
@@ -122,7 +127,11 @@ def _enable_owner_write(path: Path) -> None:
 def test_prepare_atomically_binds_proof_event_intent_and_keeps_secret_memory_only(
     context: SeededRecorderContext,
 ) -> None:
-    prepared = _prepare(context)
+    environment_marker = "sk-live-" + "q" * 40
+    prepared = _prepare_with_workspace(
+        context,
+        environment_marker=environment_marker,
+    )
 
     assert prepared.gate_token == GATE_TOKEN
     assert prepared.process_intent.gateTokenHash == agent_process_gate_token_hash(
@@ -141,6 +150,23 @@ def test_prepare_atomically_binds_proof_event_intent_and_keeps_secret_memory_onl
     assert (
         prepared.process_intent.spawnIntentEventHash
         == prepared.spawn_event["event_hash"]
+    )
+    assert prepared.process_intent.launchSpecHash == prepared.launch_spec.launchSpecHash
+    assert prepared.launch_spec.launchSpecHash == agent_process_launch_spec_hash(
+        prepared.launch_spec,
+        hash_key=GATE_TOKEN,
+    )
+    assert prepared.launch_spec.serverBindings.workspaceProofId == (
+        prepared.workspace_proof.workspaceProofId
+    )
+    assert prepared.launch_spec.serverBindings.workspaceProofHash == (
+        prepared.workspace_proof.proofHash
+    )
+    assert prepared.launch_spec.serverBindings.runtimeLockHash == (
+        context.authorization.runtime_lock_hash
+    )
+    assert prepared.launch_spec.serverBindings.runtimeProofHash == (
+        context.authorization.runtime_proof_hash
     )
     assert "processInstanceId" not in prepared.spawn_event["payload"]
     assert _table_counts(context) == {
@@ -171,6 +197,8 @@ def test_prepare_atomically_binds_proof_event_intent_and_keeps_secret_memory_onl
         dump = "\n".join(connection.iterdump())
         assert GATE_TOKEN.hex() not in dump.casefold()
         assert base64.b64encode(GATE_TOKEN).decode("ascii") not in dump
+        assert "H2OMETA_TEST_BOUND" not in dump
+        assert environment_marker not in dump
         assert verify_run_event_hash_chain(connection, RUN_ID) == {
             "valid": True,
             "checked": 3,
@@ -192,6 +220,7 @@ def test_prepare_atomically_binds_proof_event_intent_and_keeps_secret_memory_onl
             assert all(encoding not in payload for encoding in persisted_encodings)
     assert GATE_TOKEN.hex() not in repr(prepared)
     assert repr(GATE_TOKEN) not in repr(prepared)
+    assert environment_marker not in repr(prepared)
 
 
 def test_second_preparation_never_reissues_a_gate_token(
@@ -241,10 +270,9 @@ def test_cross_lease_preparation_is_blocked_until_logical_activity_reconciles(
             run_id=RUN_ID,
             attempt_id=ATTEMPT_ID,
             lease_generation=2,
-            process_kind="dry_run",
+            launch_command=build_recorder_launch_command(context.workdir),
             managed_workdir=context.workdir,
             sealed_manifest=context.manifest,
-            launch_spec_hash=LAUNCH_SPEC_HASH,
         )
 
     assert first.process_intent.leaseGeneration == 1
@@ -480,10 +508,9 @@ def test_authority_cancellation_lease_and_chain_fences_leave_zero_launch_writes(
             run_id=RUN_ID,
             attempt_id=ATTEMPT_ID,
             lease_generation=generation,
-            process_kind="dry_run",
+            launch_command=build_recorder_launch_command(context.workdir),
             managed_workdir=context.workdir,
             sealed_manifest=context.manifest,
-            launch_spec_hash=LAUNCH_SPEC_HASH,
         )
     assert _table_counts(context) == {
         "proofs": 0,
@@ -638,7 +665,7 @@ def test_attempt_workdir_outside_managed_root_is_rejected_atomically(
     _assert_manifest_failure(context, workdir=outside.resolve())
 
 
-def test_invalid_manifest_launch_hash_and_real_run_are_rejected_before_writes(
+def test_invalid_manifest_launch_command_and_real_run_are_rejected_before_writes(
     context: SeededRecorderContext,
 ) -> None:
     bad_manifest = AgentGenerationBundleManifest(
@@ -646,11 +673,19 @@ def test_invalid_manifest_launch_hash_and_real_run_are_rejected_before_writes(
         "0" * 64,
     )
     cases = [
-        (bad_manifest, LAUNCH_SPEC_HASH, "dry_run", "manifest"),
-        (context.manifest, LAUNCH_SPEC_HASH.upper(), "dry_run", "launch_spec"),
-        (context.manifest, LAUNCH_SPEC_HASH, "run", "process_kind"),
+        (
+            bad_manifest,
+            build_recorder_launch_command(context.workdir),
+            "manifest",
+        ),
+        (context.manifest, object(), "launch_command"),
+        (
+            context.manifest,
+            build_recorder_launch_command(context.workdir, process_kind="run"),
+            "process_kind",
+        ),
     ]
-    for manifest, launch_hash, process_kind, component in cases:
+    for manifest, launch_command, component in cases:
         with pytest.raises(
             AgentProcessLaunchPreparationError,
             match=rf"AGENT_PROCESS_LAUNCH_PREPARATION_FAILED: {component}",
@@ -661,10 +696,9 @@ def test_invalid_manifest_launch_hash_and_real_run_are_rejected_before_writes(
                 run_id=RUN_ID,
                 attempt_id=ATTEMPT_ID,
                 lease_generation=LEASE_GENERATION,
-                process_kind=process_kind,
+                launch_command=launch_command,  # type: ignore[arg-type]
                 managed_workdir=context.workdir,
                 sealed_manifest=manifest,
-                launch_spec_hash=launch_hash,
             )
     assert _table_counts(context) == {
         "proofs": 0,
@@ -694,10 +728,9 @@ def test_database_open_failure_is_mapped_to_stable_path_free_error(
             run_id=RUN_ID,
             attempt_id=ATTEMPT_ID,
             lease_generation=LEASE_GENERATION,
-            process_kind="dry_run",
+            launch_command=build_recorder_launch_command(context.workdir),
             managed_workdir=context.workdir,
             sealed_manifest=context.manifest,
-            launch_spec_hash=LAUNCH_SPEC_HASH,
         )
 
     assert str(raised.value) == ("AGENT_PROCESS_LAUNCH_PREPARATION_FAILED: storage")

@@ -150,6 +150,9 @@ Deliverables：
   或 replan proposal。
 - Retry 继续使用 attempt、lease、fencing、candidate-output verification 和 atomic adoption。
 - 从 failed/completed run replan 时，创建新 plan/draft/workflow revision lineage，保留旧 run 为 evidence。
+- [Durable process ADR](../adr/2026-07-22-agent-durable-process-instances.md) 的 Stage 9c1 foundation
+  已提供未激活的 canonical launch/lifecycle 契约；Agent run 仍保持 fail closed，直到 9c2/9c3 的
+  平台 launcher、SQLite 安全门、incarnation-aware reconcile 与 terminal proof 完成真实验收。
 
 Exit criteria：
 
@@ -157,6 +160,8 @@ Exit criteria：
 - Agent restart 不会在没有幂等 command result 时重复 side effect。
 - Retry/replan recommendation 不能越过 budget 或自我审批。
 - FASTQ QC 通过真实 FastQC/MultiQC artifact 完整验收，并展示 run-artifact lineage。
+- Windows 以 suspended process + Job Object + FILETIME、Linux 以 pipe-gated helper + pidfd/procfs
+  分别完成真实启动/崩溃/取消验收；不安全 SQLite runtime/artifact 与不完整恢复证据均 fail closed。
 
 ## Phase 5 — 扩展 Scientific Workbench
 

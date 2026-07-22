@@ -11,13 +11,22 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from core.contracts.agent_contract_hash import agent_contract_hash
 from core.contracts.agent_fastq_qc_execution import agent_workflow_run_spec_hash
 from core.contracts.agent_process_instance import (
     AgentProcessLaunchIntentV1,
     build_agent_process_launch_intent_v1,
+)
+from core.contracts.agent_process_launch_spec import (
+    AgentProcessLaunchCommandV1,
+    AgentProcessLaunchSpecV1,
+    build_agent_process_launch_server_bindings_v1,
+    build_agent_process_launch_spec_v1,
+)
+from core.contracts.agent_process_lifecycle import (
+    AGENT_PROCESS_GATE_TOKEN_HASH_DOMAIN,
+    agent_process_gate_token_hash,
 )
 from core.contracts.agent_workspace_proof import (
     AgentWorkspaceProofV1,
@@ -59,7 +68,6 @@ from .storage_core import get_connection, now_iso
 from .workflow_revision_storage import fetch_workflow_revision_for_connection
 
 
-AGENT_PROCESS_GATE_TOKEN_HASH_DOMAIN = "agent-process-gate-token.v1"
 AGENT_PROCESS_LAUNCH_PREPARATION_FAILED = "AGENT_PROCESS_LAUNCH_PREPARATION_FAILED"
 _LOWER_SHA256 = re.compile(r"[0-9a-f]{64}")
 _GATE_TOKEN_BYTES = 32
@@ -80,6 +88,7 @@ class PreparedAgentProcessLaunch:
     """Committed launch evidence plus the sole in-memory gate credential."""
 
     workspace_proof: AgentWorkspaceProofV1
+    launch_spec: AgentProcessLaunchSpecV1 = field(repr=False)
     spawn_event: dict[str, Any]
     process_intent: AgentProcessLaunchIntentV1
     gate_token: bytes = field(repr=False)
@@ -94,17 +103,6 @@ class _PreparationAuthority:
     workdir: Path
 
 
-def agent_process_gate_token_hash(gate_token: bytes) -> str:
-    """Hash one exact 256-bit credential without persisting its plaintext."""
-
-    if not isinstance(gate_token, bytes) or len(gate_token) != _GATE_TOKEN_BYTES:
-        raise ValueError("AGENT_PROCESS_GATE_TOKEN_INVALID")
-    return agent_contract_hash(
-        AGENT_PROCESS_GATE_TOKEN_HASH_DOMAIN,
-        {"tokenHex": gate_token.hex()},
-    )
-
-
 def prepare_agent_process_launch(
     cfg: RemoteRunnerConfig,
     *,
@@ -112,10 +110,9 @@ def prepare_agent_process_launch(
     run_id: str,
     attempt_id: str,
     lease_generation: int,
-    process_kind: Literal["dry_run", "run"],
+    launch_command: AgentProcessLaunchCommandV1,
     managed_workdir: str | os.PathLike[str],
     sealed_manifest: AgentGenerationBundleManifest,
-    launch_spec_hash: str,
 ) -> PreparedAgentProcessLaunch:
     """Commit proof, spawn event, and prepared intent in one writer transaction."""
 
@@ -129,9 +126,10 @@ def prepare_agent_process_launch(
             or lease_generation < 1
         ):
             _fail("authority")
-        if process_kind != "dry_run":
+        command = _require_launch_command(launch_command)
+        process_kind = command.processKind
+        if process_kind != "dry_run" or command.processOrdinal != 1:
             _fail("process_kind")
-        normalized_launch_hash = _require_sha256(launch_spec_hash, "launch_spec")
         gate_token = secrets.token_bytes(_GATE_TOKEN_BYTES)
         gate_token_hash = agent_process_gate_token_hash(gate_token)
         event_id = new_run_event_id()
@@ -150,6 +148,8 @@ def prepare_agent_process_launch(
             lease_generation=lease_generation,
             managed_workdir=managed_workdir,
         )
+        if command.resolvedCwd != str(authority.workdir):
+            _fail("launch_command")
         existing = fetch_agent_process_instance_by_attempt_lease_ordinal_for_connection(
             connection,
             attempt_id=normalized_attempt_id,
@@ -180,6 +180,18 @@ def prepare_agent_process_launch(
             event_id=event_id,
             prepared_at=prepared_at,
         )
+        launch_spec = build_agent_process_launch_spec_v1(
+            command=command,
+            server_bindings=build_agent_process_launch_server_bindings_v1(
+                runtime_lock_hash=expected_authorization.runtime_lock_hash,
+                runtime_proof_hash=expected_authorization.runtime_proof_hash,
+                workspace_proof_id=proof.workspaceProofId,
+                workspace_proof_hash=proof.proofHash,
+                tool_assets_hash=proof.toolAssetsHash,
+            ),
+            hash_key=gate_token,
+        )
+        normalized_launch_hash = launch_spec.launchSpecHash
         if (
             resolve_agent_workspace_proof_replay_for_connection(
                 connection,
@@ -238,6 +250,7 @@ def prepare_agent_process_launch(
         connection.commit()
         return PreparedAgentProcessLaunch(
             workspace_proof=proof,
+            launch_spec=launch_spec,
             spawn_event=dict(spawn_event),
             process_intent=intent,
             gate_token=gate_token,
@@ -572,6 +585,17 @@ def _required_text(value: object, component: str) -> str:
     ):
         _fail(component)
     return value
+
+
+def _require_launch_command(value: object) -> AgentProcessLaunchCommandV1:
+    try:
+        if not isinstance(value, AgentProcessLaunchCommandV1):
+            _fail("launch_command")
+        return AgentProcessLaunchCommandV1.model_validate(value.runtime_payload())
+    except AgentProcessLaunchPreparationError:
+        raise
+    except Exception:
+        _fail("launch_command")
 
 
 def _require_sha256(value: object, component: str) -> str:

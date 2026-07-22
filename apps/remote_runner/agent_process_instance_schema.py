@@ -16,7 +16,6 @@ from .agent_process_instance_v22_schema import (
 from .agent_schema_migration_guard import assert_agent_schema_migration_precondition
 from .agent_workspace_proof_schema import assert_agent_workspace_proof_schema
 
-
 AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH = "AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH"
 AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION = "AGENT_PROCESS_INSTANCE_SCHEMA_NAMESPACE_COLLISION"
 AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS = (
@@ -497,7 +496,8 @@ _AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS = tuple(
     _V22_TO_V21_EVENT_GUARD.get(statement, statement)
     for statement in AGENT_PROCESS_INSTANCE_SCHEMA_STATEMENTS
     if statement not in {AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX_STATEMENT,
-        AGENT_PROCESS_V22_ENVELOPE_TRIGGER_STATEMENT}
+        AGENT_PROCESS_V22_ENVELOPE_TRIGGER_STATEMENT,
+    }
 )
 AGENT_PROCESS_INSTANCE_V21_SCHEMA_SQL = "\n".join(f"{statement.strip()};" for statement in _AGENT_PROCESS_INSTANCE_V21_SCHEMA_STATEMENTS)
 
@@ -647,6 +647,7 @@ def assert_agent_process_instance_schema(
     connection: sqlite3.Connection,
     *,
     schema_version: int = 22,
+    additional_trigger_names: tuple[str, ...] = (),
 ) -> None:
     if schema_version == 21:
         identities = _V21_SCHEMA_OBJECT_IDENTITIES
@@ -717,7 +718,7 @@ def assert_agent_process_instance_schema(
     )
     if foreign_keys != _EXPECTED_FOREIGN_KEYS:
         _raise_schema_mismatch("foreign-keys")
-    assert_exact_process_trigger_sets(connection, trigger_names=tuple(name for kind, name in identities if kind == "trigger"), error_code=AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH)
+    assert_exact_process_trigger_sets(connection, trigger_names=tuple(name for kind, name in identities if kind == "trigger") + additional_trigger_names, error_code=AGENT_PROCESS_INSTANCE_SCHEMA_SIGNATURE_MISMATCH)
 
 
 def migrate_agent_process_instance_schema(

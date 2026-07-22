@@ -11,6 +11,7 @@ from apps.remote_runner.agent_process_instance_schema import (
     migrate_agent_process_instance_schema,
 )
 from apps.remote_runner.sqlite_migrations import (
+    CURRENT_SCHEMA_VERSION,
     SCHEMA_LEDGER_AHEAD_ERROR,
     SCHEMA_LEDGER_CHECKSUM_ERROR,
     SCHEMA_LEDGER_HISTORY_ERROR,
@@ -42,7 +43,7 @@ from tests.helpers.reference_database import make_remote_runner_config
         (
             """
             INSERT INTO schema_migrations (version, name, checksum, applied_at)
-            VALUES (23, '023_future', 'future', '2099-01-01T00:00:00Z')
+            VALUES (24, '024_future', 'future', '2099-01-01T00:00:00Z')
             """,
             (),
             SCHEMA_LEDGER_AHEAD_ERROR,
@@ -70,7 +71,7 @@ from tests.helpers.reference_database import make_remote_runner_config
         "missing-v21",
         "forged-v21-checksum",
         "forged-v22-name",
-        "future-v23",
+        "future-v24",
         "history-gap",
         "blank-applied-at",
         "ledger-trigger",
@@ -93,7 +94,10 @@ def test_current_schema_rejects_incoherent_ledger(
     ):
         initialize_or_migrate_runtime_db(cfg.db_path)
     with sqlite3.connect(cfg.db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == CURRENT_SCHEMA_VERSION
+        )
 
 
 def test_fresh_schema_has_continuous_agent_era_ledger(tmp_path: Path) -> None:
@@ -105,10 +109,11 @@ def test_fresh_schema_has_continuous_agent_era_ledger(tmp_path: Path) -> None:
             "SELECT version, name FROM schema_migrations WHERE version >= 15 ORDER BY version"
         ).fetchall()
 
-    assert [row[0] for row in rows] == list(range(15, 23))
-    assert rows[-2:] == [
+    assert [row[0] for row in rows] == list(range(15, 24))
+    assert rows[-3:] == [
         (21, "021_agent_process_instance"),
         (22, "022_agent_workspace_tool_assets_binding"),
+        (23, "023_agent_process_lifecycle"),
     ]
 
 
@@ -132,9 +137,12 @@ def test_migration_record_conflict_never_replaces_history() -> None:
                 "022_agent_workspace_tool_assets_binding",
             )
 
-        assert connection.execute(
-            "SELECT name, checksum, applied_at FROM schema_migrations WHERE version = 22"
-        ).fetchone() == before
+        assert (
+            connection.execute(
+                "SELECT name, checksum, applied_at FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            == before
+        )
 
 
 def test_agent_era_source_history_gap_is_rejected_before_writing(
@@ -162,12 +170,18 @@ def test_agent_era_source_history_gap_is_rejected_before_writing(
         initialize_or_migrate_runtime_db(db_path)
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
-        assert connection.execute(
-            "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version"
-        ).fetchall() == ledger_before
-        assert connection.execute(
-            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall() == schema_before
+        assert (
+            connection.execute(
+                "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            == ledger_before
+        )
+        assert (
+            connection.execute(
+                "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
+            ).fetchall()
+            == schema_before
+        )
 
 
 def test_v21_migration_rejects_ledger_trigger_without_partial_v22(
@@ -199,9 +213,12 @@ def test_v21_migration_rejects_ledger_trigger_without_partial_v22(
         initialize_or_migrate_runtime_db(db_path)
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
 
 
 def test_v0_empty_ledger_namespace_must_be_canonical(tmp_path: Path) -> None:
@@ -224,6 +241,9 @@ def test_v0_empty_ledger_namespace_must_be_canonical(tmp_path: Path) -> None:
         initialize_or_migrate_runtime_db(db_path)
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs'"
+            ).fetchone()
+            is None
+        )

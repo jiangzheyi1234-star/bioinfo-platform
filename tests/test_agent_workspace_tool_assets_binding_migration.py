@@ -17,6 +17,9 @@ from apps.remote_runner.agent_process_instance_v22_schema import (
     AGENT_PROCESS_LOGICAL_ACTIVITY_DUPLICATE,
     AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,
 )
+from apps.remote_runner.agent_process_instance_v23_schema import (
+    assert_agent_process_instance_v23_schema,
+)
 from apps.remote_runner.agent_schema_migration_guard import (
     AGENT_SCHEMA_MIGRATION_PRECONDITION_INVALID,
 )
@@ -32,6 +35,7 @@ from apps.remote_runner.sqlite_schema_checksums import (
     runtime_schema_ledger_checksum,
 )
 from apps.remote_runner.sqlite_migrations import (
+    AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_NAME,
     CURRENT_SCHEMA_MIGRATION_NAME,
     CURRENT_SCHEMA_VERSION,
     initialize_or_migrate_runtime_db,
@@ -210,8 +214,9 @@ def test_populated_v21_valid_proofs_migrate_without_rewrite(tmp_path: Path) -> N
     with sqlite3.connect(db_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         ledger = connection.execute(
-            "SELECT name FROM schema_migrations WHERE version = 22"
-        ).fetchone()
+            "SELECT version, name FROM schema_migrations "
+            "WHERE version IN (22, 23) ORDER BY version"
+        ).fetchall()
         index = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
             (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
@@ -220,9 +225,12 @@ def test_populated_v21_valid_proofs_migrate_without_rewrite(tmp_path: Path) -> N
             "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
             "AND name = 'agent_process_instances_run_events_no_update'"
         ).fetchone()[0]
-        assert_agent_process_instance_schema(connection)
-    assert version == CURRENT_SCHEMA_VERSION == 22
-    assert ledger == (CURRENT_SCHEMA_MIGRATION_NAME,)
+        assert_agent_process_instance_v23_schema(connection)
+    assert version == CURRENT_SCHEMA_VERSION == 23
+    assert ledger == [
+        (22, AGENT_WORKSPACE_TOOL_ASSETS_BINDING_MIGRATION_NAME),
+        (23, CURRENT_SCHEMA_MIGRATION_NAME),
+    ]
     assert "UNIQUE INDEX" in str(index[0]).upper()
     assert "OLD.schema_version = 'run-event.v2'" in v22_event_guard
     assert _proof_rows(db_path) == before
@@ -250,9 +258,12 @@ def test_v21_upgrade_rejects_extra_trigger_without_partial_v22(
         initialize_or_migrate_runtime_db(db_path)
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
 
 
 def test_v21_well_formed_wrong_checksum_fails_atomically(tmp_path: Path) -> None:
@@ -273,13 +284,19 @@ def test_v21_well_formed_wrong_checksum_fails_atomically(tmp_path: Path) -> None
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
+            ).fetchone()
+            is None
+        )
 
 
 def test_v21_missing_required_table_fails_atomically(tmp_path: Path) -> None:
@@ -297,13 +314,19 @@ def test_v21_missing_required_table_fails_atomically(tmp_path: Path) -> None:
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
+            ).fetchone()
+            is None
+        )
 
 
 def test_v21_event_guard_must_match_exact_stage9a_sql(tmp_path: Path) -> None:
@@ -311,9 +334,7 @@ def test_v21_event_guard_must_match_exact_stage9a_sql(tmp_path: Path) -> None:
     db_path = Path(cfg.db_path)
     _prepare_populated_v21(db_path, _proof_payload("event-guard"))
     with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "DROP TRIGGER agent_process_instances_run_events_no_update"
-        )
+        connection.execute("DROP TRIGGER agent_process_instances_run_events_no_update")
         connection.execute(
             "CREATE TRIGGER agent_process_instances_run_events_no_update "
             "BEFORE UPDATE ON run_events BEGIN SELECT 1; END"
@@ -327,13 +348,19 @@ def test_v21_event_guard_must_match_exact_stage9a_sql(tmp_path: Path) -> None:
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
+            ).fetchone()
+            is None
+        )
 
 
 def test_v21_duplicate_logical_activity_fails_atomically(tmp_path: Path) -> None:
@@ -346,21 +373,32 @@ def test_v21_duplicate_logical_activity_fails_atomically(tmp_path: Path) -> None
         insert_prepared(connection, first, logical_activity_id="shared-activity")
         insert_prepared(connection, second, logical_activity_id="shared-activity")
 
-    with pytest.raises(RuntimeError, match=f"^{AGENT_PROCESS_LOGICAL_ACTIVITY_DUPLICATE}$"):
+    with pytest.raises(
+        RuntimeError, match=f"^{AGENT_PROCESS_LOGICAL_ACTIVITY_DUPLICATE}$"
+    ):
         initialize_or_migrate_runtime_db(db_path)
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert connection.execute(
-            "SELECT COUNT(*) FROM agent_process_instances"
-        ).fetchone()[0] == 2
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 22"
-        ).fetchone() is None
-        assert connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = ?",
-            (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM agent_process_instances"
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            is None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?",
+                (AGENT_PROCESS_LOGICAL_ACTIVITY_UNIQUE_INDEX,),
+            ).fetchone()
+            is None
+        )
 
 
 def test_populated_v21_forged_tool_hash_fails_atomically_and_path_free(
@@ -391,7 +429,7 @@ def test_populated_v21_forged_tool_hash_fails_atomically_and_path_free(
     assert _proof_rows(db_path) == before
 
 
-def test_current_v22_startup_keeps_structural_readiness_only(
+def test_current_v23_startup_keeps_structural_readiness_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -399,6 +437,11 @@ def test_current_v22_startup_keeps_structural_readiness_only(
     db_path = Path(cfg.db_path)
     _prepare_populated_v21(db_path, _proof_payload("startup"))
     initialize_or_migrate_runtime_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = 23"
+        ).fetchone() == ("023_agent_process_lifecycle",)
 
     def fail_if_rescanned(row: sqlite3.Row) -> dict[str, object]:
         raise AssertionError(f"unexpected proof rescan: {row!r}")

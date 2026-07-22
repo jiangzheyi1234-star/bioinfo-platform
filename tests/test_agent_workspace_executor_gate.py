@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from apps.remote_runner import agent_process_launcher_gate as launcher_gate_module
 from apps.remote_runner import executor as executor_module
 from apps.remote_runner import run_worker as run_worker_module
 from apps.remote_runner.agent_workspace_manifest import scan_agent_generation_bundle
@@ -18,6 +19,17 @@ from tests.test_agent_run_launch_gate import _authorize
 
 
 pytest_plugins = ("tests.test_agent_fastq_qc_execution_candidate",)
+
+
+@pytest.fixture(autouse=True)
+def exercise_dormant_executor_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep deep workspace defenses covered behind the production hard gate."""
+
+    monkeypatch.setattr(
+        launcher_gate_module,
+        "require_durable_agent_process_launcher",
+        lambda: None,
+    )
 
 
 class _SuccessfulProcess:
@@ -92,9 +104,7 @@ def test_agent_generated_bundle_is_sealed_before_both_snakemake_boundaries(
         if len(observed_hashes) == 1:
             forged_env = process_conda_prefix / "forged-env"
             forged_env.mkdir(parents=True)
-            (forged_env / ".env_setup_done").write_text(
-                "forged\n", encoding="utf-8"
-            )
+            (forged_env / ".env_setup_done").write_text("forged\n", encoding="utf-8")
         else:
             assert not (workdir / ".snakemake").exists()
             assert list(process_conda_prefix.iterdir()) == []
@@ -350,9 +360,7 @@ def test_dry_run_state_is_isolated_and_real_workdir_injection_is_rejected(
             dry_run_prefix = Path(command[command.index("--conda-prefix") + 1])
             forged_env = dry_run_prefix / "forged-env"
             forged_env.mkdir(parents=True)
-            (forged_env / ".env_setup_done").write_text(
-                "forged\n", encoding="utf-8"
-            )
+            (forged_env / ".env_setup_done").write_text("forged\n", encoding="utf-8")
         return _SuccessfulProcess()
 
     def mark_running_then_inject(*args: Any, **kwargs: Any) -> Any:
@@ -397,9 +405,7 @@ def test_dry_run_cannot_seed_real_run_conda_prefix(
             real_prefix = (
                 Path(cfg.work_dir)
                 / "conda-prefixes"
-                / (
-                    f"{claim['attemptId']}.generation-{generation}.real-run"
-                )
+                / (f"{claim['attemptId']}.generation-{generation}.real-run")
             )
             (real_prefix / "forged-env").mkdir()
         return _SuccessfulProcess()
